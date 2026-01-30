@@ -101,6 +101,44 @@ class PostgresStore(Store):
             db.refresh(user)
             return user_to_dict(user)
     
+    def upsert_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or update user from data dict."""
+        with get_db_session() as db:
+            # Try to find existing user by email
+            email = data.get("email")
+            user = db.query(User).filter(User.email == email).first() if email else None
+            
+            if not user:
+                # Create new user
+                user = User(
+                    name=data.get("researcher_name") or data.get("name", "User"),
+                    email=email or "user@researchpulse.local",
+                    affiliation=data.get("affiliation"),
+                    research_topics=data.get("research_topics", []),
+                    my_papers=data.get("my_papers", []),
+                    preferred_venues=data.get("preferred_venues", []),
+                    avoid_topics=data.get("avoid_topics", []),
+                    time_budget_per_week_minutes=data.get("time_budget_per_week_minutes", 120),
+                    arxiv_categories_include=data.get("arxiv_categories_include", []),
+                    arxiv_categories_exclude=data.get("arxiv_categories_exclude", []),
+                    stop_policy=data.get("stop_policy", {}),
+                )
+                db.add(user)
+            else:
+                # Update existing user
+                for key in ["affiliation", "research_topics", "my_papers", "preferred_venues", 
+                           "avoid_topics", "time_budget_per_week_minutes", "arxiv_categories_include",
+                           "arxiv_categories_exclude", "stop_policy"]:
+                    if key in data:
+                        setattr(user, key, data[key])
+                if "researcher_name" in data:
+                    user.name = data["researcher_name"]
+                user.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(user)
+            return user_to_dict(user)
+    
     # =========================================================================
     # Paper Operations
     # =========================================================================
@@ -365,6 +403,44 @@ class PostgresStore(Store):
                 return True
             return False
     
+    def upsert_colleague(self, user_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or update colleague by email."""
+        email = data.get("email")
+        if not email:
+            raise ValueError("Colleague email is required")
+        
+        with get_db_session() as db:
+            colleague = db.query(Colleague).filter(
+                and_(Colleague.user_id == user_id, Colleague.email == email)
+            ).first()
+            
+            if colleague:
+                # Update existing
+                for key in ["name", "affiliation", "keywords", "categories", "topics", 
+                           "sharing_preference", "enabled", "notes"]:
+                    if key in data:
+                        setattr(colleague, key, data[key])
+                colleague.updated_at = datetime.utcnow()
+            else:
+                # Create new
+                colleague = Colleague(
+                    user_id=user_id,
+                    name=data.get("name", email.split("@")[0]),
+                    email=email,
+                    affiliation=data.get("affiliation"),
+                    keywords=data.get("keywords", []),
+                    categories=data.get("categories", []),
+                    topics=data.get("topics", []),
+                    sharing_preference=data.get("sharing_preference", "weekly"),
+                    enabled=data.get("enabled", True),
+                    notes=data.get("notes"),
+                )
+                db.add(colleague)
+            
+            db.commit()
+            db.refresh(colleague)
+            return colleague_to_dict(colleague)
+    
     # =========================================================================
     # Run Operations
     # =========================================================================
@@ -587,6 +663,25 @@ class PostgresStore(Store):
                 and_(CalendarEvent.paper_id == paper_id, CalendarEvent.start_time == start_time)
             ).first()
             return result is not None
+    
+    def insert_calendar_event(
+        self,
+        user_id: UUID,
+        paper_id: Optional[UUID],
+        title: str,
+        start_time: datetime,
+        duration_minutes: int = 30,
+        ics_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Alias for create_calendar_event for backward compatibility."""
+        return self.create_calendar_event(
+            user_id=user_id,
+            paper_id=paper_id,
+            title=title,
+            start_time=start_time,
+            duration_minutes=duration_minutes,
+            ics_text=ics_text,
+        )
     
     # =========================================================================
     # Share Operations
