@@ -448,7 +448,29 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
         output_parts.append(f"Artifacts Generated: {len(episode.artifacts_generated)}")
         output_parts.append("")
         
+        # Check if no new papers were found and provide a clear message
         if episode.final_report:
+            report = episode.final_report if isinstance(episode.final_report, dict) else {}
+            stats = report.get("stats", {}) if isinstance(report, dict) else {}
+            seen_count = stats.get("seen_papers_count", 0)
+            unseen_count = stats.get("unseen_papers_count", 0)
+            
+            if len(episode.papers_processed) == 0 and seen_count > 0:
+                output_parts.append("📭 No New Papers Found")
+                output_parts.append("-" * 40)
+                output_parts.append(f"All {seen_count} papers from arXiv have already been processed.")
+                output_parts.append("This means you're up to date with the latest research!")
+                output_parts.append("")
+                output_parts.append("💡 Tip: New papers are typically published on arXiv weekdays.")
+                output_parts.append("   Try running the agent again later for fresh content.")
+                output_parts.append("")
+            elif len(episode.papers_processed) == 0 and seen_count == 0:
+                output_parts.append("⚠️ No Papers Retrieved")
+                output_parts.append("-" * 40)
+                output_parts.append("Could not fetch papers from arXiv.")
+                output_parts.append("This may be due to network issues or arXiv API limits.")
+                output_parts.append("")
+            
             output_parts.append("Summary:")
             output_parts.append(str(episode.final_report))
         
