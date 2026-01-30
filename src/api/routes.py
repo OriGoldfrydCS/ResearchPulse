@@ -312,14 +312,7 @@ async def get_status(
     )
 
 
-@router.get("/health", tags=["System"])
-async def health_check() -> dict:
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "ResearchPulse",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
-    }
+# Health check is in dashboard_routes.py with comprehensive service checks
 
 
 # =============================================================================

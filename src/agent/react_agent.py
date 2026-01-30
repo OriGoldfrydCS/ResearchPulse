@@ -57,8 +57,8 @@ from tools.persist_state import persist_paper_decision, persist_paper_decisions_
 from tools.generate_report import generate_report, generate_report_json
 from tools.terminate_run import terminate_run, terminate_run_json
 
-# Import DB utilities
-from db.json_store import get_research_profile, get_colleagues, get_delivery_policy
+# Import DB utilities - use data_service for DB-first access
+from db.data_service import get_research_profile, get_colleagues, get_delivery_policy, is_db_available, save_artifacts_to_db
 
 
 # =============================================================================
@@ -260,6 +260,7 @@ class AgentConfig(BaseModel):
     stop_policy: StopPolicy = Field(default_factory=StopPolicy, description="Stop policy configuration")
     use_mock_arxiv: bool = Field(True, description="Use mock arXiv data for demo")
     verbose: bool = Field(True, description="Enable verbose logging")
+    initial_prompt: Optional[str] = Field(None, description="The user's initial prompt/message")
 
 
 # =============================================================================
@@ -726,11 +727,18 @@ class ResearchReActAgent:
                 self._actions.extend(colleague_actions)
                 self._artifacts.extend(files_to_write)
                 
-                # Write artifact files
+                # Save artifact files - to DB when available, otherwise local files
                 if files_to_write:
-                    from tools.decide_delivery import FileToWrite
-                    file_objects = [FileToWrite(**f) for f in files_to_write]
-                    write_artifact_files(file_objects)
+                    if is_db_available():
+                        # Save to database
+                        db_result = save_artifacts_to_db(files_to_write)
+                        if not db_result.get("success"):
+                            self._log("WARN", f"Some artifacts failed to save to DB: {db_result.get('errors', [])}")
+                    else:
+                        # Fallback to local files
+                        from tools.decide_delivery import FileToWrite
+                        file_objects = [FileToWrite(**f) for f in files_to_write]
+                        write_artifact_files(file_objects)
                 
                 # Record decision
                 decision = {
@@ -831,6 +839,9 @@ class ResearchReActAgent:
         Returns:
             AgentEpisode with complete run information
         """
+        # Store the user message in config for use during workflow
+        self.config.initial_prompt = user_message
+        
         # Initialize episode
         self.episode = AgentEpisode(
             run_id=self.run_id,

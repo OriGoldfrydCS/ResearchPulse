@@ -32,15 +32,15 @@ from pydantic import BaseModel, Field
 # Add parent to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from db.json_store import (
+# Use data_service for DB-first access with fallback to local JSON
+from db.data_service import (
     get_paper_by_id,
     get_papers_state,
     get_seen_paper_ids,
-    save_json,
     upsert_paper,
     upsert_papers,
-    DEFAULT_DATA_DIR,
 )
+from db.json_store import save_json, DEFAULT_DATA_DIR
 
 
 # =============================================================================
@@ -266,7 +266,7 @@ def persist_paper_decision(
         )
     
     # Check if paper already exists
-    existing = get_paper_by_id(decision.paper_id, data_dir)
+    existing = get_paper_by_id(decision.paper_id)
     
     # Determine action
     if existing is None:
@@ -296,7 +296,7 @@ def persist_paper_decision(
     
     # Persist using upsert (handles atomic write and stats)
     try:
-        upsert_paper(paper_record, data_dir)
+        upsert_paper(paper_record)
         _run_tracker.mark_persisted(decision.paper_id)
         
         return PersistResult(
@@ -440,7 +440,7 @@ def persist_paper_decisions_batch(
     new_stats = {}
     if records_to_upsert:
         try:
-            updated_state = upsert_papers(records_to_upsert, data_dir)
+            updated_state = upsert_papers(records_to_upsert)
             new_stats = updated_state.get("stats", {})
         except Exception as e:
             errors.append(f"Batch write failed: {str(e)}")
@@ -494,7 +494,7 @@ def mark_paper_embedded(
     data_dir = data_dir or DEFAULT_DATA_DIR
     
     # Get existing paper
-    existing = get_paper_by_id(paper_id, data_dir)
+    existing = get_paper_by_id(paper_id)
     
     if existing is None:
         return PersistResult(
@@ -516,7 +516,7 @@ def mark_paper_embedded(
     paper_record = {**existing, "embedded_in_pinecone": True}
     
     try:
-        upsert_paper(paper_record, data_dir)
+        upsert_paper(paper_record)
         return PersistResult(
             success=True,
             paper_id=paper_id,
@@ -608,7 +608,7 @@ def mark_papers_embedded_batch(
     new_stats = {}
     if records_to_update:
         try:
-            updated_state = upsert_papers(records_to_update, data_dir)
+            updated_state = upsert_papers(records_to_update)
             new_stats = updated_state.get("stats", {})
         except Exception as e:
             errors.append(f"Batch update failed: {str(e)}")

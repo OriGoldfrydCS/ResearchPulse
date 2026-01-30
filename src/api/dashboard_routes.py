@@ -19,8 +19,18 @@ import json
 import csv
 import io
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from uuid import UUID
+
+# Load .env file if present (must be done before any os.getenv calls)
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass
 
 from fastapi import APIRouter, HTTPException, Query, Response, BackgroundTasks
 from pydantic import BaseModel, Field
@@ -283,6 +293,8 @@ class ProfileUpdate(BaseModel):
     research_topics: Optional[List[str]] = None
     arxiv_categories_include: Optional[List[str]] = None
     arxiv_categories_exclude: Optional[List[str]] = None
+    interests_include: Optional[str] = None  # Free text research interests
+    interests_exclude: Optional[str] = None  # Free text topics to exclude
     keywords_include: Optional[List[str]] = None
     keywords_exclude: Optional[List[str]] = None
     colleague_ids_to_always_share: Optional[List[str]] = None
@@ -325,29 +337,28 @@ async def update_user(data: Dict[str, Any]):
 
 
 # =============================================================================
-# Research Profile Endpoints (data/research_profile.json)
+# Research Profile Endpoints (stored in database)
 # =============================================================================
 
 @router.get("/profile")
 async def get_research_profile():
     """Get the researcher's profile with research areas, topics, and preferences."""
-    from pathlib import Path
-    import json as json_module
     try:
-        profile_path = Path("data/research_profile.json")
-        if profile_path.exists():
-            with open(profile_path, encoding="utf-8") as f:
-                return json_module.load(f)
-        # Return default empty profile structure
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        
+        # Map database fields to profile response format
         return {
-            "researcher_name": "",
-            "email": "",
-            "affiliation": "",
-            "research_topics": [],
-            "arxiv_categories_include": [],
-            "arxiv_categories_exclude": [],
-            "keywords_include": [],
-            "keywords_exclude": [],
+            "researcher_name": user.get("name", ""),
+            "email": user.get("email", ""),
+            "affiliation": user.get("affiliation", ""),
+            "research_topics": user.get("research_topics", []),
+            "arxiv_categories_include": user.get("arxiv_categories_include", []),
+            "arxiv_categories_exclude": user.get("arxiv_categories_exclude", []),
+            "interests_include": user.get("interests_include", ""),
+            "interests_exclude": user.get("interests_exclude", ""),
+            "keywords_include": user.get("keywords_include", []),
+            "keywords_exclude": user.get("keywords_exclude", []),
             "colleague_ids_to_always_share": []
         }
     except Exception as e:
@@ -356,30 +367,52 @@ async def get_research_profile():
 
 @router.put("/profile")
 async def update_research_profile(data: ProfileUpdate):
-    """Update the researcher's profile."""
-    from pathlib import Path
-    import json as json_module
+    """Update the researcher's profile (stored in database)."""
     try:
-        profile_path = Path("data/research_profile.json")
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
         
-        # Read existing profile
-        existing = {}
-        if profile_path.exists():
-            with open(profile_path, encoding="utf-8") as f:
-                existing = json_module.load(f)
+        # Map profile fields to user fields
+        update_dict = {}
+        if data.researcher_name is not None:
+            update_dict["name"] = data.researcher_name
+        if data.email is not None:
+            update_dict["email"] = data.email
+        if data.affiliation is not None:
+            update_dict["affiliation"] = data.affiliation
+        if data.research_topics is not None:
+            update_dict["research_topics"] = data.research_topics
+        if data.arxiv_categories_include is not None:
+            update_dict["arxiv_categories_include"] = data.arxiv_categories_include
+        if data.arxiv_categories_exclude is not None:
+            update_dict["arxiv_categories_exclude"] = data.arxiv_categories_exclude
+        if data.interests_include is not None:
+            update_dict["interests_include"] = data.interests_include
+        if data.interests_exclude is not None:
+            update_dict["interests_exclude"] = data.interests_exclude
+        if data.keywords_include is not None:
+            update_dict["keywords_include"] = data.keywords_include
+        if data.keywords_exclude is not None:
+            update_dict["keywords_exclude"] = data.keywords_exclude
         
-        # Update with new data (only non-None fields)
-        update_dict = data.model_dump(exclude_none=True)
-        existing.update(update_dict)
+        # Update user in database
+        updated_user = store.update_user(user_id, update_dict)
         
-        # Ensure directory exists
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Write back
-        with open(profile_path, "w", encoding="utf-8") as f:
-            json_module.dump(existing, f, indent=4)
-        
-        return existing
+        # Return in profile format
+        return {
+            "researcher_name": updated_user.get("name", ""),
+            "email": updated_user.get("email", ""),
+            "affiliation": updated_user.get("affiliation", ""),
+            "research_topics": updated_user.get("research_topics", []),
+            "arxiv_categories_include": updated_user.get("arxiv_categories_include", []),
+            "arxiv_categories_exclude": updated_user.get("arxiv_categories_exclude", []),
+            "interests_include": updated_user.get("interests_include", ""),
+            "interests_exclude": updated_user.get("interests_exclude", ""),
+            "keywords_include": updated_user.get("keywords_include", []),
+            "keywords_exclude": updated_user.get("keywords_exclude", []),
+            "colleague_ids_to_always_share": []
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

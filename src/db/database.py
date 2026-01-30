@@ -73,6 +73,7 @@ def init_engine(database_url: Optional[str] = None) -> bool:
             pool_timeout=30,
             pool_recycle=1800,  # Recycle connections after 30 min
             echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+            connect_args={"connect_timeout": 10},  # 10 second timeout
         )
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
         return True

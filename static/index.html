@@ -2003,24 +2003,33 @@
                     return;
                 }
 
-                list.innerHTML = data.papers.map(p => `
+                list.innerHTML = data.papers.map(p => {
+                    // Paper views have nested paper object with the actual paper data
+                    const paper = p.paper || {};
+                    const title = paper.title || p.title || 'Untitled';
+                    const url = paper.url || p.url || '#';
+                    const categories = paper.categories || p.categories || [];
+                    const publishedAt = paper.published_at || p.published_at;
+                    const paperId = p.paper_id || paper.id || p.id;
+
+                    return `
                     <div class="data-item">
                         <div class="data-info">
-                            <div class="data-title">${escapeHtml(p.title || 'Untitled')}</div>
+                            <div class="data-title">${escapeHtml(title)}</div>
                             <div class="data-meta">
-                                <span>📅 ${p.published_at ? new Date(p.published_at).toLocaleDateString() : 'N/A'}</span>
-                                <span>🏷️ ${(p.categories || []).slice(0, 3).join(', ') || 'N/A'}</span>
+                                <span>📅 ${publishedAt ? new Date(publishedAt).toLocaleDateString() : 'N/A'}</span>
+                                <span>🏷️ ${categories.slice(0, 3).join(', ') || 'N/A'}</span>
                                 <span class="importance-badge importance-${(p.importance || 'low').toLowerCase()}">${p.importance || 'N/A'}</span>
                                 <span>Decision: ${p.decision || 'pending'}</span>
                             </div>
                         </div>
                         <div class="data-actions">
-                            <button class="data-btn" onclick="window.open('${p.url || '#'}', '_blank')">🔗 View</button>
-                            <button class="data-btn" onclick="markUnseen('${p.id}')">👁️ Mark Unseen</button>
-                            <button class="data-btn danger" onclick="deletePaper('${p.id}')">🗑️ Delete</button>
+                            <button class="data-btn" onclick="window.open('${url}', '_blank')">🔗 View</button>
+                            <button class="data-btn" onclick="markUnseen('${paperId}')">👁️ Mark Unseen</button>
+                            <button class="data-btn danger" onclick="deletePaper('${paperId}')">🗑️ Delete</button>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
             } catch (err) {
                 console.error('Error fetching papers:', err);
                 list.innerHTML = '<div class="empty-state"><div class="emoji">❌</div><div>Failed to load papers.</div></div>';

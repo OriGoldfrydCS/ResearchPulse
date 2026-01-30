@@ -40,6 +40,12 @@ class User(Base):
     time_budget_per_week_minutes = Column(Integer, default=120)
     arxiv_categories_include = Column(JSON, default=list)
     arxiv_categories_exclude = Column(JSON, default=list)
+    # Research interests (free text descriptions)
+    interests_include = Column(Text)  # Free text research interests
+    interests_exclude = Column(Text)  # Free text topics to exclude
+    # Keywords for filtering
+    keywords_include = Column(JSON, default=list)  # Keywords to include
+    keywords_exclude = Column(JSON, default=list)  # Keywords to exclude
     stop_policy = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -549,6 +555,10 @@ def user_to_dict(user: User) -> Dict[str, Any]:
         "time_budget_per_week_minutes": user.time_budget_per_week_minutes,
         "arxiv_categories_include": user.arxiv_categories_include or [],
         "arxiv_categories_exclude": user.arxiv_categories_exclude or [],
+        "interests_include": user.interests_include or "",
+        "interests_exclude": user.interests_exclude or "",
+        "keywords_include": user.keywords_include or [],
+        "keywords_exclude": user.keywords_exclude or [],
         "stop_policy": user.stop_policy or {},
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,

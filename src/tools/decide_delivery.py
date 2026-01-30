@@ -69,7 +69,7 @@ class ColleagueInfo(BaseModel):
     email: str = Field(..., description="Email address")
     affiliation: Optional[str] = Field(None, description="Institution")
     topics: List[str] = Field(default_factory=list, description="Research interests")
-    sharing_preference: Literal["immediate", "daily_digest", "weekly_digest", "on_request"] = Field(
+    sharing_preference: Literal["immediate", "daily_digest", "weekly_digest", "on_request", "daily", "weekly", "monthly", "never"] = Field(
         "daily_digest", description="Preferred sharing frequency"
     )
     arxiv_categories_interest: List[str] = Field(
@@ -905,6 +905,10 @@ def decide_delivery_action(
                 "immediate": "share_immediate",
                 "daily_digest": "share_daily",
                 "weekly_digest": "share_weekly",
+                "daily": "share_daily",
+                "weekly": "share_weekly",
+                "monthly": "share_weekly",  # treat monthly as weekly
+                "never": "skip",
             }
             action_type = action_map.get(colleague.sharing_preference, "share_daily")
             

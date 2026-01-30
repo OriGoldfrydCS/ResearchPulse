@@ -551,10 +551,12 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                     
                     db.commit()
                     logger.debug(f"Upserted paper {paper_id} to database")
+                    return get_papers_state()  # Return from DB, don't fall back to local
         except Exception as e:
             logger.error(f"Error upserting paper to DB: {e}")
+            # Fall through to local file only on DB error
     
-    # Also update local file for development
+    # Only use local file for development or when DB fails
     try:
         from .json_store import upsert_paper as json_upsert_paper
         return json_upsert_paper(paper_record)
@@ -709,6 +711,195 @@ def delete_local_data_files() -> List[str]:
                 logger.error(f"Failed to delete {filepath}: {e}")
     
     return deleted
+
+
+# =============================================================================
+# Artifact Storage Functions
+# =============================================================================
+
+def save_artifact_to_db(
+    file_type: str,
+    file_path: str,
+    content: str,
+    paper_id: Optional[str] = None,
+    colleague_id: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Save an artifact (calendar event, reading list entry, email, share) to the database.
+    
+    Args:
+        file_type: Type of artifact - 'calendar', 'reading_list', 'email', 'share'
+        file_path: Original file path (used for context)
+        content: Content of the artifact
+        paper_id: arXiv paper ID (optional)
+        colleague_id: Colleague ID for shares (optional)
+        description: Description of the artifact (optional)
+        
+    Returns:
+        Result dictionary with success status
+    """
+    if not is_db_available():
+        return {"success": False, "error": "Database not available"}
+    
+    user_id = _get_default_user_id()
+    if not user_id:
+        return {"success": False, "error": "No user found"}
+    
+    try:
+        from .postgres_store import PostgresStore
+        store = PostgresStore()
+        
+        # Get paper DB ID if we have an arXiv ID
+        db_paper_id = None
+        if paper_id:
+            with get_db_session() as db:
+                paper = db.query(Paper).filter_by(
+                    source="arxiv",
+                    external_id=paper_id
+                ).first()
+                if paper:
+                    db_paper_id = paper.id
+        
+        if file_type == "calendar":
+            # Parse start time from ICS content or use current time
+            from datetime import datetime, timedelta
+            import re
+            
+            # Try to extract DTSTART from ICS
+            start_time = datetime.utcnow() + timedelta(days=1)  # Default to tomorrow
+            dtstart_match = re.search(r'DTSTART[^:]*:(\d{8}T\d{6})', content)
+            if dtstart_match:
+                try:
+                    start_time = datetime.strptime(dtstart_match.group(1), "%Y%m%dT%H%M%S")
+                except ValueError:
+                    pass
+            
+            # Extract title from ICS
+            title = description or "Reading scheduled"
+            summary_match = re.search(r'SUMMARY:(.+?)(?:\r?\n|$)', content)
+            if summary_match:
+                title = summary_match.group(1).strip()
+            
+            result = store.create_calendar_event(
+                user_id=uuid.UUID(user_id),
+                paper_id=db_paper_id,
+                title=title,
+                start_time=start_time,
+                duration_minutes=30,
+                ics_text=content,
+            )
+            return {"success": True, "type": "calendar", "id": str(result.get("id", ""))}
+        
+        elif file_type == "reading_list":
+            # Reading list entries are saved as part of the paper view with notes
+            # We'll store this in a special table or as paper notes
+            if db_paper_id:
+                with get_db_session() as db:
+                    view = db.query(PaperView).filter_by(
+                        user_id=uuid.UUID(user_id),
+                        paper_id=db_paper_id
+                    ).first()
+                    if view:
+                        existing_notes = view.notes or ""
+                        if "Reading List Entry:" not in existing_notes:
+                            view.notes = existing_notes + f"\n\nReading List Entry:\n{content}"
+                            db.commit()
+            return {"success": True, "type": "reading_list", "paper_id": paper_id}
+        
+        elif file_type == "email":
+            # Extract subject from content
+            lines = content.split("\n")
+            subject = "Paper Recommendation"
+            recipient = ""
+            body = content
+            
+            for line in lines:
+                if line.startswith("Subject:"):
+                    subject = line.replace("Subject:", "").strip()
+                elif line.startswith("To:"):
+                    recipient = line.replace("To:", "").strip()
+            
+            if not recipient:
+                recipient = "unknown@email.com"
+            
+            result = store.create_email(
+                user_id=uuid.UUID(user_id),
+                paper_id=db_paper_id,
+                recipient_email=recipient,
+                subject=subject,
+                body_text=body,
+            )
+            return {"success": True, "type": "email", "id": str(result.get("id", ""))}
+        
+        elif file_type == "share":
+            # Get colleague DB ID
+            db_colleague_id = None
+            if colleague_id:
+                with get_db_session() as db:
+                    from .orm_models import Colleague as ColleagueORM
+                    colleague = db.query(ColleagueORM).filter_by(id=colleague_id).first()
+                    if colleague:
+                        db_colleague_id = colleague.id
+            
+            if db_paper_id and db_colleague_id:
+                result = store.create_share(
+                    user_id=uuid.UUID(user_id),
+                    paper_id=db_paper_id,
+                    colleague_id=db_colleague_id,
+                    reason=description or "Matched research interests",
+                )
+                return {"success": True, "type": "share", "id": str(result.get("id", ""))}
+            else:
+                return {"success": False, "error": "Missing paper or colleague ID for share"}
+        
+        else:
+            return {"success": False, "error": f"Unknown artifact type: {file_type}"}
+            
+    except Exception as e:
+        logger.error(f"Error saving artifact to DB: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def save_artifacts_to_db(artifacts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Save multiple artifacts to the database.
+    
+    Args:
+        artifacts: List of artifact dictionaries with file_type, file_path, content, etc.
+        
+    Returns:
+        Dictionary with success counts and errors
+    """
+    results = {
+        "success": True,
+        "saved": 0,
+        "failed": 0,
+        "errors": [],
+        "details": [],
+    }
+    
+    for artifact in artifacts:
+        result = save_artifact_to_db(
+            file_type=artifact.get("file_type", ""),
+            file_path=artifact.get("file_path", ""),
+            content=artifact.get("content", ""),
+            paper_id=artifact.get("paper_id"),
+            colleague_id=artifact.get("colleague_id"),
+            description=artifact.get("description"),
+        )
+        
+        if result.get("success"):
+            results["saved"] += 1
+            results["details"].append(result)
+        else:
+            results["failed"] += 1
+            results["errors"].append(result.get("error", "Unknown error"))
+    
+    if results["failed"] > 0:
+        results["success"] = False
+    
+    return results
 
 
 # =============================================================================

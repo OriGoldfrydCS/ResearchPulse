@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_arxiv_categories'
-down_revision = None  # Update this to point to your latest migration
+down_revision = '001'
 branch_labels = None
 depends_on = None
 

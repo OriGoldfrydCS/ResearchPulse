@@ -15,7 +15,9 @@ from pydantic import BaseModel, Field
 
 # Add parent to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from db.json_store import get_seen_paper_ids, get_paper_by_id, DEFAULT_DATA_DIR
+# Use data_service for DB-first access with fallback to local JSON
+from db.data_service import get_seen_paper_ids, get_paper_by_id
+from db.json_store import DEFAULT_DATA_DIR
 
 
 # =============================================================================
@@ -97,10 +99,8 @@ def check_seen_papers(
         >>> result.summary
         {"total": 2, "unseen": 1, "seen": 1}
     """
-    data_dir = data_dir or DEFAULT_DATA_DIR
-    
     # Get the set of all seen paper IDs
-    seen_ids = get_seen_paper_ids(data_dir)
+    seen_ids = get_seen_paper_ids()
     
     unseen_papers: List[Dict[str, Any]] = []
     seen_papers: List[SeenPaperInfo] = []
@@ -114,7 +114,7 @@ def check_seen_papers(
             
         if arxiv_id in seen_ids:
             # Paper has been seen before - get its history
-            paper_record = get_paper_by_id(arxiv_id, data_dir)
+            paper_record = get_paper_by_id(arxiv_id)
             if paper_record:
                 seen_papers.append(SeenPaperInfo(
                     arxiv_id=arxiv_id,
