@@ -8,8 +8,19 @@ Falls back gracefully when DATABASE_URL is not configured.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional, Generator
 from contextlib import contextmanager
+
+# Load .env file if present
+try:
+    from dotenv import load_dotenv
+    # Find .env in project root
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv not installed
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base

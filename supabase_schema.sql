@@ -164,3 +164,26 @@ CREATE TRIGGER update_delivery_policy_updated_at BEFORE UPDATE ON delivery_polic
 -- =============================================================================
 -- Done! Your Supabase tables are ready for ResearchPulse
 -- =============================================================================
+
+-- =============================================================================
+-- 6. ArXiv Categories Table
+-- Stores the arXiv taxonomy (fetched from arxiv.org and cached)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS arxiv_categories (
+    code TEXT PRIMARY KEY,  -- e.g., "cs.AI"
+    name TEXT NOT NULL,  -- e.g., "Artificial Intelligence"
+    group_name TEXT,  -- e.g., "Computer Science"
+    description TEXT,
+    source TEXT DEFAULT 'arxiv',  -- "arxiv" or "fallback"
+    last_updated TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for group filtering
+CREATE INDEX IF NOT EXISTS idx_arxiv_categories_group ON arxiv_categories(group_name);
+
+-- Trigger for updated_at
+CREATE TRIGGER update_arxiv_categories_updated_at BEFORE UPDATE ON arxiv_categories
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =============================================================================

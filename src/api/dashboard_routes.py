@@ -24,6 +24,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, BackgroundTasks
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 
 from ..db.store import get_default_store
 from ..db.database import check_connection, is_database_configured
@@ -34,6 +35,197 @@ from ..db.database import check_connection, is_database_configured
 # =============================================================================
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
+
+
+# =============================================================================
+# ArXiv Categories Endpoint  
+# =============================================================================
+
+@router.get("/arxiv-categories")
+async def get_arxiv_categories(
+    refresh: bool = Query(False, description="Force refresh from arXiv"),
+    group: Optional[str] = Query(None, description="Filter by group (e.g., 'Computer Science')"),
+    search: Optional[str] = Query(None, description="Search categories by name")
+):
+    """
+    Get all available arXiv categories for selection.
+    
+    Categories are dynamically fetched from arXiv and cached locally.
+    Use refresh=true to force a refresh from the official arXiv taxonomy.
+    """
+    try:
+        from ..tools.arxiv_categories import (
+            get_all_categories_json,
+            get_categories_by_group,
+            search_categories,
+            refresh_taxonomy,
+            get_category_groups
+        )
+        
+        # Force refresh if requested
+        if refresh:
+            await refresh_taxonomy(force=True)
+        
+        # Search mode
+        if search:
+            results = search_categories(search, limit=50)
+            return {
+                "categories": [
+                    {"code": cat.code, "name": cat.name, "group": cat.group}
+                    for cat in results
+                ],
+                "search_query": search
+            }
+        
+        # Filter by group
+        if group:
+            results = get_categories_by_group(group)
+            return {
+                "categories": [
+                    {"code": cat.code, "name": cat.name, "group": cat.group}
+                    for cat in results
+                ],
+                "group": group
+            }
+        
+        # Return all categories
+        result = get_all_categories_json()
+        return {
+            "categories": result["categories"],
+            "total": result["total"],
+            "groups": result["groups"]
+        }
+        
+    except Exception as e:
+        # Fallback to basic categories if dynamic fetch fails
+        return {
+            "categories": [
+                {"code": "cs.AI", "name": "Artificial Intelligence"},
+                {"code": "cs.CL", "name": "Computation and Language"},
+                {"code": "cs.CV", "name": "Computer Vision and Pattern Recognition"},
+                {"code": "cs.LG", "name": "Machine Learning"},
+                {"code": "cs.IR", "name": "Information Retrieval"},
+                {"code": "stat.ML", "name": "Machine Learning (Statistics)"},
+            ],
+            "error": str(e),
+            "fallback": True
+        }
+
+
+@router.get("/arxiv-categories/topic/{topic}")
+async def get_categories_for_topic(topic: str):
+    """
+    Get arXiv categories relevant to a research topic.
+    
+    This uses intelligent mapping to suggest categories based on the topic.
+    If categories are not found locally, it will fetch from arXiv.
+    """
+    try:
+        from ..tools.arxiv_categories import topic_to_categories_json
+        return topic_to_categories_json(topic)
+    except Exception as e:
+        return {"topic": topic, "categories": [], "error": str(e)}
+
+
+@router.post("/arxiv-categories/refresh")
+async def refresh_arxiv_categories():
+    """Force refresh of arXiv categories from the official taxonomy."""
+    try:
+        from ..tools.arxiv_categories import refresh_taxonomy
+        count = await refresh_taxonomy(force=True)
+        return {"success": True, "categories_count": count}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# Data Migration Endpoints
+# =============================================================================
+
+@router.get("/data-source")
+async def get_data_source():
+    """Check current data source (database or local files)."""
+    from ..db import is_db_available
+    db_available = is_db_available()
+    return {
+        "database_available": db_available,
+        "primary_source": "database" if db_available else "local_files",
+        "local_files_exist": _check_local_files_exist(),
+    }
+
+
+def _check_local_files_exist() -> dict:
+    """Check which local data files exist."""
+    from pathlib import Path
+    data_dir = Path(__file__).parent.parent.parent / "data"
+    files = [
+        "research_profile.json",
+        "colleagues.json", 
+        "delivery_policy.json",
+        "papers_state.json",
+        "arxiv_categories.json",
+    ]
+    return {f: (data_dir / f).exists() for f in files}
+
+
+@router.post("/migrate-to-db")
+async def migrate_data_to_db():
+    """
+    Migrate all local JSON data files to database.
+    
+    This copies data from:
+    - data/research_profile.json → users table
+    - data/colleagues.json → colleagues table
+    - data/delivery_policy.json → delivery_policies table
+    - data/papers_state.json → papers + paper_views tables
+    - data/arxiv_categories.json → arxiv_categories table
+    
+    The local files are NOT deleted - use DELETE /api/local-data for that.
+    """
+    from ..db import migrate_all_to_db, is_db_available
+    
+    if not is_db_available():
+        return {
+            "success": False,
+            "error": "Database not available. Set DATABASE_URL environment variable.",
+        }
+    
+    try:
+        results = migrate_all_to_db()
+        return {
+            "success": True,
+            "migrated": results,
+            "message": "Data migrated successfully. Local files still exist - use DELETE /api/local-data to remove them.",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/local-data")
+async def delete_local_data():
+    """
+    Delete local JSON data files after confirming data is in database.
+    
+    WARNING: This permanently deletes local data files!
+    Only use after successful migration to database.
+    """
+    from ..db import delete_local_data_files, is_db_available
+    
+    if not is_db_available():
+        return {
+            "success": False,
+            "error": "Database not available. Cannot delete local files without DB backup.",
+        }
+    
+    try:
+        deleted = delete_local_data_files()
+        return {
+            "success": True,
+            "deleted_files": deleted,
+            "message": f"Deleted {len(deleted)} local data files. Data is now served from database only.",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # =============================================================================
@@ -83,6 +275,19 @@ class RunTrigger(BaseModel):
     categories: Optional[List[str]] = None
 
 
+class ProfileUpdate(BaseModel):
+    """Researcher profile update model."""
+    researcher_name: Optional[str] = None
+    email: Optional[str] = None
+    affiliation: Optional[str] = None
+    research_topics: Optional[List[str]] = None
+    arxiv_categories_include: Optional[List[str]] = None
+    arxiv_categories_exclude: Optional[List[str]] = None
+    keywords_include: Optional[List[str]] = None
+    keywords_exclude: Optional[List[str]] = None
+    colleague_ids_to_always_share: Optional[List[str]] = None
+
+
 class HealthResponse(BaseModel):
     status: str
     database: Dict[str, Any]
@@ -115,6 +320,66 @@ async def update_user(data: Dict[str, Any]):
         user_id = UUID(user["id"])
         updated = store.update_user(user_id, data)
         return updated
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Research Profile Endpoints (data/research_profile.json)
+# =============================================================================
+
+@router.get("/profile")
+async def get_research_profile():
+    """Get the researcher's profile with research areas, topics, and preferences."""
+    from pathlib import Path
+    import json as json_module
+    try:
+        profile_path = Path("data/research_profile.json")
+        if profile_path.exists():
+            with open(profile_path, encoding="utf-8") as f:
+                return json_module.load(f)
+        # Return default empty profile structure
+        return {
+            "researcher_name": "",
+            "email": "",
+            "affiliation": "",
+            "research_topics": [],
+            "arxiv_categories_include": [],
+            "arxiv_categories_exclude": [],
+            "keywords_include": [],
+            "keywords_exclude": [],
+            "colleague_ids_to_always_share": []
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/profile")
+async def update_research_profile(data: ProfileUpdate):
+    """Update the researcher's profile."""
+    from pathlib import Path
+    import json as json_module
+    try:
+        profile_path = Path("data/research_profile.json")
+        
+        # Read existing profile
+        existing = {}
+        if profile_path.exists():
+            with open(profile_path, encoding="utf-8") as f:
+                existing = json_module.load(f)
+        
+        # Update with new data (only non-None fields)
+        update_dict = data.model_dump(exclude_none=True)
+        existing.update(update_dict)
+        
+        # Ensure directory exists
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write back
+        with open(profile_path, "w", encoding="utf-8") as f:
+            json_module.dump(existing, f, indent=4)
+        
+        return existing
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -403,10 +668,22 @@ async def create_colleague(data: ColleagueCreate):
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
         
-        colleague = store.create_colleague(user_id, data.model_dump())
+        colleague_data = data.model_dump()
+        # Ensure proper defaults
+        colleague_data.setdefault("keywords", [])
+        colleague_data.setdefault("categories", [])
+        colleague_data.setdefault("topics", [])
+        colleague_data.setdefault("sharing_preference", "weekly")
+        colleague_data.setdefault("enabled", True)
+        
+        colleague = store.create_colleague(user_id, colleague_data)
         return colleague
+    except IntegrityError as e:
+        raise HTTPException(status_code=400, detail="Colleague with this email already exists")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save colleague: {str(e)}")
 
 
 @router.put("/colleagues/{colleague_id}")
@@ -481,8 +758,10 @@ async def get_run(run_id: str):
 async def trigger_run(data: RunTrigger, background_tasks: BackgroundTasks):
     """Trigger a new agent run."""
     try:
-        from ..agent.react_agent import run_agent
+        from ..agent.react_agent import run_agent_episode
         import uuid as uuid_module
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
         
         store = get_default_store()
         user = store.get_or_create_default_user()
@@ -494,23 +773,139 @@ async def trigger_run(data: RunTrigger, background_tasks: BackgroundTasks):
         # Create run record
         run = store.create_run(user_id, run_id, prompt)
         
-        # Run agent in background
-        async def execute_run():
+        # Run agent in background thread (run_agent_episode is synchronous)
+        def execute_run_sync():
             try:
-                result = await run_agent(prompt, run_id=run_id)
+                episode = run_agent_episode(
+                    run_id=run_id,
+                    user_message=prompt,
+                )
+                
+                # Extract results from AgentEpisode
+                papers_count = len(episode.papers_processed) if episode.papers_processed else 0
+                decisions_count = len(episode.decisions_made) if episode.decisions_made else 0
+                
+                # Save papers to database for dashboard display
+                for paper in episode.papers_processed:
+                    try:
+                        # First, upsert the paper itself
+                        external_id = paper.get("arxiv_id") or paper.get("paper_id") or paper.get("id", "")
+                        if external_id:
+                            paper_record = store.upsert_paper({
+                                "source": "arxiv",
+                                "external_id": external_id,
+                                "title": paper.get("title", "Untitled"),
+                                "abstract": paper.get("abstract", ""),
+                                "authors": paper.get("authors", []),
+                                "categories": paper.get("categories", []),
+                                "url": paper.get("url"),
+                                "pdf_url": paper.get("pdf_url"),
+                            })
+                            
+                            # Then upsert the paper view for this user
+                            paper_uuid = UUID(paper_record["id"])
+                            store.upsert_paper_view(user_id, paper_uuid, {
+                                "decision": paper.get("decision", "logged"),
+                                "importance": paper.get("importance", "low"),
+                                "relevance_score": paper.get("relevance_score") or paper.get("score"),
+                                "novelty_score": paper.get("novelty_score"),
+                                "heuristic_score": paper.get("heuristic_score"),
+                            })
+                    except Exception:
+                        pass  # Continue on individual paper save errors
+                
+                # Save emails to database for dashboard display
+                for action in episode.actions_taken:
+                    if action.get("type") == "email":
+                        try:
+                            store.create_email(
+                                user_id=user_id,
+                                run_id=run_id,
+                                paper_id=action.get("paper_id", ""),
+                                recipient=action.get("recipient", ""),
+                                subject=action.get("subject", ""),
+                                body=action.get("body", ""),
+                                status="sent",
+                            )
+                        except Exception:
+                            pass
+                    elif action.get("type") == "calendar":
+                        try:
+                            store.create_calendar_event(
+                                user_id=user_id,
+                                run_id=run_id,
+                                paper_id=action.get("paper_id", ""),
+                                title=action.get("title", ""),
+                                start_time=action.get("start_time", ""),
+                                end_time=action.get("end_time", ""),
+                            )
+                        except Exception:
+                            pass
+                
                 store.update_run(run_id, {
                     "status": "done",
-                    "report": result,
-                    "papers_processed": result.get("papers_processed", 0),
-                    "decisions_made": result.get("decisions_made", 0),
+                    "report": episode.final_report or episode.model_dump(),
+                    "papers_processed": papers_count,
+                    "decisions_made": decisions_count,
+                    "stop_reason": episode.stop_reason,
                 })
+                
+                # Send digest email if digest_mode is enabled
+                try:
+                    from pathlib import Path
+                    import json as json_module
+                    from ..tools.decide_delivery import send_digest_email, ScoredPaper
+                    
+                    policy_path = Path("data/delivery_policy.json")
+                    if policy_path.exists():
+                        with open(policy_path) as f:
+                            delivery_policy = json_module.load(f)
+                        email_settings = delivery_policy.get("email_settings", {})
+                        
+                        if email_settings.get("digest_mode", False) and episode.papers_processed:
+                            profile_path = Path("data/research_profile.json")
+                            if profile_path.exists():
+                                with open(profile_path) as f:
+                                    profile = json_module.load(f)
+                                
+                                # Convert papers to ScoredPaper objects
+                                scored_papers = []
+                                for p in episode.papers_processed:
+                                    if isinstance(p, dict):
+                                        try:
+                                            scored_papers.append(ScoredPaper(
+                                                arxiv_id=p.get("arxiv_id", p.get("paper_id", p.get("id", ""))),
+                                                title=p.get("title", "Untitled"),
+                                                abstract=p.get("abstract", ""),
+                                                authors=p.get("authors", []),
+                                                categories=p.get("categories", []),
+                                                relevance_score=p.get("relevance_score", p.get("score", 0.5)),
+                                                novelty_score=p.get("novelty_score", 0.5),
+                                                importance=p.get("importance", "medium"),
+                                                explanation=p.get("explanation", ""),
+                                                link=p.get("link") or p.get("url"),
+                                            ))
+                                        except Exception:
+                                            pass  # Skip papers that can't be converted
+                                
+                                if scored_papers:
+                                    send_digest_email(
+                                        papers=scored_papers,
+                                        researcher_email=profile.get("email", ""),
+                                        researcher_name=profile.get("researcher_name", "Researcher"),
+                                        email_settings=email_settings,
+                                    )
+                except Exception as digest_err:
+                    print(f"Warning: Could not send digest email: {digest_err}")
             except Exception as e:
                 store.update_run(run_id, {
                     "status": "error",
                     "error_message": str(e),
                 })
         
-        background_tasks.add_task(execute_run)
+        # Run in thread pool to avoid blocking
+        executor = ThreadPoolExecutor(max_workers=1)
+        background_tasks.add_task(lambda: executor.submit(execute_run_sync).result())
         
         return {"run_id": run_id, "status": "started", "message": "Run triggered in background"}
     except Exception as e:
@@ -596,8 +991,9 @@ async def health_check():
             health["database"] = {"status": "unhealthy", "message": str(e)}
             overall_healthy = False
     else:
-        health["database"] = {"status": "not_configured", "message": "DATABASE_URL not set"}
-        # In production, this is an error
+        health["database"] = {"status": "local_storage", "message": "Using local JSON files (no database configured)"}
+        # Local storage is OK for development
+        # In production, this would be an error
         if os.getenv("ENV") == "production":
             overall_healthy = False
     
@@ -616,7 +1012,7 @@ async def health_check():
         except Exception as e:
             health["pinecone"] = {"status": "unhealthy", "message": str(e)}
     else:
-        health["pinecone"] = {"status": "not_configured", "message": "PINECONE_API_KEY not set"}
+        health["pinecone"] = {"status": "optional", "message": "Optional: Pinecone not configured (RAG features disabled)"}
     
     # Check email provider
     smtp_host = os.getenv("SMTP_HOST")
@@ -626,7 +1022,7 @@ async def health_check():
     if smtp_host or resend_key or sendgrid_key:
         health["email"] = {"status": "configured", "message": "Email provider configured"}
     else:
-        health["email"] = {"status": "not_configured", "message": "No email provider configured"}
+        health["email"] = {"status": "optional", "message": "Optional: No email provider (emails simulated)"}
     
     health["status"] = "healthy" if overall_healthy else "unhealthy"
     
@@ -693,6 +1089,39 @@ async def reindex_all(background_tasks: BackgroundTasks):
         
         background_tasks.add_task(do_reindex)
         return {"status": "started", "message": "Reindex started in background"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reset-seen-papers")
+async def reset_seen_papers():
+    """Reset the papers_state.json file to clear all seen papers."""
+    try:
+        from pathlib import Path
+        import json as json_module
+        
+        papers_state_path = Path("data/papers_state.json")
+        
+        if papers_state_path.exists():
+            # Create backup
+            backup_path = Path("data/papers_state_backup.json")
+            with open(papers_state_path) as f:
+                old_data = json_module.load(f)
+            with open(backup_path, "w") as f:
+                json_module.dump(old_data, f, indent=2)
+            
+            # Reset to empty
+            new_data = {"papers": []}
+            with open(papers_state_path, "w") as f:
+                json_module.dump(new_data, f, indent=2)
+            
+            papers_cleared = len(old_data.get("papers", []))
+            return {
+                "status": "success",
+                "message": f"Cleared {papers_cleared} papers from history. Backup saved to papers_state_backup.json"
+            }
+        else:
+            return {"status": "success", "message": "No papers state file found - nothing to reset"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

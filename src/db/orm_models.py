@@ -360,6 +360,45 @@ class DeliveryPolicy(Base):
 
 
 # =============================================================================
+# ArxivCategory Model
+# =============================================================================
+
+class ArxivCategoryDB(Base):
+    """
+    ArXiv category taxonomy - synced from arXiv and cached in DB.
+    
+    This table stores the complete arXiv category taxonomy, which is
+    periodically fetched from arxiv.org and cached for all users.
+    """
+    __tablename__ = "arxiv_categories"
+    
+    code = Column(String(50), primary_key=True)  # e.g., "cs.AI"
+    name = Column(String(255), nullable=False)  # e.g., "Artificial Intelligence"
+    group_name = Column(String(100))  # e.g., "Computer Science"
+    description = Column(Text)
+    source = Column(String(50), default="arxiv")  # "arxiv" or "fallback"
+    
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('ix_arxiv_category_group', 'group_name'),
+    )
+
+
+def arxiv_category_to_dict(cat: ArxivCategoryDB) -> Dict[str, Any]:
+    """Convert ArxivCategoryDB model to dictionary."""
+    return {
+        "code": cat.code,
+        "name": cat.name,
+        "group": cat.group_name,
+        "description": cat.description,
+        "source": cat.source,
+        "last_updated": cat.last_updated.isoformat() if cat.last_updated else None,
+    }
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 

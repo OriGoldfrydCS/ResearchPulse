@@ -62,6 +62,158 @@ from db.json_store import get_research_profile, get_colleagues, get_delivery_pol
 
 
 # =============================================================================
+# Interest to arXiv Category Mapping
+# =============================================================================
+
+# Mapping of keywords/interests to arXiv categories (agent auto-maps these)
+INTEREST_TO_CATEGORY_MAP = {
+    # NLP / Language
+    "natural language processing": ["cs.CL"],
+    "nlp": ["cs.CL"],
+    "language models": ["cs.CL", "cs.LG"],
+    "large language models": ["cs.CL", "cs.LG"],
+    "llm": ["cs.CL", "cs.LG"],
+    "transformers": ["cs.CL", "cs.LG"],
+    "text generation": ["cs.CL"],
+    "machine translation": ["cs.CL"],
+    "question answering": ["cs.CL", "cs.IR"],
+    "text understanding": ["cs.CL"],
+    "dialogue systems": ["cs.CL"],
+    "chatbots": ["cs.CL", "cs.AI"],
+    "conversation": ["cs.CL"],
+    "sentiment analysis": ["cs.CL"],
+    "named entity recognition": ["cs.CL"],
+    
+    # Machine Learning
+    "machine learning": ["cs.LG", "stat.ML"],
+    "deep learning": ["cs.LG"],
+    "neural networks": ["cs.LG", "cs.NE"],
+    "reinforcement learning": ["cs.LG", "cs.AI"],
+    "supervised learning": ["cs.LG"],
+    "unsupervised learning": ["cs.LG"],
+    "transfer learning": ["cs.LG"],
+    "few-shot learning": ["cs.LG", "cs.CL"],
+    "meta-learning": ["cs.LG"],
+    "optimization": ["cs.LG", "math.OC"],
+    
+    # AI / Agents
+    "artificial intelligence": ["cs.AI"],
+    "ai agents": ["cs.AI", "cs.LG"],
+    "autonomous agents": ["cs.AI", "cs.RO"],
+    "multi-agent": ["cs.AI", "cs.MA"],
+    "reasoning": ["cs.AI", "cs.CL"],
+    "planning": ["cs.AI"],
+    "knowledge representation": ["cs.AI"],
+    
+    # Information Retrieval / RAG
+    "information retrieval": ["cs.IR"],
+    "retrieval": ["cs.IR", "cs.CL"],
+    "rag": ["cs.IR", "cs.CL"],
+    "retrieval-augmented generation": ["cs.IR", "cs.CL"],
+    "search": ["cs.IR"],
+    "recommendation": ["cs.IR"],
+    
+    # Computer Vision
+    "computer vision": ["cs.CV"],
+    "image processing": ["cs.CV"],
+    "object detection": ["cs.CV"],
+    "image classification": ["cs.CV"],
+    "image generation": ["cs.CV"],
+    "video": ["cs.CV"],
+    
+    # Robotics
+    "robotics": ["cs.RO"],
+    "robot learning": ["cs.RO", "cs.LG"],
+    
+    # Security
+    "security": ["cs.CR"],
+    "cryptography": ["cs.CR"],
+    "privacy": ["cs.CR", "cs.LG"],
+    
+    # Networking
+    "networking": ["cs.NI"],
+    "distributed systems": ["cs.DC"],
+    
+    # Other
+    "databases": ["cs.DB"],
+    "software engineering": ["cs.SE"],
+    "human-computer interaction": ["cs.HC"],
+    "hci": ["cs.HC"],
+    "statistics": ["stat.TH", "stat.ML"],
+    "graph neural networks": ["cs.LG"],
+    "gnns": ["cs.LG"],
+    "knowledge graphs": ["cs.AI", "cs.CL"],
+    "embeddings": ["cs.CL", "cs.LG"],
+    "attention mechanisms": ["cs.LG", "cs.CL"],
+    "prompt engineering": ["cs.CL"],
+    "in-context learning": ["cs.CL", "cs.LG"],
+    "fine-tuning": ["cs.CL", "cs.LG"],
+    
+    # Biology & Life Sciences
+    "biology": ["q-bio.BM", "q-bio.CB", "q-bio.GN", "q-bio.MN", "q-bio.NC", "q-bio.OT", "q-bio.PE", "q-bio.QM", "q-bio.SC", "q-bio.TO"],
+    "bioinformatics": ["q-bio.BM", "q-bio.GN", "q-bio.QM"],
+    "genomics": ["q-bio.GN"],
+    "genetics": ["q-bio.GN", "q-bio.PE"],
+    "neuroscience": ["q-bio.NC"],
+    "molecular biology": ["q-bio.BM"],
+    "cell biology": ["q-bio.CB"],
+    "computational biology": ["q-bio.QM", "q-bio.BM"],
+    "life sciences": ["q-bio.BM", "q-bio.CB", "q-bio.GN", "q-bio.NC"],
+    
+    # Physics
+    "physics": ["physics.comp-ph", "physics.data-an", "hep-ph", "hep-th", "cond-mat.stat-mech"],
+    "quantum": ["quant-ph"],
+    "quantum computing": ["quant-ph", "cs.ET"],
+    "quantum physics": ["quant-ph"],
+    "high energy physics": ["hep-ph", "hep-th"],
+    "condensed matter": ["cond-mat.stat-mech", "cond-mat.str-el"],
+    "astrophysics": ["astro-ph.GA", "astro-ph.CO", "astro-ph.SR"],
+    
+    # Mathematics
+    "mathematics": ["math.ST", "math.OC", "math.NA", "math.CO", "math.PR"],
+    "math": ["math.ST", "math.OC", "math.NA"],
+    "applied math": ["math.NA", "math.OC"],
+    "probability": ["math.PR", "stat.TH"],
+    "combinatorics": ["math.CO"],
+    
+    # Economics & Finance
+    "economics": ["econ.EM", "econ.GN", "econ.TH"],
+    "finance": ["q-fin.ST", "q-fin.RM", "q-fin.PM", "q-fin.CP"],
+    "econometrics": ["econ.EM", "stat.ME"],
+    "financial mathematics": ["q-fin.MF", "q-fin.CP"],
+    
+    # Electrical Engineering
+    "electrical engineering": ["eess.SP", "eess.SY"],
+    "signal processing": ["eess.SP"],
+    "control systems": ["eess.SY", "cs.SY"],
+}
+
+def map_interests_to_categories(interests_text: str, exclude: bool = False) -> List[str]:
+    """
+    Map user's free-text interests to arXiv categories.
+    
+    Args:
+        interests_text: Free-text description of research interests
+        exclude: If True, these are topics to exclude
+        
+    Returns:
+        List of arXiv category codes
+    """
+    if not interests_text:
+        return []
+    
+    interests_lower = interests_text.lower()
+    categories = set()
+    
+    for keyword, cats in INTEREST_TO_CATEGORY_MAP.items():
+        if keyword in interests_lower:
+            for cat in cats:
+                categories.add(cat)
+    
+    return list(categories)
+
+
+# =============================================================================
 # Agent State Models
 # =============================================================================
 
@@ -422,8 +574,35 @@ class ResearchReActAgent:
         if should_stop:
             return self._finalize_episode(reason)
         
-        categories_include = self._research_profile.get("arxiv_categories_include", ["cs.CL", "cs.LG"])
+        # Get arXiv categories - prefer explicitly set categories, otherwise map from user interests
+        categories_include = self._research_profile.get("arxiv_categories_include", [])
         categories_exclude = self._research_profile.get("arxiv_categories_exclude", [])
+        
+        # If no explicit categories, map from user's free-text interests
+        if not categories_include:
+            interests_include = self._research_profile.get("interests_include", "")
+            if interests_include:
+                categories_include = map_interests_to_categories(interests_include)
+                self._log("INFO", f"Mapped interests to categories: {categories_include}")
+        
+        # Fall back to defaults if still empty
+        if not categories_include:
+            categories_include = ["cs.CL", "cs.LG"]
+            self._log("INFO", "Using default categories: cs.CL, cs.LG")
+        
+        # Override categories based on user's chat message if it contains specific topics
+        user_message = self.config.initial_prompt or ""
+        user_categories = map_interests_to_categories(user_message)
+        if user_categories:
+            categories_include = user_categories
+            self._log("INFO", f"Using categories from user prompt: {categories_include}")
+        
+        # Map exclude interests if provided
+        if not categories_exclude:
+            interests_exclude = self._research_profile.get("interests_exclude", "")
+            if interests_exclude:
+                categories_exclude = map_interests_to_categories(interests_exclude, exclude=True)
+                self._log("INFO", f"Mapped exclude interests to categories: {categories_exclude}")
         
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",

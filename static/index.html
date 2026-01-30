@@ -369,6 +369,168 @@
             border-radius: 4px;
         }
 
+        /* Prompt Builder Styles */
+        .prompt-builder {
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .prompt-builder-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            cursor: pointer;
+        }
+
+        .prompt-builder-header h3 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .prompt-builder-content {
+            padding: 16px;
+            display: block;
+        }
+
+        .prompt-builder-content.collapsed {
+            display: none;
+        }
+
+        .prompt-builder-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .prompt-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .prompt-field label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .prompt-select {
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--background);
+            color: var(--text);
+            min-height: 36px;
+        }
+
+        .prompt-select[multiple] {
+            min-height: 80px;
+        }
+
+        .prompt-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .saved-prompts {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .saved-prompts label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .saved-prompts select {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--background);
+            color: var(--text);
+        }
+
+        .action-btn.small {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
+
+        /* Profile Form Styles */
+        .profile-section {
+            grid-column: 1 / -1;
+        }
+
+        .section-desc {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0 0 16px 0;
+        }
+
+        .profile-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .form-row label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .form-row input,
+        .form-row textarea {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--background);
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+
+        .form-row input:focus,
+        .form-row textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-row textarea {
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .save-status {
+            margin-left: 12px;
+            font-size: 0.9rem;
+        }
+
+        .save-status.success {
+            color: var(--success);
+        }
+
+        .save-status.error {
+            color: var(--error);
+        }
+
         /* Modal */
         .modal-overlay {
             display: none;
@@ -424,6 +586,43 @@
             display: flex;
             gap: 8px;
             justify-content: flex-end;
+        }
+
+        /* ========== Category Selection Grid ========== */
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .category-checkbox {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .category-checkbox:hover {
+            background: var(--surface);
+        }
+
+        .category-checkbox input[type="checkbox"] {
+            width: auto;
+            margin-top: 2px;
+        }
+
+        .category-checkbox span {
+            line-height: 1.3;
         }
 
         /* ========== Chat Panel ========== */
@@ -908,6 +1107,50 @@
         <main>
             <!-- Chat Tab Panel -->
             <div class="tab-panel active" id="tab-chat">
+                <!-- Prompt Builder -->
+                <div class="prompt-builder" id="prompt-builder">
+                    <div class="prompt-builder-header">
+                        <h3>🔧 Quick Prompt Builder</h3>
+                        <button onclick="togglePromptBuilder()" class="toggle-btn" id="toggle-prompt-builder">▼</button>
+                    </div>
+                    <div class="prompt-builder-content" id="prompt-builder-content">
+                        <div class="prompt-builder-grid">
+                            <div class="prompt-field">
+                                <label>Research Areas:</label>
+                                <select id="prompt-areas" multiple class="prompt-select">
+                                    <!-- Populated from profile -->
+                                </select>
+                            </div>
+                            <div class="prompt-field">
+                                <label>Focus Topics:</label>
+                                <select id="prompt-categories" multiple class="prompt-select">
+                                    <!-- Populated from profile keywords -->
+                                </select>
+                            </div>
+                            <div class="prompt-field">
+                                <label>Time Period:</label>
+                                <select id="prompt-time" class="prompt-select">
+                                    <option value="today">Today</option>
+                                    <option value="last week" selected>Last Week</option>
+                                    <option value="last month">Last Month</option>
+                                    <option value="last 3 months">Last 3 Months</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="prompt-actions">
+                            <button onclick="buildPrompt()" class="action-btn">📝 Build Prompt</button>
+                            <button onclick="buildAndSend()" class="action-btn primary">🚀 Build & Send</button>
+                        </div>
+                        <div class="saved-prompts" id="saved-prompts">
+                            <label>Saved Prompts:</label>
+                            <select id="saved-prompts-select" onchange="loadSavedPrompt()">
+                                <option value="">-- Select a saved prompt --</option>
+                            </select>
+                            <button onclick="saveCurrentPrompt()" class="action-btn small">💾 Save</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Chat Panel -->
                 <div class="chat-panel">
                     <div id="chat-messages" class="chat-messages">
@@ -1058,6 +1301,51 @@
                     <h2>⚙️ Settings & Health</h2>
                 </div>
                 <div class="settings-grid">
+                    <!-- Research Profile Section -->
+                    <div class="settings-section profile-section">
+                        <h3>👤 Research Profile</h3>
+                        <p class="section-desc">Update your research areas and preferences to get better paper
+                            recommendations.</p>
+                        <div class="profile-form">
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="profile-name" placeholder="Your name" />
+                            </div>
+                            <div class="form-row">
+                                <label>Email:</label>
+                                <input type="email" id="profile-email" placeholder="your.email@example.com" />
+                            </div>
+                            <div class="form-row">
+                                <label>Affiliation:</label>
+                                <input type="text" id="profile-affiliation" placeholder="Your institution" />
+                            </div>
+                            <div class="form-row">
+                                <label>Research Interests:</label>
+                                <textarea id="profile-interests-include"
+                                    placeholder="Describe your research areas (free text)&#10;e.g. machine learning, natural language processing, biology, AI agents"
+                                    rows="4"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label>Topics to Exclude:</label>
+                                <textarea id="profile-interests-exclude"
+                                    placeholder="Topics to filter out (free text)&#10;e.g. computer vision, hardware, quantum computing"
+                                    rows="2"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label>Keywords (must include):</label>
+                                <textarea id="profile-keywords-include"
+                                    placeholder="e.g. LLM, agent, RAG (comma separated)" rows="2"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label>Keywords (exclude):</label>
+                                <textarea id="profile-keywords-exclude"
+                                    placeholder="e.g. survey, benchmark (comma separated)" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
+                        <span id="profile-save-status" class="save-status"></span>
+                    </div>
+
                     <div class="settings-section">
                         <h3>🔗 System Health</h3>
                         <div id="health-status" class="health-status">
@@ -1083,6 +1371,12 @@
                     <div class="settings-section">
                         <h3>🔧 Actions</h3>
                         <button onclick="reindexAll()" class="action-btn">📚 Re-index All Papers</button>
+                        <button onclick="resetSeenPapers()" class="action-btn" style="margin-left: 10px;">🔄 Reset Seen
+                            Papers</button>
+                        <p style="font-size: 0.85em; color: #666; margin-top: 8px;">
+                            💡 "Reset Seen Papers" clears the history of processed papers, allowing the agent to
+                            re-evaluate all papers.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -1679,9 +1973,14 @@
                 else if (tabId === 'shares') refreshShares();
                 else if (tabId === 'colleagues') refreshColleagues();
                 else if (tabId === 'runs') refreshRuns();
-                else if (tabId === 'settings') checkHealth();
+                else if (tabId === 'settings') { checkHealth(); loadProfile(); }
+                else if (tabId === 'chat') { populatePromptBuilder(); }
             });
         });
+
+        // Load profile and saved prompts on page load
+        loadProfile();
+        loadSavedPrompts();
 
         // =============================================================================
         // Dashboard Data Functions
@@ -1898,38 +2197,89 @@
             const existing = document.getElementById('colleague-modal');
             if (existing) existing.remove();
 
-            const modal = document.createElement('div');
-            modal.id = 'colleague-modal';
-            modal.className = 'modal-overlay active';
-            modal.innerHTML = `
-                <div class="modal">
-                    <h3>Add Colleague</h3>
-                    <div class="form-group">
-                        <label>Name</label>
-                        <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="colleague-email" placeholder="jane@university.edu" />
-                    </div>
-                    <div class="form-group">
-                        <label>Keywords (comma-separated)</label>
-                        <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
-                    </div>
-                    <div class="form-group">
-                        <label>Categories (comma-separated)</label>
-                        <input type="text" id="colleague-categories" placeholder="cs.AI, cs.LG, cs.CL" />
-                    </div>
-                    <div class="form-group">
-                        <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
-                    </div>
-                    <div class="form-actions">
-                        <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
-                        <button class="action-btn primary" onclick="saveColleague()">Save</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
+            // Fetch categories first
+            fetch('/api/arxiv-categories')
+                .then(r => r.json())
+                .then(data => {
+                    const categories = data.categories || [];
+                    const categoryCheckboxes = categories.map(c => `
+                        <label class="category-checkbox">
+                            <input type="checkbox" value="${c.code}" />
+                            <span>${c.code} - ${c.name}</span>
+                        </label>
+                    `).join('');
+
+                    const modal = document.createElement('div');
+                    modal.id = 'colleague-modal';
+                    modal.className = 'modal-overlay active';
+                    modal.innerHTML = `
+                        <div class="modal" style="max-width: 600px;">
+                            <h3>Add Colleague</h3>
+                            <div class="form-group">
+                                <label>Name *</label>
+                                <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
+                            </div>
+                            <div class="form-group">
+                                <label>Email *</label>
+                                <input type="email" id="colleague-email" placeholder="jane@university.edu" />
+                            </div>
+                            <div class="form-group">
+                                <label>Keywords (comma-separated)</label>
+                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
+                            </div>
+                            <div class="form-group">
+                                <label>Categories (select all that apply)</label>
+                                <div id="colleague-categories" class="category-grid">
+                                    ${categoryCheckboxes}
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
+                            </div>
+                            <div class="form-actions">
+                                <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
+                                <button class="action-btn primary" onclick="saveColleague()">Save</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                })
+                .catch(err => {
+                    console.error('Error loading categories:', err);
+                    // Fallback without categories API
+                    const modal = document.createElement('div');
+                    modal.id = 'colleague-modal';
+                    modal.className = 'modal-overlay active';
+                    modal.innerHTML = `
+                        <div class="modal">
+                            <h3>Add Colleague</h3>
+                            <div class="form-group">
+                                <label>Name *</label>
+                                <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
+                            </div>
+                            <div class="form-group">
+                                <label>Email *</label>
+                                <input type="email" id="colleague-email" placeholder="jane@university.edu" />
+                            </div>
+                            <div class="form-group">
+                                <label>Keywords (comma-separated)</label>
+                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
+                            </div>
+                            <div class="form-group">
+                                <label>Categories (comma-separated, e.g. cs.AI, cs.LG)</label>
+                                <input type="text" id="colleague-categories-text" placeholder="cs.AI, cs.LG" />
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
+                            </div>
+                            <div class="form-actions">
+                                <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
+                                <button class="action-btn primary" onclick="saveColleague()">Save</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                });
         }
 
         function closeColleagueModal() {
@@ -1941,8 +2291,21 @@
             const name = document.getElementById('colleague-name').value.trim();
             const email = document.getElementById('colleague-email').value.trim();
             const keywords = document.getElementById('colleague-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
-            const categories = document.getElementById('colleague-categories').value.split(',').map(s => s.trim()).filter(Boolean);
             const enabled = document.getElementById('colleague-enabled').checked;
+
+            // Get categories from checkboxes or text input
+            let categories = [];
+            const categoryGrid = document.getElementById('colleague-categories');
+            const categoryText = document.getElementById('colleague-categories-text');
+
+            if (categoryGrid) {
+                // Get from checkboxes
+                const checkboxes = categoryGrid.querySelectorAll('input[type="checkbox"]:checked');
+                categories = Array.from(checkboxes).map(cb => cb.value);
+            } else if (categoryText) {
+                // Fallback to text input
+                categories = categoryText.value.split(',').map(s => s.trim()).filter(Boolean);
+            }
 
             if (!name || !email) {
                 alert('Name and email are required');
@@ -1955,7 +2318,12 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, email, keywords, categories, enabled })
                 });
-                if (!response.ok) throw new Error('Failed to save colleague');
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to save colleague');
+                }
+
                 closeColleagueModal();
                 refreshColleagues();
             } catch (err) {
@@ -2024,6 +2392,179 @@
             }
         }
 
+        // =============================================================================
+        // Research Profile Functions
+        // =============================================================================
+        async function loadProfile() {
+            try {
+                const response = await fetch('/api/profile');
+                if (!response.ok) return;
+                const profile = await response.json();
+
+                // Fill in form fields
+                document.getElementById('profile-name').value = profile.researcher_name || '';
+                document.getElementById('profile-email').value = profile.email || '';
+                document.getElementById('profile-affiliation').value = profile.affiliation || '';
+                document.getElementById('profile-interests-include').value = profile.interests_include || '';
+                document.getElementById('profile-interests-exclude').value = profile.interests_exclude || '';
+                document.getElementById('profile-keywords-include').value = (profile.keywords_include || []).join(', ');
+                document.getElementById('profile-keywords-exclude').value = (profile.keywords_exclude || []).join(', ');
+
+                // Populate prompt builder dropdowns
+                populatePromptBuilder(profile);
+            } catch (err) {
+                console.error('Error loading profile:', err);
+            }
+        }
+
+        async function saveProfile() {
+            const statusEl = document.getElementById('profile-save-status');
+            statusEl.textContent = 'Saving...';
+            statusEl.className = 'save-status';
+
+            try {
+                const profile = {
+                    researcher_name: document.getElementById('profile-name').value.trim(),
+                    email: document.getElementById('profile-email').value.trim(),
+                    affiliation: document.getElementById('profile-affiliation').value.trim(),
+                    interests_include: document.getElementById('profile-interests-include').value.trim(),
+                    interests_exclude: document.getElementById('profile-interests-exclude').value.trim(),
+                    keywords_include: document.getElementById('profile-keywords-include').value.split(',').map(k => k.trim()).filter(k => k),
+                    keywords_exclude: document.getElementById('profile-keywords-exclude').value.split(',').map(k => k.trim()).filter(k => k),
+                };
+
+                const response = await fetch('/api/profile', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(profile)
+                });
+
+                if (!response.ok) throw new Error('Failed to save profile');
+
+                statusEl.textContent = '✅ Saved!';
+                statusEl.className = 'save-status success';
+
+                // Refresh prompt builder
+                populatePromptBuilder(profile);
+
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+            } catch (err) {
+                console.error('Error saving profile:', err);
+                statusEl.textContent = '❌ Failed to save';
+                statusEl.className = 'save-status error';
+            }
+        }
+
+        // =============================================================================
+        // Prompt Builder Functions
+        // =============================================================================
+        function populatePromptBuilder(profile) {
+            // Populate areas dropdown
+            const areasSelect = document.getElementById('prompt-areas');
+            areasSelect.innerHTML = '';
+            (profile.research_topics || []).forEach(topic => {
+                const opt = document.createElement('option');
+                opt.value = topic;
+                opt.textContent = topic;
+                opt.selected = true;
+                areasSelect.appendChild(opt);
+            });
+
+            // Populate focus topics dropdown from keywords
+            const catSelect = document.getElementById('prompt-categories');
+            catSelect.innerHTML = '';
+            (profile.keywords_include || []).forEach(keyword => {
+                const opt = document.createElement('option');
+                opt.value = keyword;
+                opt.textContent = keyword;
+                opt.selected = true;
+                catSelect.appendChild(opt);
+            });
+        }
+
+        function togglePromptBuilder() {
+            const content = document.getElementById('prompt-builder-content');
+            const btn = document.getElementById('toggle-prompt-builder');
+            if (content.classList.contains('collapsed')) {
+                content.classList.remove('collapsed');
+                btn.textContent = '▲';
+            } else {
+                content.classList.add('collapsed');
+                btn.textContent = '▼';
+            }
+        }
+
+        function buildPrompt() {
+            const areas = Array.from(document.getElementById('prompt-areas').selectedOptions).map(o => o.value);
+            const categories = Array.from(document.getElementById('prompt-categories').selectedOptions).map(o => o.value);
+            const time = document.getElementById('prompt-time').value;
+
+            let prompt = 'Find and analyze';
+            if (areas.length > 0) {
+                prompt += ` research papers in the areas of ${areas.join(', ')}`;
+            } else {
+                prompt += ' research papers';
+            }
+            if (categories.length > 0) {
+                prompt += ` focusing on topics like ${categories.join(', ')}`;
+            }
+            prompt += ` published in the ${time}.`;
+            prompt += ' Prioritize papers based on my research interests and provide a summary of the most relevant ones.';
+
+            // Set the prompt in the input field
+            document.getElementById('message-input').value = prompt;
+        }
+
+        function buildAndSend() {
+            buildPrompt();
+            // Trigger send
+            elements.sendBtn.click();
+        }
+
+        // Saved prompts management
+        const SAVED_PROMPTS_KEY = 'researchpulse_saved_prompts';
+
+        function loadSavedPrompts() {
+            const saved = JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || '[]');
+            const select = document.getElementById('saved-prompts-select');
+            select.innerHTML = '<option value="">-- Select a saved prompt --</option>';
+            saved.forEach((p, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = p.name || `Prompt ${i + 1}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function loadSavedPrompt() {
+            const select = document.getElementById('saved-prompts-select');
+            const idx = parseInt(select.value);
+            if (isNaN(idx)) return;
+
+            const saved = JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || '[]');
+            if (saved[idx]) {
+                document.getElementById('message-input').value = saved[idx].prompt;
+            }
+        }
+
+        function saveCurrentPrompt() {
+            const prompt = document.getElementById('message-input').value.trim();
+            if (!prompt) {
+                alert('Please enter or build a prompt first.');
+                return;
+            }
+
+            const name = window.prompt('Enter a name for this prompt:', '');
+            if (!name) return;
+
+            const saved = JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || '[]');
+            saved.push({ name, prompt });
+            localStorage.setItem(SAVED_PROMPTS_KEY, JSON.stringify(saved));
+
+            loadSavedPrompts();
+            alert('Prompt saved!');
+        }
+
         async function checkHealth() {
             const healthDb = document.getElementById('health-db');
             const healthPinecone = document.getElementById('health-pinecone');
@@ -2038,17 +2579,53 @@
                 if (!response.ok) throw new Error('Health check failed');
                 const data = await response.json();
 
+                const dbStatus = data.database?.status;
+                const dbOk = dbStatus === 'healthy';
+                const dbLocal = dbStatus === 'local_storage';
+
+                const pcStatus = data.pinecone?.status;
+                const pcOk = pcStatus === 'healthy';
+                const pcOptional = pcStatus === 'optional' || pcStatus === 'not_configured';
+
+                const emailStatus = data.email?.status;
+                const emailOk = emailStatus === 'configured';
+                const emailOptional = emailStatus === 'optional' || emailStatus === 'not_configured';
+
                 if (healthDb) {
-                    healthDb.textContent = data.database_ok ? '✅ Connected' : '❌ ' + (data.database_error || 'Not connected');
-                    healthDb.className = 'health-value ' + (data.database_ok ? 'ok' : 'error');
+                    if (dbOk) {
+                        healthDb.textContent = '✅ Connected';
+                        healthDb.className = 'health-value ok';
+                    } else if (dbLocal) {
+                        healthDb.textContent = '📁 ' + (data.database?.message || 'Using local files');
+                        healthDb.className = 'health-value';
+                    } else {
+                        healthDb.textContent = '❌ ' + (data.database?.message || 'Not connected');
+                        healthDb.className = 'health-value error';
+                    }
                 }
                 if (healthPinecone) {
-                    healthPinecone.textContent = data.pinecone_ok ? '✅ Connected' : '❌ ' + (data.pinecone_error || 'Not connected');
-                    healthPinecone.className = 'health-value ' + (data.pinecone_ok ? 'ok' : 'error');
+                    if (pcOk) {
+                        healthPinecone.textContent = '✅ Connected';
+                        healthPinecone.className = 'health-value ok';
+                    } else if (pcOptional) {
+                        healthPinecone.textContent = 'ℹ️ ' + (data.pinecone?.message || 'Optional feature');
+                        healthPinecone.className = 'health-value';
+                    } else {
+                        healthPinecone.textContent = '❌ ' + (data.pinecone?.message || 'Not connected');
+                        healthPinecone.className = 'health-value error';
+                    }
                 }
                 if (healthEmail) {
-                    healthEmail.textContent = data.email_ok ? '✅ Configured' : '⚠️ Not configured';
-                    healthEmail.className = 'health-value ' + (data.email_ok ? 'ok' : '');
+                    if (emailOk) {
+                        healthEmail.textContent = '✅ Configured';
+                        healthEmail.className = 'health-value ok';
+                    } else if (emailOptional) {
+                        healthEmail.textContent = 'ℹ️ ' + (data.email?.message || 'Optional feature');
+                        healthEmail.className = 'health-value';
+                    } else {
+                        healthEmail.textContent = '⚠️ ' + (data.email?.message || 'Not configured');
+                        healthEmail.className = 'health-value';
+                    }
                 }
             } catch (err) {
                 console.error('Health check error:', err);
@@ -2089,6 +2666,19 @@
             } catch (err) {
                 console.error('Error reindexing:', err);
                 alert('Failed to reindex: ' + err.message);
+            }
+        }
+
+        async function resetSeenPapers() {
+            if (!confirm('This will clear the history of seen papers. The agent will re-evaluate all papers on the next run. Continue?')) return;
+            try {
+                const response = await fetch('/api/reset-seen-papers', { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to reset');
+                const data = await response.json();
+                alert('✅ Seen papers reset! ' + (data.message || 'The agent will now see all papers as new.'));
+            } catch (err) {
+                console.error('Error resetting seen papers:', err);
+                alert('Failed to reset: ' + err.message);
             }
         }
     </script>

@@ -91,7 +91,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router, prefix="/api")
-app.include_router(dashboard_router, prefix="/api")
+app.include_router(dashboard_router)  # router already has /api prefix
 
 # Mount static files
 static_path = Path(__file__).parent / "static"
