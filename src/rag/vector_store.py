@@ -155,6 +155,126 @@ def add_texts(
 
 
 # =============================================================================
+# Paper-Specific Vector Operations
+# =============================================================================
+
+def upsert_paper_vector(
+    paper_data: Dict[str, Any],
+    scope: str = "user",
+    user_id: Optional[str] = None,
+    colleague_id: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Upsert a paper embedding to Pinecone.
+    
+    Args:
+        paper_data: Dict with paper info (source, external_id, title, abstract, authors, categories)
+        scope: "user" or "colleague"
+        user_id: User ID for namespace
+        colleague_id: Colleague ID if scope is "colleague"
+        
+    Returns:
+        Vector ID if successful, None otherwise
+    """
+    try:
+        source = paper_data.get("source", "arxiv")
+        external_id = paper_data.get("external_id") or paper_data.get("id")
+        if not external_id:
+            return None
+        
+        # Generate vector ID
+        vector_id = f"paper:{source}:{external_id}"
+        
+        # Create text content for embedding
+        title = paper_data.get("title", "")
+        abstract = paper_data.get("abstract", "")
+        text_content = f"Title: {title}\n\nAbstract: {abstract}"
+        
+        # Build metadata
+        metadata = {
+            "paper_id": external_id,
+            "source": source,
+            "external_id": external_id,
+            "type": "paper",
+            "scope": scope,
+            "title": title[:500] if title else "",  # Truncate for Pinecone limits
+        }
+        
+        if user_id:
+            metadata["user_id"] = user_id
+        if colleague_id:
+            metadata["colleague_id"] = colleague_id
+        
+        categories = paper_data.get("categories", [])
+        if categories:
+            metadata["categories"] = ",".join(categories[:10])  # Limit categories
+        
+        authors = paper_data.get("authors", [])
+        if authors:
+            metadata["authors"] = ",".join(authors[:5])  # Limit authors
+        
+        published_at = paper_data.get("published_at")
+        if published_at:
+            metadata["published_at"] = str(published_at)
+        
+        # Upsert to vector store
+        add_texts(
+            texts=[text_content],
+            metadatas=[metadata],
+            ids=[vector_id],
+        )
+        
+        return vector_id
+    except Exception as e:
+        print(f"Error upserting paper vector: {e}")
+        return None
+
+
+def delete_paper_from_vector_store(vector_id: str) -> bool:
+    """
+    Delete a vector from Pinecone by ID.
+    
+    Args:
+        vector_id: The vector ID to delete (e.g., "paper:arxiv:2501.12345")
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from .pinecone_client import get_pinecone_index, PineconeConfig
+        
+        config = PineconeConfig.from_env()
+        index = get_pinecone_index(config)
+        
+        # Delete from the namespace
+        index.delete(ids=[vector_id], namespace=config.namespace)
+        
+        return True
+    except Exception as e:
+        print(f"Error deleting vector {vector_id}: {e}")
+        return False
+
+
+def check_pinecone_health() -> tuple[bool, str]:
+    """
+    Check if Pinecone is healthy and can be reached.
+    
+    Returns:
+        Tuple of (is_healthy, message)
+    """
+    try:
+        from .pinecone_client import check_pinecone_available
+        
+        is_available, message = check_pinecone_available()
+        if not is_available:
+            return False, f"Pinecone not available: {message}"
+        
+        return True, "Pinecone connection healthy"
+    except Exception as e:
+        return False, f"Pinecone health check failed: {e}"
+
+
+# =============================================================================
 # Graceful Availability Check
 # =============================================================================
 

@@ -207,6 +207,183 @@ The agent uses these LangChain tools:
 
 ---
 
+## Deployment-safe Storage and Dashboard
+
+ResearchPulse supports deployment-safe storage that works consistently in both local development and cloud environments (e.g., Render). All persistent state is stored in PostgreSQL (via Supabase) and vector embeddings in Pinecone.
+
+### Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     ResearchPulse                           │
+├──────────────────────────────────────────────────────────────┤
+│  Web Dashboard       │  FastAPI Backend   │  ReAct Agent    │
+│  (static/index.html) │  (/api/*)          │  (agent/)       │
+├──────────────────────┴───────────────────┴──────────────────┤
+│                    Storage Layer                             │
+│  ┌─────────────────────────┐  ┌──────────────────────────┐  │
+│  │  PostgreSQL (Supabase)  │  │  Pinecone (Vectors)      │  │
+│  │  - Users, Papers        │  │  - Paper embeddings      │  │
+│  │  - Colleagues, Runs     │  │  - Similarity search     │  │
+│  │  - Emails, Calendar     │  │  - Novelty detection     │  │
+│  │  - Shares, Policies     │  │                          │  │
+│  └─────────────────────────┘  └──────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Database Tables
+
+| Table | Description |
+|-------|-------------|
+| `users` | Researcher profiles and settings |
+| `papers` | Paper metadata (source, title, abstract, authors) |
+| `paper_views` | User's interaction with papers (decisions, importance, notes) |
+| `colleagues` | Colleague researchers for paper sharing |
+| `runs` | Agent run history and metrics |
+| `actions` | Actions taken during runs (per paper) |
+| `emails` | Email send history and content |
+| `calendar_events` | Calendar event history and ICS content |
+| `shares` | Paper shares with colleagues |
+| `delivery_policies` | User delivery preferences |
+
+### CLI Commands
+
+```bash
+# Initialize database (run migrations)
+python main.py db-init
+
+# Migrate local JSON files to database
+python main.py migrate-local-to-db
+
+# Start the server (default command)
+python main.py server
+python main.py  # Same as above
+```
+
+### Database Configuration
+
+Set the `DATABASE_URL` environment variable to your Supabase PostgreSQL connection string:
+
+```env
+DATABASE_URL=postgresql://postgres:[password]@[host]:[port]/postgres
+```
+
+The application will:
+- Use PostgreSQL as the primary storage in all environments
+- Automatically run migrations on `db-init`
+- Fail fast in production if `DATABASE_URL` is not set
+- Keep local JSON files as backup/reference only (not used in production)
+
+### Dashboard Features
+
+The web dashboard provides:
+
+| Feature | Endpoint | Description |
+|---------|----------|-------------|
+| Papers | `GET /api/papers` | View all papers with filters (seen, importance, category) |
+| Paper Details | `GET /api/papers/{id}` | View paper details and actions |
+| Delete Paper | `DELETE /api/papers/{id}` | Remove paper from views and Pinecone |
+| Mark Unseen | `POST /api/papers/{id}/mark-unseen` | Reset paper to unseen state |
+| Emails | `GET /api/emails` | View email send history |
+| Calendar | `GET /api/calendar` | View calendar event history |
+| Shares | `GET /api/shares` | View paper shares with colleagues |
+| Colleagues | `GET/POST/PUT/DELETE /api/colleagues` | Manage colleagues |
+| Runs | `GET /api/runs` | View run history |
+| Trigger Run | `POST /api/run` | Start a new agent run |
+| Policies | `GET/PUT /api/policies` | View/update delivery policies |
+| Health | `GET /api/health` | Check DB and Pinecone health |
+
+### Render Deployment
+
+#### Required Environment Variables
+
+Set these in your Render dashboard:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | **Yes** | Supabase PostgreSQL connection string |
+| `PINECONE_API_KEY` | Yes | Pinecone API key |
+| `PINECONE_INDEX_NAME` | Yes | Pinecone index name |
+| `PINECONE_ENVIRONMENT` | Yes | Pinecone environment |
+| `LLM_API_KEY` | Yes | LLM API key |
+| `LLM_API_BASE` | Yes | LLM API base URL |
+| `LLM_MODEL_NAME` | Yes | LLM model name |
+| `EMBEDDING_API_KEY` | Yes | Embedding API key |
+| `EMBEDDING_API_BASE` | Yes | Embedding API base URL |
+| `EMBEDDING_API_MODEL` | Yes | Embedding model name |
+| `ENV` | No | Set to `production` for production mode |
+| `APP_HOST` | No | Default: `0.0.0.0` |
+| `APP_PORT` | No | Default: `8000` (Render sets `PORT`) |
+
+#### Build Command
+
+```bash
+pip install -r requirements.txt && python main.py db-init
+```
+
+#### Start Command
+
+```bash
+python main.py server
+```
+
+### Migration from Local JSON
+
+If you have existing data in local JSON files, migrate it to the database:
+
+```bash
+# First, ensure DATABASE_URL is set
+export DATABASE_URL=postgresql://...
+
+# Initialize the database
+python main.py db-init
+
+# Migrate local data
+python main.py migrate-local-to-db
+```
+
+The migration will:
+- Read from `data/research_profile.json` → `users` table
+- Read from `data/colleagues.json` → `colleagues` table
+- Read from `data/papers_state.json` → `papers` and `paper_views` tables
+- Read from `data/delivery_policy.json` → `delivery_policies` table
+- Read from `artifacts/emails/` → `emails` table
+- Read from `artifacts/calendar/` → `calendar_events` table
+- Read from `artifacts/shares/` → `shares` table
+
+The migration is idempotent - running it multiple times will update existing records.
+
+### Health Checks
+
+The `/api/health` endpoint returns:
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "connected": true,
+    "message": "Connection successful"
+  },
+  "pinecone": {
+    "connected": true,
+    "message": "Pinecone connection healthy"
+  },
+  "timestamp": "2026-01-30T12:00:00Z"
+}
+```
+
+### Extra Features
+
+- **Search and Filters**: Filter papers by category, importance, seen status
+- **Bulk Actions**: Delete multiple papers at once
+- **CSV Export**: Export papers to CSV via API
+- **Paper Notes/Tags**: Add notes and tags to papers
+- **Per-Colleague Controls**: Enable/disable colleagues, set keywords
+- **Health Status Panel**: Monitor DB and Pinecone status
+- **Re-index Button**: Trigger vector re-indexing
+
+---
+
 ## Demo Databases
 
 The `data/` folder contains JSON files with demo data:
