@@ -1,0 +1,136 @@
+{
+    "categories": [
+        {
+            "category_code": "cs.AI",
+            "category_name": "Artificial Intelligence",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.CL",
+            "category_name": "Computation and Language",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.CV",
+            "category_name": "Computer Vision and Pattern Recognition",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.LG",
+            "category_name": "Machine Learning",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.IR",
+            "category_name": "Information Retrieval",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.NE",
+            "category_name": "Neural and Evolutionary Computing",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.RO",
+            "category_name": "Robotics",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.HC",
+            "category_name": "Human-Computer Interaction",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.DC",
+            "category_name": "Distributed, Parallel, and Cluster Computing",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.AR",
+            "category_name": "Hardware Architecture",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.CR",
+            "category_name": "Cryptography and Security",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.NI",
+            "category_name": "Networking and Internet Architecture",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.SE",
+            "category_name": "Software Engineering",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.PL",
+            "category_name": "Programming Languages",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "cs.DB",
+            "category_name": "Databases",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "stat.ML",
+            "category_name": "Machine Learning (Statistics)",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "stat.TH",
+            "category_name": "Statistics Theory",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "math.OC",
+            "category_name": "Optimization and Control",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "eess.AS",
+            "category_name": "Audio and Speech Processing",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "eess.IV",
+            "category_name": "Image and Video Processing",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        },
+        {
+            "category_code": "q-fin.ST",
+            "category_name": "Statistical Finance",
+            "source": "arxiv",
+            "last_updated": "2026-01-01T00:00:00Z"
+        }
+    ],
+    "metadata": {
+        "total_categories": 21,
+        "source_url": "https://arxiv.org/category_taxonomy",
+        "last_full_sync": "2026-01-01T00:00:00Z",
+        "notes": "Subset of arXiv categories relevant to ML/AI research for demo purposes"
+    }
+}

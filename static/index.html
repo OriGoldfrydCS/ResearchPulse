@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResearchPulse - AI Research Assistant</title>
+    <style>
+        /* ========== Base Reset & Variables ========== */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --bubble-user: #6366f1;
+            --bubble-agent: #f1f5f9;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #3b82f6;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ========== Layout ========== */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        header .logo {
+            font-size: 1.75rem;
+        }
+
+        header .status-badge {
+            margin-left: auto;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .status-idle {
+            background: #e2e8f0;
+            color: #64748b;
+        }
+
+        .status-running {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .status-done {
+            background: #d1fae5;
+            color: #047857;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 16px;
+            gap: 16px;
+        }
+
+        /* ========== Chat Panel ========== */
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .message.user {
+            align-self: flex-end;
+        }
+
+        .message.agent {
+            align-self: flex-start;
+        }
+
+        .message-bubble {
+            padding: 12px 16px;
+            border-radius: 16px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: var(--bubble-user);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.agent .message-bubble {
+            background: var(--bubble-agent);
+            color: var(--text);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            padding: 0 8px;
+        }
+
+        .message.user .message-time {
+            text-align: right;
+        }
+
+        /* ========== Input Area ========== */
+        .input-area {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-area input:focus {
+            border-color: var(--primary);
+        }
+
+        .input-area input:disabled {
+            background: var(--bg);
+            cursor: not-allowed;
+        }
+
+        .send-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            background: var(--primary-dark);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* ========== Logs Panel ========== */
+        .logs-panel {
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            max-height: 200px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logs-header {
+            padding: 12px 16px;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logs-header .toggle-btn {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .logs-content {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            padding: 12px;
+            background: #1e293b;
+            color: #e2e8f0;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+
+        .log-entry .log-time {
+            color: #64748b;
+        }
+
+        .log-entry.log-INFO .log-level {
+            color: #3b82f6;
+        }
+
+        .log-entry.log-WARN .log-level {
+            color: #f59e0b;
+        }
+
+        .log-entry.log-ERROR .log-level {
+            color: #ef4444;
+        }
+
+        .log-entry.log-DEBUG .log-level {
+            color: #8b5cf6;
+        }
+
+        .logs-panel.collapsed .logs-content {
+            display: none;
+        }
+
+        /* ========== Report Panel ========== */
+        .report-panel {
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: none;
+        }
+
+        .report-panel.visible {
+            display: block;
+        }
+
+        .report-header {
+            padding: 16px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .report-content {
+            padding: 16px;
+        }
+
+        .report-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background: var(--bg);
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .summary-card .value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .summary-card .label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .report-section {
+            margin-bottom: 20px;
+        }
+
+        .report-section h3 {
+            margin: 0 0 12px 0;
+            font-size: 1rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .report-section h3::before {
+            content: '';
+            width: 4px;
+            height: 1em;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        /* Artifacts List */
+        .artifacts-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .artifacts-list li {
+            padding: 10px 12px;
+            background: var(--bg);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+        }
+
+        .artifact-icon {
+            font-size: 1.2rem;
+        }
+
+        .artifact-path {
+            flex: 1;
+            word-break: break-all;
+        }
+
+        /* Papers Table */
+        .papers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .papers-table th,
+        .papers-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .papers-table th {
+            background: var(--bg);
+            font-weight: 600;
+        }
+
+        .papers-table tr:hover {
+            background: var(--bg);
+        }
+
+        .importance-badge {
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .importance-high {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .importance-medium {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .importance-low {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        /* Decisions List */
+        .decisions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .decision-item {
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .decision-icon {
+            font-size: 1.25rem;
+        }
+
+        .decision-info {
+            flex: 1;
+        }
+
+        .decision-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .decision-detail {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* Empty States */
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+        }
+
+        .empty-state .emoji {
+            font-size: 3rem;
+            margin-bottom: 12px;
+        }
+
+        /* Stop Reason */
+        .stop-reason {
+            background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+            padding: 12px 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .stop-reason-icon {
+            font-size: 1.5rem;
+        }
+
+        .stop-reason-text {
+            font-weight: 500;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e2e8f0;
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header {
+                padding: 12px 16px;
+            }
+
+            header h1 {
+                font-size: 1.2rem;
+            }
+
+            main {
+                padding: 12px;
+            }
+
+            .message {
+                max-width: 90%;
+            }
+
+            .input-area {
+                padding: 12px;
+            }
+
+            .send-btn span {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <header>
+            <span class="logo">🔬</span>
+            <h1>ResearchPulse</h1>
+            <span id="status-badge" class="status-badge status-idle">Idle</span>
+        </header>
+
+        <main>
+            <!-- Chat Panel -->
+            <div class="chat-panel">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="empty-state">
+                        <div class="emoji">📚</div>
+                        <div>Start by asking ResearchPulse to find papers!</div>
+                        <div style="margin-top:8px;font-size:0.9rem;color:#94a3b8;">
+                            Try: "Find recent papers on transformer architectures"
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-area">
+                    <input type="text" id="message-input" placeholder="Ask about research papers..."
+                        autocomplete="off" />
+                    <button id="send-btn" class="send-btn">
+                        <span>Send</span>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div id="logs-panel" class="logs-panel collapsed">
+                <div class="logs-header">
+                    <span>📋</span>
+                    <span>Live Logs</span>
+                    <span id="log-count" style="font-weight:normal;color:var(--text-muted);">(0)</span>
+                    <button id="toggle-logs" class="toggle-btn">▼ Expand</button>
+                </div>
+                <div id="logs-content" class="logs-content"></div>
+            </div>
+
+            <!-- Report Panel -->
+            <div id="report-panel" class="report-panel">
+                <div class="report-header">
+                    <span>📊</span>
+                    <span>Run Report</span>
+                </div>
+                <div id="report-content" class="report-content"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // =============================================================================
+        // State
+        // =============================================================================
+        const state = {
+            currentRunId: null,
+            pollInterval: null,
+            isRunning: false,
+            logs: [],
+            logsExpanded: false,
+        };
+
+        // =============================================================================
+        // DOM Elements
+        // =============================================================================
+        const elements = {
+            chatMessages: document.getElementById('chat-messages'),
+            messageInput: document.getElementById('message-input'),
+            sendBtn: document.getElementById('send-btn'),
+            statusBadge: document.getElementById('status-badge'),
+            logsPanel: document.getElementById('logs-panel'),
+            logsContent: document.getElementById('logs-content'),
+            logCount: document.getElementById('log-count'),
+            toggleLogs: document.getElementById('toggle-logs'),
+            reportPanel: document.getElementById('report-panel'),
+            reportContent: document.getElementById('report-content'),
+        };
+
+        // =============================================================================
+        // Utilities
+        // =============================================================================
+        function formatTime(isoString) {
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch {
+                return isoString;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function scrollToBottom(element) {
+            element.scrollTop = element.scrollHeight;
+        }
+
+        // =============================================================================
+        // UI Updates
+        // =============================================================================
+        function setStatus(status) {
+            const badge = elements.statusBadge;
+            badge.className = 'status-badge status-' + status.toLowerCase();
+            badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        }
+
+        function setInputEnabled(enabled) {
+            elements.messageInput.disabled = !enabled;
+            elements.sendBtn.disabled = !enabled;
+
+            if (!enabled) {
+                elements.sendBtn.innerHTML = '<span class="spinner"></span>';
+            } else {
+                elements.sendBtn.innerHTML = `
+          <span>Send</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+          </svg>
+        `;
+            }
+        }
+
+        function clearEmptyState() {
+            const emptyState = elements.chatMessages.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+        }
+
+        function addMessage(text, isUser, timestamp = new Date().toISOString()) {
+            clearEmptyState();
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'agent'}`;
+
+            messageDiv.innerHTML = `
+        <div class="message-bubble">${escapeHtml(text)}</div>
+        <div class="message-time">${formatTime(timestamp)}</div>
+      `;
+
+            elements.chatMessages.appendChild(messageDiv);
+            scrollToBottom(elements.chatMessages);
+        }
+
+        function addAgentThinking() {
+            clearEmptyState();
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message agent';
+            messageDiv.id = 'thinking-message';
+
+            messageDiv.innerHTML = `
+        <div class="message-bubble">
+          <span class="spinner"></span> Processing your request...
+        </div>
+      `;
+
+            elements.chatMessages.appendChild(messageDiv);
+            scrollToBottom(elements.chatMessages);
+        }
+
+        function removeAgentThinking() {
+            const thinking = document.getElementById('thinking-message');
+            if (thinking) {
+                thinking.remove();
+            }
+        }
+
+        function updateLogs(logs) {
+            state.logs = logs;
+            elements.logCount.textContent = `(${logs.length})`;
+
+            let html = '';
+            for (const log of logs) {
+                html += `<div class="log-entry log-${log.level}">
+          <span class="log-time">[${formatTime(log.ts)}]</span>
+          <span class="log-level">[${log.level}]</span>
+          <span class="log-msg">${escapeHtml(log.msg)}</span>
+        </div>`;
+            }
+
+            elements.logsContent.innerHTML = html;
+            scrollToBottom(elements.logsContent);
+        }
+
+        function toggleLogsPanel() {
+            state.logsExpanded = !state.logsExpanded;
+
+            if (state.logsExpanded) {
+                elements.logsPanel.classList.remove('collapsed');
+                elements.toggleLogs.textContent = '▲ Collapse';
+            } else {
+                elements.logsPanel.classList.add('collapsed');
+                elements.toggleLogs.textContent = '▼ Expand';
+            }
+        }
+
+        function renderReport(report) {
+            if (!report) {
+                elements.reportPanel.classList.remove('visible');
+                return;
+            }
+
+            elements.reportPanel.classList.add('visible');
+
+            const stopReasonEmoji = getStopReasonEmoji(report.stop_reason);
+            const artifacts = report.artifacts || [];
+            const papers = report.papers || [];
+            const decisions = report.decisions || [];
+            const actions = report.actions || [];
+
+            let html = '';
+
+            // Stop Reason
+            if (report.stop_reason) {
+                html += `
+          <div class="stop-reason">
+            <span class="stop-reason-icon">${stopReasonEmoji}</span>
+            <span class="stop-reason-text">Stop Reason: ${escapeHtml(report.stop_reason)}</span>
+          </div>
+        `;
+            }
+
+            // Summary Cards
+            html += `
+        <div class="report-summary">
+          <div class="summary-card">
+            <div class="value">${report.papers_processed || 0}</div>
+            <div class="label">Papers Processed</div>
+          </div>
+          <div class="summary-card">
+            <div class="value">${report.decisions_made || 0}</div>
+            <div class="label">Decisions Made</div>
+          </div>
+          <div class="summary-card">
+            <div class="value">${report.actions_taken || 0}</div>
+            <div class="label">Actions Taken</div>
+          </div>
+          <div class="summary-card">
+            <div class="value">${artifacts.length}</div>
+            <div class="label">Artifacts Generated</div>
+          </div>
+        </div>
+      `;
+
+            // Papers Section
+            if (papers.length > 0) {
+                html += `
+          <div class="report-section">
+            <h3>Papers Processed</h3>
+            <table class="papers-table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Importance</th>
+                  <th>Categories</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+
+                for (const paper of papers) {
+                    const importance = paper.importance || 'low';
+                    const title = paper.title || paper.arxiv_id || 'Unknown';
+                    const categories = (paper.categories || []).slice(0, 3).join(', ') || '-';
+
+                    html += `
+            <tr>
+              <td>${escapeHtml(title.substring(0, 60))}${title.length > 60 ? '...' : ''}</td>
+              <td><span class="importance-badge importance-${importance}">${importance}</span></td>
+              <td>${escapeHtml(categories)}</td>
+            </tr>
+          `;
+                }
+
+                html += '</tbody></table></div>';
+            }
+
+            // Decisions Section
+            if (decisions.length > 0) {
+                html += `<div class="report-section"><h3>Decisions</h3><div class="decisions-list">`;
+
+                for (const decision of decisions) {
+                    const icon = getDecisionIcon(decision.decision);
+                    html += `
+            <div class="decision-item">
+              <span class="decision-icon">${icon}</span>
+              <div class="decision-info">
+                <div class="decision-title">${escapeHtml(decision.title || decision.paper_id || 'Paper')}</div>
+                <div class="decision-detail">${escapeHtml(decision.decision || 'Processed')} • Importance: ${decision.importance || '-'}</div>
+              </div>
+            </div>
+          `;
+                }
+
+                html += '</div></div>';
+            }
+
+            // Artifacts Section
+            if (artifacts.length > 0) {
+                html += `
+          <div class="report-section">
+            <h3>Generated Artifacts</h3>
+            <ul class="artifacts-list">
+        `;
+
+                for (const artifact of artifacts) {
+                    const path = typeof artifact === 'string' ? artifact : (artifact.path || artifact.file_path || JSON.stringify(artifact));
+                    const icon = getArtifactIcon(path);
+
+                    html += `
+            <li>
+              <span class="artifact-icon">${icon}</span>
+              <span class="artifact-path">${escapeHtml(path)}</span>
+            </li>
+          `;
+                }
+
+                html += '</ul></div>';
+            } else {
+                // Check actions for file artifacts
+                const fileActions = actions.filter(a => a.action_type === 'file_write' || a.file_path);
+                if (fileActions.length > 0) {
+                    html += `
+            <div class="report-section">
+              <h3>Generated Artifacts</h3>
+              <ul class="artifacts-list">
+          `;
+
+                    for (const action of fileActions) {
+                        const path = action.file_path || action.path || 'Unknown';
+                        const icon = getArtifactIcon(path);
+
+                        html += `
+              <li>
+                <span class="artifact-icon">${icon}</span>
+                <span class="artifact-path">${escapeHtml(path)}</span>
+              </li>
+            `;
+                    }
+
+                    html += '</ul></div>';
+                }
+            }
+
+            // Run Metadata
+            html += `
+        <div class="report-section">
+          <h3>Run Details</h3>
+          <div style="background:var(--bg);padding:12px;border-radius:8px;font-family:monospace;font-size:0.8rem;">
+            <div><strong>Run ID:</strong> ${escapeHtml(report.run_id || '-')}</div>
+            <div><strong>Start:</strong> ${formatTime(report.start_time || '')}</div>
+            <div><strong>End:</strong> ${formatTime(report.end_time || '')}</div>
+            <div><strong>Tool Calls:</strong> ${report.tool_calls_count || 0}</div>
+          </div>
+        </div>
+      `;
+
+            elements.reportContent.innerHTML = html;
+            scrollToBottom(elements.chatMessages);
+        }
+
+        function getStopReasonEmoji(reason) {
+            if (!reason) return '✅';
+            const lower = reason.toLowerCase();
+            if (lower.includes('max_runtime')) return '⏱️';
+            if (lower.includes('max_papers')) return '📄';
+            if (lower.includes('no_new_papers')) return '🔍';
+            if (lower.includes('max_rag')) return '🗄️';
+            if (lower.includes('importance')) return '📊';
+            if (lower.includes('terminate')) return '🛑';
+            if (lower.includes('success') || lower.includes('completed')) return '✅';
+            return '🏁';
+        }
+
+        function getDecisionIcon(decision) {
+            if (!decision) return '📄';
+            const lower = decision.toLowerCase();
+            if (lower.includes('save') || lower.includes('saved')) return '💾';
+            if (lower.includes('share')) return '📤';
+            if (lower.includes('ignore')) return '🚫';
+            if (lower.includes('log')) return '📝';
+            return '📄';
+        }
+
+        function getArtifactIcon(path) {
+            if (!path) return '📄';
+            const lower = path.toLowerCase();
+            if (lower.includes('email')) return '📧';
+            if (lower.includes('calendar') || lower.includes('.ics')) return '📅';
+            if (lower.includes('share')) return '📤';
+            if (lower.includes('reading')) return '📚';
+            if (lower.includes('.md')) return '📝';
+            if (lower.includes('.json')) return '📋';
+            return '📄';
+        }
+
+        // =============================================================================
+        // API Calls
+        // =============================================================================
+        async function executeAgent(inputMessage) {
+            // Use the required /api/execute endpoint (per Course Project requirements)
+            try {
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: inputMessage }),
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to execute agent');
+                }
+
+                return await response.json();
+            } catch (err) {
+                console.error('Execute agent error:', err);
+                throw err;
+            }
+        }
+
+        async function startChat(message) {
+            // Legacy endpoint - use executeAgent for new code
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message }),
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start chat');
+                }
+
+                return await response.json();
+            } catch (err) {
+                console.error('Start chat error:', err);
+                throw err;
+            }
+        }
+
+        async function pollStatus(runId) {
+            try {
+                const response = await fetch(`/api/status?run_id=${encodeURIComponent(runId)}`);
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Run not found');
+                    }
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to get status');
+                }
+
+                return await response.json();
+            } catch (err) {
+                console.error('Poll status error:', err);
+                throw err;
+            }
+        }
+
+        // =============================================================================
+        // Event Handlers
+        // =============================================================================
+        async function handleSend() {
+            const message = elements.messageInput.value.trim();
+            if (!message || state.isRunning) return;
+
+            // Reset UI
+            state.isRunning = true;
+            state.logs = [];
+            elements.messageInput.value = '';
+            setInputEnabled(false);
+            setStatus('running');
+            elements.reportPanel.classList.remove('visible');
+            updateLogs([]);
+
+            // Show user message
+            addMessage(message, true);
+            addAgentThinking();
+
+            // Expand logs panel
+            if (!state.logsExpanded) {
+                toggleLogsPanel();
+            }
+
+            try {
+                // Use the /api/execute endpoint (per Course Project requirements)
+                const result = await executeAgent(message);
+
+                state.isRunning = false;
+                removeAgentThinking();
+                setInputEnabled(true);
+
+                // Handle new response format: { status, error, response, steps }
+                if (result.status === 'ok') {
+                    setStatus('done');
+                    addMessage(result.response || 'Agent completed successfully.', false);
+
+                    // Display execution steps if available
+                    if (result.steps && result.steps.length > 0) {
+                        console.log('Execution steps:', result.steps);
+                        // Show step count in logs panel
+                        updateLogs(result.steps.map((step, i) => ({
+                            ts: new Date().toISOString(),
+                            level: 'INFO',
+                            msg: `Step ${i + 1}: ${step.module} - ${JSON.stringify(step.response).substring(0, 100)}`
+                        })));
+                    }
+                } else {
+                    setStatus('error');
+                    addMessage(`Error: ${result.error || 'Unknown error'}`, false);
+                }
+
+            } catch (err) {
+                state.isRunning = false;
+                removeAgentThinking();
+                addMessage(`Error: ${err.message}`, false);
+                setInputEnabled(true);
+                setStatus('error');
+            }
+        }
+
+        function startPolling(runId) {
+            if (state.pollInterval) {
+                clearInterval(state.pollInterval);
+            }
+
+            // Poll immediately
+            pollAndUpdate(runId);
+
+            // Then poll every 1 second
+            state.pollInterval = setInterval(() => {
+                pollAndUpdate(runId);
+            }, 1000);
+        }
+
+        async function pollAndUpdate(runId) {
+            try {
+                const status = await pollStatus(runId);
+
+                // Update logs
+                updateLogs(status.logs || []);
+
+                // Check if done
+                if (status.status === 'done' || status.status === 'error') {
+                    stopPolling();
+                    state.isRunning = false;
+                    removeAgentThinking();
+                    setInputEnabled(true);
+                    setStatus(status.status);
+
+                    if (status.status === 'done') {
+                        const papersCount = status.report?.papers_processed || 0;
+                        const actionsCount = status.report?.actions_taken || 0;
+                        addMessage(
+                            `✅ Run completed! Processed ${papersCount} papers, took ${actionsCount} actions.`,
+                            false,
+                            status.report?.end_time
+                        );
+                        renderReport(status.report);
+                    } else if (status.status === 'error') {
+                        addMessage(`❌ Error: ${status.error || 'Unknown error'}`, false);
+                    }
+                }
+
+            } catch (err) {
+                console.error('Polling error:', err);
+                // Don't stop polling on transient errors
+                if (err.message === 'Run not found') {
+                    stopPolling();
+                    state.isRunning = false;
+                    removeAgentThinking();
+                    addMessage(`Error: Run not found`, false);
+                    setInputEnabled(true);
+                    setStatus('error');
+                }
+            }
+        }
+
+        function stopPolling() {
+            if (state.pollInterval) {
+                clearInterval(state.pollInterval);
+                state.pollInterval = null;
+            }
+        }
+
+        // =============================================================================
+        // Event Listeners
+        // =============================================================================
+        elements.sendBtn.addEventListener('click', handleSend);
+
+        elements.messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+
+        elements.toggleLogs.addEventListener('click', toggleLogsPanel);
+
+        // Focus input on load
+        elements.messageInput.focus();
+
+        // Check health on load
+        fetch('/api/health')
+            .then(r => r.json())
+            .then(data => {
+                console.log('ResearchPulse backend:', data);
+            })
+            .catch(err => {
+                console.warn('Backend health check failed:', err);
+                addMessage('⚠️ Backend may not be running. Please start the server.', false);
+            });
+    </script>
+</body>
+
+</html>

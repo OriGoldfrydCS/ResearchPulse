@@ -1,0 +1,127 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "researchpulse"
+version = "0.1.0"
+description = "Research Awareness and Sharing Agent - A ReAct agent powered by LangChain, Pinecone RAG, and FastAPI"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ResearchPulse Team"}
+]
+keywords = [
+    "research",
+    "arxiv",
+    "langchain",
+    "react-agent",
+    "pinecone",
+    "rag",
+    "fastapi",
+    "scientific-papers"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: FastAPI",
+]
+dependencies = [
+    "fastapi>=0.109.0,<1.0.0",
+    "uvicorn[standard]>=0.27.0,<1.0.0",
+    "pydantic>=2.5.0,<3.0.0",
+    "pydantic-settings>=2.1.0,<3.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "langchain>=0.1.0,<1.0.0",
+    "langchain-core>=0.1.0,<1.0.0",
+    "langchain-community>=0.0.10,<1.0.0",
+    "langchain-openai>=0.0.5,<1.0.0",
+    "pinecone-client>=3.0.0,<4.0.0",
+    "langchain-pinecone>=0.2.0",
+    "openai>=1.10.0,<2.0.0",
+    "tiktoken>=0.5.0,<1.0.0",
+    "arxiv>=2.1.0,<3.0.0",
+    "feedparser>=6.0.0,<7.0.0",
+    "httpx>=0.26.0,<1.0.0",
+    "aiofiles>=23.2.0,<24.0.0",
+    "python-dateutil>=2.8.0,<3.0.0",
+    "pinecone<6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0,<8.0.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
+    "black>=24.1.0,<25.0.0",
+    "isort>=5.13.0,<6.0.0",
+    "mypy>=1.8.0,<2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/researchpulse/researchpulse"
+Documentation = "https://github.com/researchpulse/researchpulse#readme"
+Repository = "https://github.com/researchpulse/researchpulse"
+Issues = "https://github.com/researchpulse/researchpulse/issues"
+
+[project.scripts]
+researchpulse = "main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | venv
+    | build
+    | dist
+    | __pycache__
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = [".git", ".venv", "venv", "build", "dist"]
+known_first_party = ["src"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+exclude = [
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"

@@ -1,0 +1,866 @@
+"""
+LangChain ReAct Agent - Research Awareness and Sharing Agent.
+
+This module implements the ReAct (Reasoning + Acting) pattern for the
+episodic research paper discovery and sharing agent.
+
+**ReAct Loop:**
+1. Thought: Agent reasons about what to do next
+2. Action: Agent selects and invokes a tool
+3. Observation: Agent receives tool output
+4. Repeat until termination condition or TERMINATE action
+
+**Stop Controller Integration:**
+- Checked before each tool call
+- Checked after each observation
+- Enforces bounded execution (max runtime, max papers, etc.)
+
+**Tools:**
+- fetch_arxiv_papers: Retrieve papers from arXiv
+- check_seen_papers: Identify unseen papers
+- retrieve_similar_from_pinecone: RAG similarity search
+- score_relevance_and_importance: Score paper relevance/novelty
+- decide_delivery_action: Determine delivery actions
+- persist_state: Save paper decisions
+- generate_report: Create final run report
+- terminate_run: End the episode
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from pydantic import BaseModel, Field
+
+# Add parent directories to path for sibling imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from agent.stop_controller import StopController, StopPolicy, RunMetrics, StopReason
+
+
+# =============================================================================
+# Tool Import and Registration
+# =============================================================================
+
+# Import all tools
+from tools.fetch_arxiv import fetch_arxiv_papers, fetch_arxiv_papers_json
+from tools.check_seen import check_seen_papers, check_seen_papers_json
+from tools.retrieve_similar import retrieve_similar_from_pinecone, retrieve_similar_from_pinecone_json
+from tools.score_relevance import score_relevance_and_importance, score_relevance_and_importance_json, score_papers_batch
+from tools.decide_delivery import decide_delivery_action, decide_delivery_action_json, write_artifact_files
+from tools.persist_state import persist_paper_decision, persist_paper_decisions_batch, reset_run_tracker
+from tools.generate_report import generate_report, generate_report_json
+from tools.terminate_run import terminate_run, terminate_run_json
+
+# Import DB utilities
+from db.json_store import get_research_profile, get_colleagues, get_delivery_policy
+
+
+# =============================================================================
+# Agent State Models
+# =============================================================================
+
+class ToolCall(BaseModel):
+    """Record of a single tool call."""
+    tool_name: str = Field(..., description="Name of the tool called")
+    input_args: Dict[str, Any] = Field(default_factory=dict, description="Tool input arguments")
+    output: Any = Field(None, description="Tool output")
+    timestamp: str = Field(..., description="When the call was made")
+    duration_ms: float = Field(0, description="Call duration in milliseconds")
+    success: bool = Field(True, description="Whether the call succeeded")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class AgentStep(BaseModel):
+    """A single step in the ReAct loop."""
+    step_number: int = Field(..., description="Step sequence number")
+    thought: str = Field("", description="Agent's reasoning")
+    action: Optional[str] = Field(None, description="Tool name to call")
+    action_input: Dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
+    observation: Any = Field(None, description="Tool output")
+    timestamp: str = Field(..., description="Step timestamp")
+
+
+class AgentEpisode(BaseModel):
+    """Complete record of an agent episode."""
+    run_id: str = Field(..., description="Unique run identifier")
+    start_time: str = Field(..., description="Episode start time")
+    end_time: Optional[str] = Field(None, description="Episode end time")
+    user_message: str = Field(..., description="Original user request")
+    steps: List[AgentStep] = Field(default_factory=list, description="All steps taken")
+    tool_calls: List[ToolCall] = Field(default_factory=list, description="All tool calls made")
+    stop_reason: Optional[str] = Field(None, description="Why the episode ended")
+    final_report: Optional[Dict[str, Any]] = Field(None, description="Final run report")
+    papers_processed: List[Dict[str, Any]] = Field(default_factory=list, description="Papers processed")
+    decisions_made: List[Dict[str, Any]] = Field(default_factory=list, description="Decisions made")
+    actions_taken: List[Dict[str, Any]] = Field(default_factory=list, description="Actions taken")
+    artifacts_generated: List[Dict[str, Any]] = Field(default_factory=list, description="Artifacts generated")
+
+
+class AgentConfig(BaseModel):
+    """Configuration for the ReAct agent."""
+    max_steps: int = Field(50, description="Maximum steps before forced termination")
+    stop_policy: StopPolicy = Field(default_factory=StopPolicy, description="Stop policy configuration")
+    use_mock_arxiv: bool = Field(True, description="Use mock arXiv data for demo")
+    verbose: bool = Field(True, description="Enable verbose logging")
+
+
+# =============================================================================
+# Tool Registry
+# =============================================================================
+
+class ToolRegistry:
+    """Registry of available tools for the agent."""
+    
+    def __init__(self, research_profile: Dict[str, Any] = None):
+        self._tools: Dict[str, Callable] = {}
+        self._schemas: Dict[str, Dict] = {}
+        self._research_profile = research_profile or {}
+        self._register_default_tools()
+    
+    def _register_default_tools(self):
+        """Register all default tools."""
+        # Tool: fetch_arxiv_papers
+        self.register(
+            name="fetch_arxiv_papers",
+            func=self._wrap_fetch_arxiv,
+            schema={
+                "description": "Fetch recent papers from arXiv matching category/keyword criteria",
+                "parameters": ["categories_include", "categories_exclude", "max_results", "query"]
+            }
+        )
+        
+        # Tool: check_seen_papers
+        self.register(
+            name="check_seen_papers",
+            func=self._wrap_check_seen,
+            schema={
+                "description": "Identify which papers have been seen before",
+                "parameters": ["papers"]
+            }
+        )
+        
+        # Tool: retrieve_similar_from_pinecone
+        self.register(
+            name="retrieve_similar_from_pinecone",
+            func=self._wrap_retrieve_similar,
+            schema={
+                "description": "Query Pinecone for similar documents via RAG",
+                "parameters": ["query_text", "top_k", "similarity_threshold"]
+            }
+        )
+        
+        # Tool: score_relevance_and_importance
+        self.register(
+            name="score_relevance_and_importance",
+            func=self._wrap_score_relevance,
+            schema={
+                "description": "Score a paper's relevance, novelty, and importance",
+                "parameters": ["paper", "research_profile", "rag_results"]
+            }
+        )
+        
+        # Tool: decide_delivery_action
+        self.register(
+            name="decide_delivery_action",
+            func=self._wrap_decide_delivery,
+            schema={
+                "description": "Decide delivery actions for a scored paper",
+                "parameters": ["scored_paper", "delivery_policy", "colleagues"]
+            }
+        )
+        
+        # Tool: persist_state
+        self.register(
+            name="persist_state",
+            func=self._wrap_persist_state,
+            schema={
+                "description": "Persist paper decisions to database",
+                "parameters": ["paper_decision"]
+            }
+        )
+        
+        # Tool: generate_report
+        self.register(
+            name="generate_report",
+            func=self._wrap_generate_report,
+            schema={
+                "description": "Generate final run report",
+                "parameters": ["run_id", "start_time", "stop_reason", "papers", "decisions"]
+            }
+        )
+        
+        # Tool: terminate_run
+        self.register(
+            name="terminate_run",
+            func=self._wrap_terminate_run,
+            schema={
+                "description": "Terminate the current run",
+                "parameters": ["run_id", "stop_reason", "final_metrics"]
+            }
+        )
+    
+    def register(self, name: str, func: Callable, schema: Dict):
+        """Register a tool."""
+        self._tools[name] = func
+        self._schemas[name] = schema
+    
+    def get_tool(self, name: str) -> Optional[Callable]:
+        """Get a tool by name."""
+        return self._tools.get(name)
+    
+    def list_tools(self) -> List[str]:
+        """List all available tool names."""
+        return list(self._tools.keys())
+    
+    def get_tools_description(self) -> str:
+        """Get a formatted description of all tools."""
+        lines = ["Available tools:"]
+        for name, schema in self._schemas.items():
+            desc = schema.get("description", "No description")
+            lines.append(f"  - {name}: {desc}")
+        return "\n".join(lines)
+    
+    # Wrapper methods that normalize inputs/outputs
+    
+    def _wrap_fetch_arxiv(self, **kwargs) -> Dict[str, Any]:
+        result = fetch_arxiv_papers(**kwargs, use_mock=False)
+        return {
+            "success": result.success,
+            "papers": [p.model_dump() for p in result.papers],
+            "total_found": result.total_found,
+            "error": result.error
+        }
+    
+    def _wrap_check_seen(self, **kwargs) -> Dict[str, Any]:
+        return check_seen_papers_json(**kwargs)
+    
+    def _wrap_retrieve_similar(self, **kwargs) -> Dict[str, Any]:
+        return retrieve_similar_from_pinecone_json(**kwargs)
+    
+    def _wrap_score_relevance(self, **kwargs) -> Dict[str, Any]:
+        return score_relevance_and_importance_json(**kwargs)
+    
+    def _wrap_decide_delivery(self, **kwargs) -> Dict[str, Any]:
+        # Pass researcher name and email from profile
+        researcher_name = self._research_profile.get("researcher_name", "Researcher")
+        researcher_email = self._research_profile.get("researcher_email", "")
+        return decide_delivery_action_json(
+            researcher_name=researcher_name,
+            researcher_email=researcher_email,
+            **kwargs
+        )
+    
+    def _wrap_persist_state(self, **kwargs) -> Dict[str, Any]:
+        result = persist_paper_decision(**kwargs)
+        return result.model_dump()
+    
+    def _wrap_generate_report(self, **kwargs) -> Dict[str, Any]:
+        return generate_report_json(**kwargs)
+    
+    def _wrap_terminate_run(self, **kwargs) -> Dict[str, Any]:
+        return terminate_run_json(**kwargs)
+
+
+# =============================================================================
+# ReAct Agent Implementation
+# =============================================================================
+
+class ResearchReActAgent:
+    """
+    ReAct agent for research paper discovery and sharing.
+    
+    Implements the Thought -> Action -> Observation loop with
+    StopController integration for bounded episodic execution.
+    """
+    
+    def __init__(
+        self,
+        run_id: str,
+        config: Optional[AgentConfig] = None,
+        log_callback: Optional[Callable[[str, str, str], None]] = None,
+    ):
+        """
+        Initialize the ReAct agent.
+        
+        Args:
+            run_id: Unique identifier for this run
+            config: Agent configuration (uses defaults if None)
+            log_callback: Optional callback for logging (level, message, timestamp)
+        """
+        self.run_id = run_id
+        self.config = config or AgentConfig()
+        self.log_callback = log_callback
+        
+        # Load research profile and colleagues
+        self._research_profile = get_research_profile()
+        self._colleagues = get_colleagues()
+        self._delivery_policy = get_delivery_policy()
+        
+        # Initialize components (after loading profile so we can pass it)
+        self.tool_registry = ToolRegistry(research_profile=self._research_profile)
+        self.stop_controller = StopController(policy=self.config.stop_policy)
+        
+        # Episode state
+        self.episode: Optional[AgentEpisode] = None
+        self.current_step = 0
+        self._terminated = False
+        
+        # Working state (accumulated during run)
+        self._fetched_papers: List[Dict] = []
+        self._unseen_papers: List[Dict] = []
+        self._scored_papers: List[Dict] = []
+        self._decisions: List[Dict] = []
+        self._actions: List[Dict] = []
+        self._artifacts: List[Dict] = []
+    
+    def _log(self, level: str, message: str):
+        """Log a message."""
+        ts = datetime.utcnow().isoformat() + "Z"
+        if self.log_callback:
+            self.log_callback(level, message, ts)
+        if self.config.verbose:
+            print(f"[{level}] {message}")
+    
+    def _create_tool_call_record(
+        self,
+        tool_name: str,
+        input_args: Dict,
+        output: Any,
+        duration_ms: float,
+        success: bool,
+        error: Optional[str] = None
+    ) -> ToolCall:
+        """Create a tool call record."""
+        return ToolCall(
+            tool_name=tool_name,
+            input_args=input_args,
+            output=output,
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            duration_ms=duration_ms,
+            success=success,
+            error=error
+        )
+    
+    def _invoke_tool(self, tool_name: str, **kwargs) -> Tuple[Any, bool, Optional[str]]:
+        """
+        Invoke a tool and return (output, success, error).
+        """
+        start_time = datetime.utcnow()
+        
+        tool_func = self.tool_registry.get_tool(tool_name)
+        if not tool_func:
+            return None, False, f"Tool not found: {tool_name}"
+        
+        try:
+            output = tool_func(**kwargs)
+            duration_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            
+            # Record the tool call
+            record = self._create_tool_call_record(
+                tool_name, kwargs, output, duration_ms, True, None
+            )
+            self.episode.tool_calls.append(record)
+            
+            self._log("INFO", f"Tool {tool_name} completed in {duration_ms:.1f}ms")
+            return output, True, None
+            
+        except Exception as e:
+            duration_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            error_msg = str(e)
+            
+            # Record failed call
+            record = self._create_tool_call_record(
+                tool_name, kwargs, None, duration_ms, False, error_msg
+            )
+            self.episode.tool_calls.append(record)
+            
+            self._log("ERROR", f"Tool {tool_name} failed: {error_msg}")
+            return None, False, error_msg
+    
+    def _check_stop_condition(self) -> Tuple[bool, str]:
+        """Check if we should stop the agent."""
+        if self._terminated:
+            return True, self.stop_controller.stop_reason
+        
+        should_stop, reason = self.stop_controller.should_stop()
+        if should_stop:
+            self._terminated = True
+            return True, reason
+        
+        # Check max steps
+        if self.current_step >= self.config.max_steps:
+            self._terminated = True
+            return True, "max_steps reached"
+        
+        return False, ""
+    
+    def _run_workflow(self, user_message: str) -> AgentEpisode:
+        """
+        Execute the full agent workflow.
+        
+        This implements a structured workflow rather than free-form ReAct:
+        1. Fetch papers from arXiv
+        2. Check which are unseen
+        3. For each unseen paper: query RAG, score, decide, persist
+        4. Generate report
+        5. Terminate
+        """
+        self._log("INFO", f"Starting workflow for: {user_message[:100]}...")
+        
+        # Reset run tracker for idempotency
+        reset_run_tracker()
+        
+        # Step 1: Fetch papers from arXiv
+        self._log("INFO", "Step 1: Fetching papers from arXiv...")
+        should_stop, reason = self._check_stop_condition()
+        if should_stop:
+            return self._finalize_episode(reason)
+        
+        categories_include = self._research_profile.get("arxiv_categories_include", ["cs.CL", "cs.LG"])
+        categories_exclude = self._research_profile.get("arxiv_categories_exclude", [])
+        
+        fetch_result, success, error = self._invoke_tool(
+            "fetch_arxiv_papers",
+            categories_include=categories_include,
+            categories_exclude=categories_exclude,
+            max_results=self.config.stop_policy.max_papers_checked,
+        )
+        
+        if not success or not fetch_result.get("success"):
+            return self._finalize_episode(f"fetch_arxiv_papers failed: {error or fetch_result.get('error')}")
+        
+        self._fetched_papers = fetch_result.get("papers", [])
+        # NOTE: Don't increment papers_checked here - it should track papers actually PROCESSED (scored),
+        # not papers fetched. We'll increment it as we process each paper.
+        self._log("INFO", f"Fetched {len(self._fetched_papers)} papers from arXiv")
+        
+        # Step 2: Check which papers are unseen
+        self._log("INFO", "Step 2: Checking seen/unseen papers...")
+        # NOTE: Don't check stop condition here - we need to run check_seen_papers first
+        # to determine if there are new papers before evaluating stop_if_no_new_papers
+        
+        check_result, success, error = self._invoke_tool(
+            "check_seen_papers",
+            papers=self._fetched_papers
+        )
+        
+        if not success:
+            return self._finalize_episode(f"check_seen_papers failed: {error}")
+        
+        self._unseen_papers = check_result.get("unseen_papers", [])
+        seen_count = check_result.get("summary", {}).get("seen", 0)
+        self.stop_controller.set_new_papers_found(len(self._unseen_papers))
+        
+        self._log("INFO", f"Found {len(self._unseen_papers)} unseen papers, {seen_count} already seen")
+        
+        # Check stop condition for no new papers
+        should_stop, reason = self._check_stop_condition()
+        if should_stop:
+            return self._finalize_episode(reason)
+        
+        # Step 3: Process each unseen paper
+        self._log("INFO", "Step 3: Processing unseen papers...")
+        
+        for i, paper in enumerate(self._unseen_papers):
+            self._log("INFO", f"Processing paper {i+1}/{len(self._unseen_papers)}: {paper.get('title', '')[:50]}...")
+            
+            should_stop, reason = self._check_stop_condition()
+            if should_stop:
+                return self._finalize_episode(reason)
+            
+            # 3a: Query RAG for similar papers
+            rag_results = None
+            if self.stop_controller.metrics.rag_queries < self.config.stop_policy.max_rag_queries:
+                rag_result, success, _ = self._invoke_tool(
+                    "retrieve_similar_from_pinecone",
+                    query_text=f"{paper.get('title', '')} {paper.get('abstract', '')[:500]}",
+                    top_k=5
+                )
+                if success:
+                    rag_results = rag_result
+                    self.stop_controller.increment_rag_queries(1)
+            
+            # 3b: Score relevance and importance
+            score_result, success, error = self._invoke_tool(
+                "score_relevance_and_importance",
+                paper={
+                    "arxiv_id": paper.get("arxiv_id"),
+                    "title": paper.get("title"),
+                    "abstract": paper.get("abstract", ""),
+                    "categories": paper.get("categories", []),
+                    "authors": paper.get("authors", []),
+                    "publication_date": paper.get("published"),
+                    "link": paper.get("link"),
+                },
+                research_profile={
+                    "research_topics": self._research_profile.get("research_topics", []),
+                    "avoid_topics": self._research_profile.get("avoid_topics", []),
+                    "arxiv_categories_include": self._research_profile.get("arxiv_categories_include", []),
+                    "arxiv_categories_exclude": self._research_profile.get("arxiv_categories_exclude", []),
+                    "preferred_venues": self._research_profile.get("preferred_venues", []),
+                },
+                rag_results=rag_results if rag_results and rag_results.get("success") else None,
+                min_importance_to_act=self.config.stop_policy.min_importance_to_act,
+            )
+            
+            if not success:
+                self._log("WARN", f"Scoring failed for {paper.get('arxiv_id')}: {error}")
+                continue
+            
+            # Increment papers_checked now that we've actually processed (scored) this paper
+            self.stop_controller.increment_papers_checked(1)
+            
+            # Update highest importance
+            importance = score_result.get("importance", "low")
+            self.stop_controller.update_highest_importance(importance)
+            
+            scored_paper = {
+                **paper,
+                "relevance_score": score_result.get("relevance_score", 0),
+                "novelty_score": score_result.get("novelty_score", 0),
+                "importance": importance,
+                "explanation": score_result.get("explanation", ""),
+            }
+            self._scored_papers.append(scored_paper)
+            
+            # 3c: Decide delivery actions
+            delivery_result, success, error = self._invoke_tool(
+                "decide_delivery_action",
+                scored_paper=scored_paper,
+                delivery_policy=self._delivery_policy,
+                colleagues=self._colleagues,
+            )
+            
+            if success:
+                # Record actions
+                researcher_actions = delivery_result.get("researcher_actions", [])
+                colleague_actions = delivery_result.get("colleague_actions", [])
+                files_to_write = delivery_result.get("files_to_write", [])
+                
+                self._actions.extend(researcher_actions)
+                self._actions.extend(colleague_actions)
+                self._artifacts.extend(files_to_write)
+                
+                # Write artifact files
+                if files_to_write:
+                    from tools.decide_delivery import FileToWrite
+                    file_objects = [FileToWrite(**f) for f in files_to_write]
+                    write_artifact_files(file_objects)
+                
+                # Record decision
+                decision = {
+                    "paper_id": paper.get("arxiv_id"),
+                    "paper_title": paper.get("title"),
+                    "importance": importance,
+                    "decision": "saved" if importance in ["high", "medium"] else "logged",
+                    "actions": [a.get("action_type") for a in researcher_actions if a.get("action_type") != "log"],
+                }
+                self._decisions.append(decision)
+            
+            # 3d: Persist state
+            persist_result, success, error = self._invoke_tool(
+                "persist_state",
+                paper_decision={
+                    "paper_id": paper.get("arxiv_id"),
+                    "title": paper.get("title"),
+                    "decision": "saved" if importance in ["high", "medium"] else "logged",
+                    "importance": importance,
+                    "notes": score_result.get("explanation", ""),
+                    "embedded_in_pinecone": False,
+                    "relevance_score": score_result.get("relevance_score"),
+                    "novelty_score": score_result.get("novelty_score"),
+                }
+            )
+            
+            if not success:
+                self._log("WARN", f"Persist failed for {paper.get('arxiv_id')}: {error}")
+        
+        # Check if any paper met importance threshold
+        should_stop, reason = self._check_stop_condition()
+        if should_stop:
+            return self._finalize_episode(reason)
+        
+        # Mark completion if we get here
+        self.stop_controller.mark_completed()
+        return self._finalize_episode(self.stop_controller.stop_reason)
+    
+    def _finalize_episode(self, stop_reason: str) -> AgentEpisode:
+        """Finalize the episode with report generation."""
+        self._log("INFO", f"Finalizing episode with stop reason: {stop_reason}")
+        
+        # Generate report
+        report_result, success, error = self._invoke_tool(
+            "generate_report",
+            run_id=self.run_id,
+            start_time=self.episode.start_time,
+            stop_reason=stop_reason,
+            papers=[{
+                "arxiv_id": p.get("arxiv_id"),
+                "title": p.get("title"),
+                "importance": p.get("importance"),
+                "relevance_score": p.get("relevance_score"),
+                "novelty_score": p.get("novelty_score"),
+                "decision": next((d.get("decision") for d in self._decisions if d.get("paper_id") == p.get("arxiv_id")), "logged"),
+                "is_unseen": True,
+            } for p in self._scored_papers],
+            decisions=self._decisions,
+            actions=self._actions,
+            artifacts=self._artifacts,
+            rag_query_count=self.stop_controller.metrics.rag_queries,
+            unseen_count=len(self._unseen_papers),
+            seen_count=len(self._fetched_papers) - len(self._unseen_papers),
+            highest_importance=self.stop_controller.metrics.highest_importance,
+        )
+        
+        # Terminate run
+        terminate_result, _, _ = self._invoke_tool(
+            "terminate_run",
+            run_id=self.run_id,
+            stop_reason=stop_reason,
+            final_metrics=self.stop_controller.metrics.to_dict(),
+            success=True,
+        )
+        
+        # Update episode
+        self.episode.end_time = datetime.utcnow().isoformat() + "Z"
+        self.episode.stop_reason = stop_reason
+        self.episode.papers_processed = self._scored_papers
+        self.episode.decisions_made = self._decisions
+        self.episode.actions_taken = self._actions
+        self.episode.artifacts_generated = self._artifacts
+        
+        if success and report_result:
+            self.episode.final_report = report_result.get("report_json", {})
+        
+        self._log("INFO", f"Episode completed. Processed {len(self._scored_papers)} papers, made {len(self._decisions)} decisions")
+        
+        return self.episode
+    
+    def run(self, user_message: str) -> AgentEpisode:
+        """
+        Execute a full agent episode.
+        
+        Args:
+            user_message: The user's request/message to process
+            
+        Returns:
+            AgentEpisode with complete run information
+        """
+        # Initialize episode
+        self.episode = AgentEpisode(
+            run_id=self.run_id,
+            start_time=datetime.utcnow().isoformat() + "Z",
+            user_message=user_message,
+        )
+        
+        self._log("INFO", f"Starting agent episode: {self.run_id}")
+        
+        try:
+            return self._run_workflow(user_message)
+        except Exception as e:
+            self._log("ERROR", f"Agent episode failed: {str(e)}")
+            self.episode.end_time = datetime.utcnow().isoformat() + "Z"
+            self.episode.stop_reason = f"error: {str(e)}"
+            return self.episode
+
+
+# =============================================================================
+# Convenience Functions
+# =============================================================================
+
+def create_agent(
+    run_id: str,
+    stop_policy: Optional[StopPolicy] = None,
+    log_callback: Optional[Callable] = None,
+    verbose: bool = True,
+) -> ResearchReActAgent:
+    """
+    Create a configured ReAct agent.
+    
+    Args:
+        run_id: Unique identifier for this run
+        stop_policy: Optional custom stop policy
+        log_callback: Optional logging callback
+        verbose: Enable verbose output
+        
+    Returns:
+        Configured ResearchReActAgent instance
+    """
+    config = AgentConfig(
+        stop_policy=stop_policy or StopPolicy(),
+        verbose=verbose,
+    )
+    return ResearchReActAgent(
+        run_id=run_id,
+        config=config,
+        log_callback=log_callback,
+    )
+
+
+def run_agent_episode(
+    run_id: str,
+    user_message: str,
+    stop_policy: Optional[StopPolicy] = None,
+    log_callback: Optional[Callable] = None,
+) -> AgentEpisode:
+    """
+    Run a complete agent episode.
+    
+    Convenience function that creates an agent and runs it.
+    
+    Args:
+        run_id: Unique identifier for this run
+        user_message: The user's request
+        stop_policy: Optional custom stop policy
+        log_callback: Optional logging callback
+        
+    Returns:
+        AgentEpisode with complete run information
+    """
+    agent = create_agent(
+        run_id=run_id,
+        stop_policy=stop_policy,
+        log_callback=log_callback,
+    )
+    return agent.run(user_message)
+
+
+# =============================================================================
+# Self-Check
+# =============================================================================
+
+def self_check() -> bool:
+    """
+    Run self-check tests for the ReAct agent.
+    
+    Returns:
+        True if all checks pass, False otherwise.
+    """
+    print("=" * 60)
+    print("ResearchReActAgent Self-Check")
+    print("=" * 60)
+    
+    all_passed = True
+    
+    def check(name: str, condition: bool) -> bool:
+        status = "PASS" if condition else "FAIL"
+        print(f"  [{status}] {name}")
+        return condition
+
+    # Test 1: Create agent
+    print("\n1. Create Agent:")
+    try:
+        agent = create_agent("test-001", verbose=False)
+        all_passed &= check("agent created", agent is not None)
+        all_passed &= check("has run_id", agent.run_id == "test-001")
+        all_passed &= check("has tool_registry", agent.tool_registry is not None)
+        all_passed &= check("has stop_controller", agent.stop_controller is not None)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Test 2: Tool registry
+    print("\n2. Tool Registry:")
+    try:
+        registry = ToolRegistry()
+        tools = registry.list_tools()
+        all_passed &= check("has fetch_arxiv_papers", "fetch_arxiv_papers" in tools)
+        all_passed &= check("has check_seen_papers", "check_seen_papers" in tools)
+        all_passed &= check("has retrieve_similar_from_pinecone", "retrieve_similar_from_pinecone" in tools)
+        all_passed &= check("has score_relevance_and_importance", "score_relevance_and_importance" in tools)
+        all_passed &= check("has decide_delivery_action", "decide_delivery_action" in tools)
+        all_passed &= check("has persist_state", "persist_state" in tools)
+        all_passed &= check("has generate_report", "generate_report" in tools)
+        all_passed &= check("has terminate_run", "terminate_run" in tools)
+        all_passed &= check("total 8 tools", len(tools) == 8)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Test 3: Agent config
+    print("\n3. Agent Config:")
+    try:
+        config = AgentConfig()
+        all_passed &= check("default max_steps = 50", config.max_steps == 50)
+        all_passed &= check("default use_mock_arxiv = True", config.use_mock_arxiv is True)
+        all_passed &= check("has stop_policy", config.stop_policy is not None)
+        all_passed &= check("stop_policy max_runtime = 6", config.stop_policy.max_runtime_minutes == 6)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Test 4: Run short episode
+    print("\n4. Run Short Episode:")
+    try:
+        # Create agent with strict limits for fast test
+        policy = StopPolicy(
+            max_papers_checked=5,
+            max_rag_queries=3,
+            max_runtime_minutes=1,
+        )
+        episode = run_agent_episode(
+            run_id="test-002",
+            user_message="Find recent papers on transformers",
+            stop_policy=policy,
+            log_callback=None,
+        )
+        all_passed &= check("episode returned", episode is not None)
+        all_passed &= check("has run_id", episode.run_id == "test-002")
+        all_passed &= check("has start_time", bool(episode.start_time))
+        all_passed &= check("has end_time", bool(episode.end_time))
+        all_passed &= check("has stop_reason", bool(episode.stop_reason))
+        all_passed &= check("has tool_calls", len(episode.tool_calls) > 0)
+        all_passed &= check("has final_report", episode.final_report is not None)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Test 5: Episode structure
+    print("\n5. Episode Structure:")
+    try:
+        episode = AgentEpisode(
+            run_id="test-003",
+            start_time="2026-01-08T10:00:00Z",
+            user_message="Test message"
+        )
+        all_passed &= check("episode created", episode is not None)
+        all_passed &= check("steps list empty", len(episode.steps) == 0)
+        all_passed &= check("tool_calls list empty", len(episode.tool_calls) == 0)
+        all_passed &= check("papers_processed empty", len(episode.papers_processed) == 0)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Test 6: Tool call record
+    print("\n6. Tool Call Record:")
+    try:
+        call = ToolCall(
+            tool_name="test_tool",
+            input_args={"arg1": "value1"},
+            output={"result": "success"},
+            timestamp="2026-01-08T10:00:00Z",
+            duration_ms=150.5,
+            success=True
+        )
+        all_passed &= check("tool call created", call is not None)
+        all_passed &= check("has tool_name", call.tool_name == "test_tool")
+        all_passed &= check("has duration_ms", call.duration_ms == 150.5)
+    except Exception as e:
+        all_passed &= check(f"failed: {e}", False)
+
+    # Summary
+    print("\n" + "=" * 60)
+    if all_passed:
+        print("All checks PASSED!")
+    else:
+        print("Some checks FAILED!")
+    print("=" * 60)
+    
+    return all_passed
+
+
+if __name__ == "__main__":
+    import sys
+    success = self_check()
+    sys.exit(0 if success else 1)

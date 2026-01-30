@@ -1,0 +1,70 @@
+{
+    "researcher_name": "Ori Goldfryd",
+    "researcher_email": "origoldmsc@gmail.com",
+    "affiliation": "Technion - Israel Institute of Technology, Department of Data Science",
+    "research_topics": [
+        "large language models",
+        "transformer architectures",
+        "neural machine translation",
+        "retrieval-augmented generation",
+        "efficient inference",
+        "model compression"
+    ],
+    "my_papers": [
+        {
+            "title": "Efficient Attention Mechanisms for Long-Context Language Models",
+            "abstract": "We propose a novel sparse attention mechanism that reduces the quadratic complexity of standard transformers to linear complexity while maintaining competitive performance on long-context tasks. Our method leverages learned routing patterns to dynamically select relevant token pairs, achieving 3x speedup on sequences exceeding 8K tokens with minimal quality degradation.",
+            "year": 2025,
+            "arxiv_id": "2501.01234",
+            "link": "https://arxiv.org/abs/2501.01234"
+        },
+        {
+            "title": "RAG-Fusion: Improving Retrieval-Augmented Generation through Multi-Query Synthesis",
+            "abstract": "Retrieval-augmented generation systems often suffer from query-document mismatch. We introduce RAG-Fusion, a technique that generates multiple query variations and fuses their retrieved contexts using a learned aggregation mechanism. Experiments on knowledge-intensive QA benchmarks show 12% improvement in answer accuracy.",
+            "year": 2024,
+            "arxiv_id": "2412.05678",
+            "link": "https://arxiv.org/abs/2412.05678"
+        },
+        {
+            "title": "Quantization-Aware Training for Sub-4-Bit Language Models",
+            "abstract": "We present a quantization-aware training framework that enables language models to operate at 2-4 bit precision without significant performance loss. Our approach introduces gradient-based bit allocation and mixed-precision layers, reducing model size by 8x while retaining 95% of full-precision accuracy.",
+            "year": 2024,
+            "arxiv_id": "2409.09012",
+            "link": "https://arxiv.org/abs/2409.09012"
+        }
+    ],
+    "preferred_venues": [
+        "NeurIPS",
+        "ICML",
+        "ACL",
+        "EMNLP",
+        "ICLR",
+        "NAACL"
+    ],
+    "avoid_topics": [
+        "cryptocurrency",
+        "blockchain",
+        "social media analysis",
+        "sentiment analysis on Twitter",
+        "stock prediction"
+    ],
+    "time_budget_per_week_minutes": 120,
+    "arxiv_categories_include": [
+        "cs.CL",
+        "cs.LG",
+        "cs.AI",
+        "cs.IR"
+    ],
+    "arxiv_categories_exclude": [
+        "cs.CR",
+        "cs.NI",
+        "q-fin.ST"
+    ],
+    "stop_policy": {
+        "max_runtime_minutes": 6,
+        "max_papers_checked": 30,
+        "stop_if_no_new_papers": true,
+        "max_rag_queries": 50,
+        "min_importance_to_act": "medium"
+    }
+}

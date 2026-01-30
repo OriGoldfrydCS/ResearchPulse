@@ -1,0 +1,282 @@
+{
+  "papers": [
+    {
+      "paper_id": "2601.05245v1",
+      "title": "Optimal Lower Bounds for Online Multicalibration",
+      "date_seen": "2026-01-09T16:22:50.276430Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Limited relevance to your profile (appears to present novel contributions). Importance: low. | Scores: relevance=0.19, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05242v1",
+      "title": "GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization",
+      "date_seen": "2026-01-09T16:22:50.743716Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: medium. | Scores: relevance=0.40, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05241v1",
+      "title": "RoboVIP: Multi-View Video Generation with Visual Identity Prompting Augments Robot Manipulation",
+      "date_seen": "2026-01-09T16:22:52.837625Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.54, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05240v1",
+      "title": "Robust Reasoning as a Symmetry-Protected Topological Phase",
+      "date_seen": "2026-01-09T16:22:54.815552Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.56, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05232v1",
+      "title": "Measuring and Fostering Peace through Machine Learning and Artificial Intelligence",
+      "date_seen": "2026-01-09T16:22:55.226019Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.42, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05230v1",
+      "title": "Learning Latent Action World Models In The Wild",
+      "date_seen": "2026-01-09T16:22:55.635345Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: medium. | Scores: relevance=0.34, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05227v1",
+      "title": "Stochastic Deep Learning: A Probabilistic Framework for Modeling Uncertainty in Structured Temporal Data",
+      "date_seen": "2026-01-09T16:22:56.062453Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: medium. | Scores: relevance=0.42, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05219v1",
+      "title": "CAOS: Conformal Aggregation of One-Shot Predictors",
+      "date_seen": "2026-01-09T16:22:56.465280Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: low. | Scores: relevance=0.25, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05215v1",
+      "title": "MineNPC-Task: Task Suite for Memory-Aware Minecraft Agents",
+      "date_seen": "2026-01-09T16:22:56.866329Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: low. | Scores: relevance=0.23, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05214v1",
+      "title": "Internal Representations as Indicators of Hallucinations in Agent Tool Selection",
+      "date_seen": "2026-01-09T16:22:58.975345Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.48, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05205v1",
+      "title": "EARL: Energy-Aware Optimization of Liquid State Machines for Pervasive AI",
+      "date_seen": "2026-01-09T16:22:59.387740Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: low. | Scores: relevance=0.28, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05202v1",
+      "title": "Stock Market Price Prediction using Neural Prophet with Deep Neural Network",
+      "date_seen": "2026-01-09T16:22:59.813528Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.39, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05201v1",
+      "title": "Mechanisms of Prompt-Induced Hallucination in Vision-Language Models",
+      "date_seen": "2026-01-09T16:23:00.233638Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.42, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05200v1",
+      "title": "Multivector Reranking in the Era of Strong First-Stage Retrievers",
+      "date_seen": "2026-01-09T16:23:00.690802Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: medium. | Scores: relevance=0.39, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05194v1",
+      "title": "An interpretable data-driven approach to optimizing clinical fall risk assessment",
+      "date_seen": "2026-01-09T16:23:01.097755Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: low. | Scores: relevance=0.28, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05192v1",
+      "title": "LELA: an LLM-based Entity Linking Approach with Zero-Shot Domain Adaptation",
+      "date_seen": "2026-01-09T16:23:01.508839Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: medium. | Scores: relevance=0.34, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05191v1",
+      "title": "Cutting AI Research Costs: How Task-Aware Compression Makes Large Language Model Agents Affordable",
+      "date_seen": "2026-01-09T16:23:03.565285Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.57, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05187v1",
+      "title": "SimuAgent: An LLM-Based Simulink Modeling Assistant Enhanced with Reinforcement Learning",
+      "date_seen": "2026-01-09T16:23:05.587021Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.47, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05184v1",
+      "title": "Observations and Remedies for Large Language Model Bias in Self-Consuming Performative Loop",
+      "date_seen": "2026-01-09T16:23:07.780619Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.53, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05174v1",
+      "title": "FaST: Efficient and Effective Long-Horizon Forecasting for Large-Scale Spatial-Temporal Graphs via Mixture-of-Experts",
+      "date_seen": "2026-01-09T16:23:08.205493Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.33, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05172v1",
+      "title": "CoV: Chain-of-View Prompting for Spatial Reasoning",
+      "date_seen": "2026-01-09T16:23:08.646095Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: medium. | Scores: relevance=0.41, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05171v1",
+      "title": "Inside Out: Evolving User-Centric Core Memory Trees for Long-Term Personalized Dialogue Systems",
+      "date_seen": "2026-01-09T16:23:10.642072Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.46, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05170v1",
+      "title": "Reverse-engineering NLI: A study of the meta-inferential properties of Natural Language Inference",
+      "date_seen": "2026-01-09T16:23:11.059318Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.35, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05167v1",
+      "title": "RelayLLM: Efficient Reasoning via Collaborative Decoding",
+      "date_seen": "2026-01-09T16:23:13.044409Z",
+      "decision": "saved",
+      "importance": "high",
+      "notes": "Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high. | Scores: relevance=0.59, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05163v1",
+      "title": "DocDancer: Towards Agentic Document-Grounded Information Seeking",
+      "date_seen": "2026-01-09T16:23:13.460752Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: low. | Scores: relevance=0.22, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05159v1",
+      "title": "Vision-Language Introspection: Mitigating Overconfident Hallucinations in MLLMs via Interpretable Bi-Causal Steering",
+      "date_seen": "2026-01-09T16:23:13.878185Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (appears to present novel contributions). Importance: medium. | Scores: relevance=0.41, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05157v1",
+      "title": "Learning Mixture Models via Efficient High-dimensional Sparse Fourier Transforms",
+      "date_seen": "2026-01-09T16:23:14.284905Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Moderately relevant to your work (appears to present novel contributions). Importance: medium. | Scores: relevance=0.43, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05152v1",
+      "title": "Safe Continual Reinforcement Learning Methods for Nonstationary Environments. Towards a Survey of the State of the Art",
+      "date_seen": "2026-01-09T16:23:14.698173Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (appears to present novel contributions). Importance: low. | Scores: relevance=0.23, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05151v1",
+      "title": "ROOFS: RObust biOmarker Feature Selection",
+      "date_seen": "2026-01-09T16:23:15.113413Z",
+      "decision": "logged",
+      "importance": "low",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: low. | Scores: relevance=0.22, novelty=0.85",
+      "embedded_in_pinecone": false
+    },
+    {
+      "paper_id": "2601.05148v1",
+      "title": "Atlas 2 -- Foundation models for clinical deployment",
+      "date_seen": "2026-01-09T16:23:15.524969Z",
+      "decision": "saved",
+      "importance": "medium",
+      "notes": "Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: medium. | Scores: relevance=0.32, novelty=0.85",
+      "embedded_in_pinecone": false
+    }
+  ],
+  "last_updated": "2026-01-09T16:23:15.524969Z",
+  "total_papers_seen": 30,
+  "stats": {
+    "saved": 22,
+    "shared": 0,
+    "ignored": 0,
+    "logged": 8
+  }
+}
