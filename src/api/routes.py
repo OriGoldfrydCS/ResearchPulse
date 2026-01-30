@@ -432,9 +432,9 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
         # Build execution steps from tool_calls
         for i, tool_call in enumerate(episode.tool_calls):
             execution_steps.append({
-                "module": tool_call.get("tool_name", f"Step_{i+1}"),
-                "prompt": tool_call.get("args", {}),
-                "response": {"result": tool_call.get("result", ""), "success": tool_call.get("success", True)}
+                "module": tool_call.tool_name if tool_call.tool_name else f"Step_{i+1}",
+                "prompt": tool_call.input_args,
+                "response": {"result": tool_call.output, "success": tool_call.success}
             })
         
         # Build the agent response from the episode
@@ -480,7 +480,7 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
     except Exception as e:
         error_msg = str(e)
         run_manager.add_log(run_id, "ERROR", f"Agent failed: {error_msg}")
-        run_manager.update_status(run_id, RunStatus.ERROR, error=error_msg)
+        run_manager.set_error(run_id, error_msg)
         return ExecuteResponse(
             status="error",
             error=error_msg,

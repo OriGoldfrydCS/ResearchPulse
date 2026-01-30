@@ -1095,3 +1095,341 @@
 - **Authors**: Maximilian Alber, Timo Milbich, Alexandra Carpen-Amarie et al. (27 authors)
 - **Categories**: cs.CV, cs.AI, cs.LG
 - **Assessment**: Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: medium.
+
+---
+
+## [Discovering Hidden Gems in Model Repositories](http://arxiv.org/abs/2601.22157v1)
+
+- **arXiv ID**: 2601.22157v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 47%
+- **Novelty**: 85%
+- **Authors**: Jonathan Kahana, Eliahu Horwitz, Yedid Hoshen
+- **Categories**: cs.LG, cs.CL
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [Hybrid Linear Attention Done Right: Efficient Distillation and Effective Architectures for Extremely Long Contexts](http://arxiv.org/abs/2601.22156v1)
+
+- **arXiv ID**: 2601.22156v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 68%
+- **Novelty**: 85%
+- **Authors**: Yingfa Chen, Zhen Leng Thai, Zihan Zhou et al. (9 authors)
+- **Categories**: cs.CL, cs.AI, cs.LG
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [UEval: A Benchmark for Unified Multimodal Generation](http://arxiv.org/abs/2601.22155v1)
+
+- **arXiv ID**: 2601.22155v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 47%
+- **Novelty**: 85%
+- **Authors**: Bo Li, Yida Yin, Wenhao Chai et al. (5 authors)
+- **Categories**: cs.CV, cs.CL
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [Exploring Reasoning Reward Model for Agents](http://arxiv.org/abs/2601.22154v1)
+
+- **arXiv ID**: 2601.22154v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 43%
+- **Novelty**: 85%
+- **Authors**: Kaixuan Fan, Kaituo Feng, Manyuan Zhang et al. (10 authors)
+- **Categories**: cs.AI, cs.CL
+- **Assessment**: Moderately relevant to your work (appears to present novel contributions). Importance: medium.
+
+---
+
+## [Late Breaking Results: Conversion of Neural Networks into Logic Flows for Edge Computing](http://arxiv.org/abs/2601.22151v1)
+
+- **arXiv ID**: 2601.22151v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 32%
+- **Novelty**: 85%
+- **Authors**: Daniel Stein, Shaoyi Huang, Rolf Drechsler et al. (5 authors)
+- **Categories**: cs.LG, eess.SY
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [DynaWeb: Model-Based Reinforcement Learning of Web Agents](http://arxiv.org/abs/2601.22149v1)
+
+- **arXiv ID**: 2601.22149v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 54%
+- **Novelty**: 85%
+- **Authors**: Hang Ding, Peidong Liu, Junqiao Wang et al. (10 authors)
+- **Categories**: cs.CL, cs.AI
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [FineInstructions: Scaling Synthetic Instructions to Pre-Training Scale](http://arxiv.org/abs/2601.22146v1)
+
+- **arXiv ID**: 2601.22146v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 50%
+- **Novelty**: 85%
+- **Authors**: Ajay Patel, Colin Raffel, Chris Callison-Burch
+- **Categories**: cs.CL, cs.LG
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [Routing the Lottery: Adaptive Subnetworks for Heterogeneous Data](http://arxiv.org/abs/2601.22141v1)
+
+- **arXiv ID**: 2601.22141v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 40%
+- **Novelty**: 85%
+- **Authors**: Grzegorz Stefanski, Alberto Presta, Michal Byra
+- **Categories**: cs.AI, cs.CV, cs.LG
+- **Assessment**: Moderately relevant to your work (appears to present novel contributions). Importance: medium.
+
+---
+
+## [Reasoning While Asking: Transforming Reasoning Large Language Models from Passive Solvers to Proactive Inquirers](http://arxiv.org/abs/2601.22139v1)
+
+- **arXiv ID**: 2601.22139v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 55%
+- **Novelty**: 85%
+- **Authors**: Xin Chen, Feng Jiang, Yiqian Zhang et al. (8 authors)
+- **Categories**: cs.CL, cs.AI
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [PRISM: Distribution-free Adaptive Computation of Matrix Functions for Accelerating Neural Network Training](http://arxiv.org/abs/2601.22137v1)
+
+- **arXiv ID**: 2601.22137v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 33%
+- **Novelty**: 85%
+- **Authors**: Shenghao Yang, Zhichao Wang, Oleg Balabanov et al. (5 authors)
+- **Categories**: cs.LG, cs.AI, math.NA, math.OC
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [Pay for Hints, Not Answers: LLM Shepherding for Cost-Efficient Inference](http://arxiv.org/abs/2601.22132v1)
+
+- **arXiv ID**: 2601.22132v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 61%
+- **Novelty**: 85%
+- **Authors**: Ziming Dong, Hardik Sharma, Evan O'Toole et al. (5 authors)
+- **Categories**: cs.LG
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [SMOG: Scalable Meta-Learning for Multi-Objective Bayesian Optimization](http://arxiv.org/abs/2601.22131v1)
+
+- **arXiv ID**: 2601.22131v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 34%
+- **Novelty**: 85%
+- **Authors**: Leonard Papenmeier, Petru Tighineanu
+- **Categories**: cs.LG
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [World of Workflows: a Benchmark for Bringing World Models to Enterprise Systems](http://arxiv.org/abs/2601.22130v1)
+
+- **arXiv ID**: 2601.22130v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 39%
+- **Novelty**: 85%
+- **Authors**: Lakshya Gupta, Litao Li, Yizhe Liu et al. (8 authors)
+- **Categories**: cs.AI, cs.SE
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [SWE-Replay: Efficient Test-Time Scaling for Software Engineering Agents](http://arxiv.org/abs/2601.22129v1)
+
+- **arXiv ID**: 2601.22129v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 44%
+- **Novelty**: 85%
+- **Authors**: Yifeng Ding, Lingming Zhang
+- **Categories**: cs.SE, cs.AI, cs.LG
+- **Assessment**: Moderately relevant to your work (appears to present novel contributions). Importance: medium.
+
+---
+
+## [The Patient is not a Moving Document: A World Model Training Paradigm for Longitudinal EHR](http://arxiv.org/abs/2601.22128v1)
+
+- **arXiv ID**: 2601.22128v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 38%
+- **Novelty**: 85%
+- **Authors**: Irsyad Adam, Zekai Chen, David Laprade et al. (8 authors)
+- **Categories**: cs.AI, cs.CE, q-bio.QM
+- **Assessment**: Tangentially related to your research (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium.
+
+---
+
+## [EditYourself: Audio-Driven Generation and Manipulation of Talking Head Videos with Diffusion Transformers](http://arxiv.org/abs/2601.22127v1)
+
+- **arXiv ID**: 2601.22127v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 41%
+- **Novelty**: 85%
+- **Authors**: John Flynn, Wolfgang Paier, Dimitar Dinev et al. (8 authors)
+- **Categories**: cs.CV, cs.GR, cs.LG, cs.MM
+- **Assessment**: Moderately relevant to your work (appears to present novel contributions). Importance: medium.
+
+---
+
+## [A Federated and Parameter-Efficient Framework for Large Language Model Training in Medicine](http://arxiv.org/abs/2601.22124v1)
+
+- **arXiv ID**: 2601.22124v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 52%
+- **Novelty**: 85%
+- **Authors**: Anran Li, Yuanyuan Chen, Wenjun Long et al. (19 authors)
+- **Categories**: cs.CL, cs.DC
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [Learning Hamiltonian Flow Maps: Mean Flow Consistency for Large-Timestep Molecular Dynamics](http://arxiv.org/abs/2601.22123v1)
+
+- **arXiv ID**: 2601.22123v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 47%
+- **Novelty**: 85%
+- **Authors**: Winfried Ripken, Michael Plainer, Gregor Lied et al. (8 authors)
+- **Categories**: cs.LG
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [SINA: A Circuit Schematic Image-to-Netlist Generator Using Artificial Intelligence](http://arxiv.org/abs/2601.22114v1)
+
+- **arXiv ID**: 2601.22114v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 48%
+- **Novelty**: 85%
+- **Authors**: Saoud Aldowaish, Yashwanth Karumanchi, Kai-Chen Chiang et al. (5 authors)
+- **Categories**: cs.CV, cs.AI, eess.SY
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [Diverse Approaches to Optimal Execution Schedule Generation](http://arxiv.org/abs/2601.22113v1)
+
+- **arXiv ID**: 2601.22113v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 36%
+- **Novelty**: 85%
+- **Authors**: Robert de Witt, Mikko S. Pakkanen
+- **Categories**: q-fin.TR, cs.LG
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [Value-Based Pre-Training with Downstream Feedback](http://arxiv.org/abs/2601.22108v1)
+
+- **arXiv ID**: 2601.22108v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 32%
+- **Novelty**: 85%
+- **Authors**: Shuqi Ke, Giulia Fanti
+- **Categories**: cs.LG, cs.AI
+- **Assessment**: Tangentially related to your research (contains some less preferred topics, appears to present novel contributions). Importance: medium.
+
+---
+
+## [Prior-Informed Flow Matching for Graph Reconstruction](http://arxiv.org/abs/2601.22107v1)
+
+- **arXiv ID**: 2601.22107v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 34%
+- **Novelty**: 85%
+- **Authors**: Harvey Chen, Nicolas Zilberstein, Santiago Segarra
+- **Categories**: cs.LG
+- **Assessment**: Tangentially related to your research (appears to present novel contributions). Importance: medium.
+
+---
+
+## [ECO: Quantized Training without Full-Precision Master Weights](http://arxiv.org/abs/2601.22101v1)
+
+- **arXiv ID**: 2601.22101v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 51%
+- **Novelty**: 85%
+- **Authors**: Mahdi Nikdan, Amir Zandieh, Dan Alistarh et al. (4 authors)
+- **Categories**: cs.CL, cs.AI, cs.LG
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
+
+---
+
+## [GeoNorm: Unify Pre-Norm and Post-Norm with Geodesic Optimization](http://arxiv.org/abs/2601.22095v1)
+
+- **arXiv ID**: 2601.22095v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 40%
+- **Novelty**: 85%
+- **Authors**: Chuanyang Zheng, Jiankai Sun, Yihang Gao et al. (14 authors)
+- **Categories**: cs.LG, cs.CL
+- **Assessment**: Moderately relevant to your work (appears to present novel contributions). Importance: medium.
+
+---
+
+## [Investigating Associational Biases in Inter-Model Communication of Large Generative Models](http://arxiv.org/abs/2601.22093v1)
+
+- **arXiv ID**: 2601.22093v1
+- **Date Added**: 2026-01-30
+- **Importance**: MEDIUM
+- **Relevance**: 37%
+- **Novelty**: 85%
+- **Authors**: Fethiye Irmak Dogan, Yuval Weiss, Kajal Patel et al. (5 authors)
+- **Categories**: cs.CY, cs.AI
+- **Assessment**: Tangentially related to your research (strong topic alignment, contains some less preferred topics, appears to present novel contributions). Importance: medium.
+
+---
+
+## [Latent Adversarial Regularization for Offline Preference Optimization](http://arxiv.org/abs/2601.22083v1)
+
+- **arXiv ID**: 2601.22083v1
+- **Date Added**: 2026-01-30
+- **Importance**: HIGH
+- **Relevance**: 45%
+- **Novelty**: 85%
+- **Authors**: Enyi Jiang, Yibo Jacky Zhang, Yinglun Xu et al. (6 authors)
+- **Categories**: cs.LG, cs.AI
+- **Assessment**: Moderately relevant to your work (strong topic alignment, appears to present novel contributions). Importance: high.
