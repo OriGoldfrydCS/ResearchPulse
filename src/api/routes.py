@@ -312,6 +312,64 @@ async def get_status(
     )
 
 
+class CancelRequest(BaseModel):
+    """Request body for POST /api/cancel endpoint."""
+    run_id: str = Field(..., description="The run ID to cancel")
+    reason: Optional[str] = Field("User cancelled", description="Reason for cancellation")
+
+
+class CancelResponse(BaseModel):
+    """Response body for POST /api/cancel endpoint."""
+    success: bool = Field(..., description="Whether cancellation was successful")
+    message: str = Field(..., description="Status message")
+    run_id: str = Field(..., description="The run ID that was cancelled")
+
+
+@router.post("/cancel", response_model=CancelResponse, tags=["Agent"])
+async def cancel_run(request: CancelRequest) -> CancelResponse:
+    """
+    Cancel a running agent execution.
+    
+    This endpoint allows users to stop an in-progress agent run.
+    The agent will stop at the next opportunity and mark the run as cancelled.
+    
+    Args:
+        request: Contains run_id and optional reason for cancellation
+        
+    Returns:
+        Success status and message
+    """
+    run_state = run_manager.get_run(request.run_id)
+    
+    if run_state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run not found: {request.run_id}"
+        )
+    
+    if run_state.status != RunStatus.RUNNING:
+        return CancelResponse(
+            success=False,
+            message=f"Run is not running (status: {run_state.status.value})",
+            run_id=request.run_id
+        )
+    
+    success = run_manager.cancel_run(request.run_id, request.reason or "User cancelled")
+    
+    if success:
+        return CancelResponse(
+            success=True,
+            message="Run cancelled successfully",
+            run_id=request.run_id
+        )
+    else:
+        return CancelResponse(
+            success=False,
+            message="Failed to cancel run",
+            run_id=request.run_id
+        )
+
+
 # Health check is in dashboard_routes.py with comprehensive service checks
 
 
@@ -501,4 +559,237 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             error=error_msg,
             response=None,
             steps=execution_steps
+        )
+
+
+# =============================================================================
+# Saved Prompts API - CRUD for Quick Prompt Builder templates
+# =============================================================================
+
+class SavedPromptRequest(BaseModel):
+    """Request body for saving a prompt template."""
+    name: str = Field(..., description="User-given name for the prompt")
+    prompt_text: str = Field(..., description="The generated prompt text")
+    template_type: Optional[str] = Field(None, description="Type of template")
+    areas: Optional[List[str]] = Field(default=[], description="Selected research areas")
+    topics: Optional[List[str]] = Field(default=[], description="Focus topics")
+    time_period: Optional[str] = Field(None, description="Time period selection")
+    paper_count: Optional[int] = Field(None, description="Number of papers requested")
+
+
+class SavedPromptResponse(BaseModel):
+    """Response for saved prompt operations."""
+    success: bool
+    message: str
+    prompt_id: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+
+@router.get("/saved-prompts")
+async def get_saved_prompts_endpoint() -> JSONResponse:
+    """
+    Get all saved prompt templates for the current user.
+    
+    Returns:
+        List of saved prompt templates
+    """
+    try:
+        from db.data_service import get_saved_prompts
+        prompts = get_saved_prompts(limit=100)
+        return JSONResponse(content={
+            "success": True,
+            "prompts": prompts
+        })
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/saved-prompts")
+async def save_prompt_endpoint(request: SavedPromptRequest) -> SavedPromptResponse:
+    """
+    Save a new prompt template.
+    
+    Args:
+        request: Prompt template details
+        
+    Returns:
+        Success status and prompt ID
+    """
+    try:
+        from db.data_service import save_prompt_template
+        prompt_id = save_prompt_template(
+            name=request.name,
+            prompt_text=request.prompt_text,
+            template_type=request.template_type,
+            areas=request.areas or [],
+            topics=request.topics or [],
+            time_period=request.time_period,
+            paper_count=request.paper_count,
+        )
+        
+        if prompt_id:
+            return SavedPromptResponse(
+                success=True,
+                message="Prompt saved successfully",
+                prompt_id=prompt_id
+            )
+        else:
+            return SavedPromptResponse(
+                success=False,
+                message="Failed to save prompt - database may be unavailable"
+            )
+    except Exception as e:
+        return SavedPromptResponse(
+            success=False,
+            message=f"Error saving prompt: {str(e)}"
+        )
+
+
+@router.get("/saved-prompts/{prompt_id}")
+async def get_saved_prompt_endpoint(prompt_id: str) -> JSONResponse:
+    """
+    Get a specific saved prompt by ID.
+    
+    Args:
+        prompt_id: The prompt UUID
+        
+    Returns:
+        Saved prompt details
+    """
+    try:
+        from db.data_service import get_saved_prompt_by_id
+        prompt = get_saved_prompt_by_id(prompt_id)
+        
+        if prompt:
+            return JSONResponse(content={
+                "success": True,
+                "prompt": prompt
+            })
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Prompt not found"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.delete("/saved-prompts/{prompt_id}")
+async def delete_saved_prompt_endpoint(prompt_id: str) -> SavedPromptResponse:
+    """
+    Delete a saved prompt template.
+    
+    Args:
+        prompt_id: The prompt UUID to delete
+        
+    Returns:
+        Success status
+    """
+    try:
+        from db.data_service import delete_saved_prompt
+        success = delete_saved_prompt(prompt_id)
+        
+        if success:
+            return SavedPromptResponse(
+                success=True,
+                message="Prompt deleted successfully"
+            )
+        else:
+            return SavedPromptResponse(
+                success=False,
+                message="Prompt not found or could not be deleted"
+            )
+    except Exception as e:
+        return SavedPromptResponse(
+            success=False,
+            message=f"Error deleting prompt: {str(e)}"
+        )
+
+
+# =============================================================================
+# Prompt Templates API - CRUD for reusable prompt templates
+# =============================================================================
+
+class TemplateRequest(BaseModel):
+    """Request body for creating a prompt template."""
+    name: str = Field(..., description="Template name")
+    text: str = Field(..., description="Template text content")
+
+
+@router.get("/templates")
+async def get_templates_endpoint() -> JSONResponse:
+    """
+    Get all prompt templates ordered by: builtin first, then custom by name.
+    
+    Returns:
+        List of templates with id, name, text, is_builtin fields
+    """
+    try:
+        from db.data_service import get_prompt_templates
+        templates = get_prompt_templates()
+        return JSONResponse(content={"success": True, "templates": templates})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/templates")
+async def create_template_endpoint(request: TemplateRequest) -> JSONResponse:
+    """
+    Create a new custom prompt template (non-builtin).
+    
+    Args:
+        request: Template name and text
+        
+    Returns:
+        Template ID if successful
+    """
+    try:
+        from db.data_service import create_prompt_template
+        template_id = create_prompt_template(request.name, request.text)
+        if template_id:
+            return JSONResponse(content={"success": True, "id": template_id})
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Failed to create template"}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.delete("/templates/{template_id}")
+async def delete_template_endpoint(template_id: str) -> JSONResponse:
+    """
+    Delete a custom prompt template (builtin templates cannot be deleted).
+    
+    Args:
+        template_id: UUID of the template to delete
+        
+    Returns:
+        Success status
+    """
+    try:
+        from db.data_service import delete_prompt_template
+        success = delete_prompt_template(template_id)
+        if success:
+            return JSONResponse(content={"success": True})
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "Cannot delete builtin template or template not found"}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
         )

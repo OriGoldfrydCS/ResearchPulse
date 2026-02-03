@@ -20,8 +20,8 @@ import uuid
 from .database import is_database_configured, get_db_session
 from .orm_models import (
     User, Paper, PaperView, Colleague, Run, DeliveryPolicy,
-    ArxivCategoryDB, user_to_dict, colleague_to_dict, paper_view_to_dict,
-    policy_to_dict, arxiv_category_to_dict
+    ArxivCategoryDB, PromptRequest, SavedPrompt, PromptTemplate, user_to_dict, colleague_to_dict, paper_view_to_dict,
+    policy_to_dict, arxiv_category_to_dict, prompt_request_to_dict
 )
 from .json_store import (
     DEFAULT_DATA_DIR, load_json, save_json,
@@ -141,6 +141,7 @@ def get_research_profile() -> Dict[str, Any]:
             # Convert User to research profile format
             return {
                 "researcher_name": user.get("name"),
+                "email": user.get("email"),  # Include email for notifications
                 "affiliation": user.get("affiliation"),
                 "research_topics": user.get("research_topics", []),
                 "my_papers": user.get("my_papers", []),
@@ -149,13 +150,19 @@ def get_research_profile() -> Dict[str, Any]:
                 "time_budget_per_week_minutes": user.get("time_budget_per_week_minutes", 120),
                 "arxiv_categories_include": user.get("arxiv_categories_include", []),
                 "arxiv_categories_exclude": user.get("arxiv_categories_exclude", []),
+                "interests_include": user.get("interests_include", ""),
+                "interests_exclude": user.get("interests_exclude", ""),
+                "keywords_include": user.get("keywords_include", []),
+                "keywords_exclude": user.get("keywords_exclude", []),
+                "preferred_time_period": user.get("preferred_time_period", "last two weeks"),
                 "stop_policy": user.get("stop_policy", {}),
                 # Additional fields from local file
                 **{k: v for k, v in _load_local_research_profile().items() 
-                   if k not in ["researcher_name", "affiliation", "research_topics", 
+                   if k not in ["researcher_name", "email", "affiliation", "research_topics", 
                                 "my_papers", "preferred_venues", "avoid_topics",
                                 "time_budget_per_week_minutes", "arxiv_categories_include",
-                                "arxiv_categories_exclude", "stop_policy"]}
+                                "arxiv_categories_exclude", "interests_include", "interests_exclude",
+                                "keywords_include", "keywords_exclude", "preferred_time_period", "stop_policy"]}
             }
     
     # Fallback to local file
@@ -331,6 +338,67 @@ def save_colleagues(colleagues_list: List[Dict[str, Any]]) -> None:
 # Delivery Policy
 # =============================================================================
 
+def _get_default_delivery_policy() -> Dict[str, Any]:
+    """
+    Return a sensible default delivery policy when none is configured.
+    
+    This ensures emails, calendar invites, and reading list entries are
+    generated for high/medium importance papers even without explicit config.
+    """
+    return {
+        "importance_policies": {
+            "high": {
+                "notify_researcher": True,
+                "send_email": True,
+                "create_calendar_entry": True,
+                "add_to_reading_list": True,
+                "allow_colleague_sharing": True,
+                "priority_label": "urgent"
+            },
+            "medium": {
+                "notify_researcher": True,
+                "send_email": True,
+                "create_calendar_entry": False,
+                "add_to_reading_list": True,
+                "allow_colleague_sharing": True,
+                "priority_label": "normal"
+            },
+            "low": {
+                "notify_researcher": False,
+                "send_email": False,
+                "create_calendar_entry": False,
+                "add_to_reading_list": False,
+                "allow_colleague_sharing": False,
+                "priority_label": "low"
+            }
+        },
+        "email_settings": {
+            "enabled": True,
+            "simulate_output": True,
+            "include_abstract": True,
+            "include_relevance_explanation": True,
+            "digest_mode": False,
+        },
+        "calendar_settings": {
+            "enabled": True,
+            "simulate_output": True,
+            "event_duration_minutes": 30,
+            "default_reminder_minutes": 60,
+            "schedule_within_days": 7,
+        },
+        "reading_list_settings": {
+            "enabled": True,
+            "include_link": True,
+            "include_importance": True,
+        },
+        "colleague_sharing_settings": {
+            "enabled": True,
+            "simulate_output": True,
+            "respect_sharing_preferences": True,
+        }
+    }
+
+
 def _load_local_delivery_policy() -> Dict[str, Any]:
     """Load delivery policy from local JSON file."""
     try:
@@ -343,7 +411,7 @@ def get_delivery_policy() -> Dict[str, Any]:
     """
     Get the delivery policy configuration.
     
-    Priority: Database > Local JSON file
+    Priority: Database > Local JSON file > Default Policy
     
     Returns:
         Delivery policy dictionary.
@@ -362,7 +430,13 @@ def get_delivery_policy() -> Dict[str, Any]:
             logger.error(f"Error loading delivery policy from DB: {e}")
     
     # Fallback to local file
-    return _load_local_delivery_policy()
+    local_policy = _load_local_delivery_policy()
+    if local_policy:
+        return local_policy
+    
+    # Return sensible defaults if no policy is configured
+    logger.info("No delivery policy configured, using default policy")
+    return _get_default_delivery_policy()
 
 
 def get_policy_for_importance(importance: str) -> Dict[str, Any]:
@@ -400,6 +474,279 @@ def save_delivery_policy(policy_data: Dict[str, Any]) -> None:
                     logger.info("Saved delivery policy to database")
         except Exception as e:
             logger.error(f"Error saving delivery policy to DB: {e}")
+
+
+# =============================================================================
+# Prompt Request Storage (System Controller Compliance)
+# =============================================================================
+
+def save_prompt_request(
+    raw_prompt: str,
+    parsed_data: Dict[str, Any],
+    run_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Save a parsed prompt request to the database.
+    
+    This stores all user research prompts for:
+    - Audit trail of all research requests
+    - Template usage analytics
+    - Output enforcement compliance tracking
+    
+    Args:
+        raw_prompt: The original user prompt text
+        parsed_data: Dictionary from PromptController.parse_prompt() containing:
+            - template: Template enum name (e.g., "TOP_K_PAPERS")
+            - topic: Extracted topic
+            - venue: Extracted venue (optional)
+            - time_period: Raw time period string (optional)
+            - time_days: Converted days (optional)
+            - requested_count: User-specified K (optional)
+            - output_count: Final output count after defaults
+            - retrieval_count: Internal retrieval limit
+            - method_or_approach: Method focus (optional)
+            - application_domain: Application domain (optional)
+            - is_survey_request: Boolean
+            - is_trends_request: Boolean
+            - is_structured_output: Boolean
+        run_id: Agent run ID if part of a workflow (optional)
+        
+    Returns:
+        Saved prompt request as dictionary, or None if failed
+    """
+    if not is_db_available():
+        logger.warning("Database not available, cannot save prompt request")
+        return None
+    
+    try:
+        user_id = _get_default_user_id()
+        if not user_id:
+            logger.error("No user ID available for prompt request")
+            return None
+        
+        with get_db_session() as db:
+            prompt_req = PromptRequest(
+                user_id=uuid.UUID(user_id),
+                run_id=run_id,
+                raw_prompt=raw_prompt,
+                template=parsed_data.get("template", "UNRECOGNIZED"),
+                topic=parsed_data.get("topic"),
+                venue=parsed_data.get("venue"),
+                time_period=parsed_data.get("time_period"),
+                time_days=parsed_data.get("time_days"),
+                requested_count=parsed_data.get("requested_count"),
+                output_count=parsed_data.get("output_count"),
+                retrieval_count=parsed_data.get("retrieval_count"),
+                method_or_approach=parsed_data.get("method_or_approach"),
+                application_domain=parsed_data.get("application_domain"),
+                is_survey_request=parsed_data.get("is_survey_request", False),
+                is_trends_request=parsed_data.get("is_trends_request", False),
+                is_structured_output=parsed_data.get("is_structured_output", False),
+                compliance_status="pending",
+            )
+            db.add(prompt_req)
+            db.commit()
+            db.refresh(prompt_req)
+            
+            logger.info(f"Saved prompt request {prompt_req.id} (template: {prompt_req.template})")
+            return prompt_request_to_dict(prompt_req)
+            
+    except Exception as e:
+        logger.error(f"Error saving prompt request: {e}")
+        return None
+
+
+def update_prompt_compliance(
+    prompt_id: str,
+    papers_retrieved: int,
+    papers_returned: int,
+    output_enforced: bool = False,
+    output_insufficient: bool = False,
+    compliance_message: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the compliance status of a prompt request after output enforcement.
+    
+    This records whether the output enforcement succeeded and provides
+    an audit trail for compliance verification.
+    
+    Args:
+        prompt_id: UUID of the prompt request
+        papers_retrieved: Number of papers retrieved internally
+        papers_returned: Number of papers returned to user
+        output_enforced: Whether output was truncated
+        output_insufficient: Whether fewer papers than requested
+        compliance_message: Any compliance notes
+        
+    Returns:
+        Updated prompt request as dictionary, or None if failed
+    """
+    if not is_db_available():
+        return None
+    
+    try:
+        with get_db_session() as db:
+            prompt_req = db.query(PromptRequest).filter_by(
+                id=uuid.UUID(prompt_id)
+            ).first()
+            
+            if not prompt_req:
+                logger.error(f"Prompt request {prompt_id} not found")
+                return None
+            
+            prompt_req.papers_retrieved = papers_retrieved
+            prompt_req.papers_returned = papers_returned
+            prompt_req.output_enforced = output_enforced
+            prompt_req.output_insufficient = output_insufficient
+            prompt_req.compliance_message = compliance_message
+            
+            # Determine compliance status
+            requested = prompt_req.requested_count or prompt_req.output_count
+            if requested and papers_returned > requested:
+                prompt_req.compliance_status = "violation"
+                prompt_req.compliance_message = (
+                    f"CRITICAL: Returned {papers_returned} papers but user requested {requested}"
+                )
+            elif output_insufficient:
+                prompt_req.compliance_status = "compliant_partial"
+            else:
+                prompt_req.compliance_status = "compliant"
+            
+            db.commit()
+            db.refresh(prompt_req)
+            
+            logger.info(f"Updated prompt compliance: {prompt_req.compliance_status}")
+            return prompt_request_to_dict(prompt_req)
+            
+    except Exception as e:
+        logger.error(f"Error updating prompt compliance: {e}")
+        return None
+
+
+def get_prompt_requests(
+    limit: int = 50,
+    template_filter: Optional[str] = None,
+    compliance_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Get prompt requests with optional filtering.
+    
+    Args:
+        limit: Maximum number of requests to return
+        template_filter: Filter by template type (e.g., "TOP_K_PAPERS")
+        compliance_filter: Filter by compliance status
+        
+    Returns:
+        List of prompt request dictionaries
+    """
+    if not is_db_available():
+        return []
+    
+    try:
+        user_id = _get_default_user_id()
+        if not user_id:
+            return []
+        
+        with get_db_session() as db:
+            query = db.query(PromptRequest).filter_by(
+                user_id=uuid.UUID(user_id)
+            )
+            
+            if template_filter:
+                query = query.filter(PromptRequest.template == template_filter)
+            
+            if compliance_filter:
+                query = query.filter(PromptRequest.compliance_status == compliance_filter)
+            
+            requests = query.order_by(
+                PromptRequest.created_at.desc()
+            ).limit(limit).all()
+            
+            return [prompt_request_to_dict(r) for r in requests]
+            
+    except Exception as e:
+        logger.error(f"Error getting prompt requests: {e}")
+        return []
+
+
+def get_prompt_request_by_run(run_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get the prompt request associated with a specific run.
+    
+    Args:
+        run_id: The agent run ID
+        
+    Returns:
+        Prompt request dictionary or None
+    """
+    if not is_db_available():
+        return None
+    
+    try:
+        with get_db_session() as db:
+            prompt_req = db.query(PromptRequest).filter_by(
+                run_id=run_id
+            ).first()
+            
+            if prompt_req:
+                return prompt_request_to_dict(prompt_req)
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting prompt request by run: {e}")
+        return None
+
+
+def get_prompt_compliance_summary() -> Dict[str, Any]:
+    """
+    Get a summary of prompt compliance statistics.
+    
+    Returns:
+        Dictionary with compliance statistics
+    """
+    if not is_db_available():
+        return {"error": "Database not available"}
+    
+    try:
+        user_id = _get_default_user_id()
+        if not user_id:
+            return {"error": "No user found"}
+        
+        with get_db_session() as db:
+            from sqlalchemy import func
+            
+            requests = db.query(PromptRequest).filter_by(
+                user_id=uuid.UUID(user_id)
+            ).all()
+            
+            if not requests:
+                return {
+                    "total_requests": 0,
+                    "compliance_breakdown": {},
+                    "template_usage": {},
+                }
+            
+            # Count by compliance status
+            compliance_counts = {}
+            template_counts = {}
+            
+            for req in requests:
+                status = req.compliance_status or "pending"
+                compliance_counts[status] = compliance_counts.get(status, 0) + 1
+                
+                template = req.template or "UNRECOGNIZED"
+                template_counts[template] = template_counts.get(template, 0) + 1
+            
+            return {
+                "total_requests": len(requests),
+                "compliance_breakdown": compliance_counts,
+                "template_usage": template_counts,
+                "violation_rate": compliance_counts.get("violation", 0) / len(requests) * 100,
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting compliance summary: {e}")
+        return {"error": str(e)}
 
 
 # =============================================================================
@@ -724,6 +1071,7 @@ def save_artifact_to_db(
     paper_id: Optional[str] = None,
     colleague_id: Optional[str] = None,
     description: Optional[str] = None,
+    triggered_by: str = "agent",
 ) -> Dict[str, Any]:
     """
     Save an artifact (calendar event, reading list entry, email, share) to the database.
@@ -735,16 +1083,26 @@ def save_artifact_to_db(
         paper_id: arXiv paper ID (optional)
         colleague_id: Colleague ID for shares (optional)
         description: Description of the artifact (optional)
+        triggered_by: Who triggered this action - 'agent' or 'user' (default: 'agent')
         
     Returns:
         Result dictionary with success status
     """
     if not is_db_available():
+        logger.warning(f"[ARTIFACT] Database not available, cannot save {file_type} artifact")
         return {"success": False, "error": "Database not available"}
     
     user_id = _get_default_user_id()
     if not user_id:
+        logger.warning(f"[ARTIFACT] No user found, cannot save {file_type} artifact")
         return {"success": False, "error": "No user found"}
+    
+    # Get the user's email from profile for email artifacts
+    user = get_or_create_default_user()
+    user_email = user.get("email", "") if user else ""
+    user_name = user.get("name", "Researcher") if user else "Researcher"
+    
+    logger.info(f"[ARTIFACT] Saving {file_type} artifact (triggered_by={triggered_by}, paper_id={paper_id})")
     
     try:
         from .postgres_store import PostgresStore
@@ -752,6 +1110,9 @@ def save_artifact_to_db(
         
         # Get paper DB ID if we have an arXiv ID
         db_paper_id = None
+        paper_title = None
+        paper_url = None
+        paper_importance = "medium"
         if paper_id:
             with get_db_session() as db:
                 paper = db.query(Paper).filter_by(
@@ -760,6 +1121,15 @@ def save_artifact_to_db(
                 ).first()
                 if paper:
                     db_paper_id = paper.id
+                    paper_title = paper.title
+                    paper_url = paper.url or f"https://arxiv.org/abs/{paper_id}"
+                    # Get importance from paper view
+                    view = db.query(PaperView).filter_by(
+                        user_id=uuid.UUID(user_id),
+                        paper_id=paper.id
+                    ).first()
+                    if view and view.importance:
+                        paper_importance = view.importance
         
         if file_type == "calendar":
             # Parse start time from ICS content or use current time
@@ -781,6 +1151,8 @@ def save_artifact_to_db(
             if summary_match:
                 title = summary_match.group(1).strip()
             
+            logger.info(f"[ARTIFACT] Creating calendar event: '{title}' at {start_time} (triggered_by={triggered_by})")
+            
             result = store.create_calendar_event(
                 user_id=uuid.UUID(user_id),
                 paper_id=db_paper_id,
@@ -788,8 +1160,60 @@ def save_artifact_to_db(
                 start_time=start_time,
                 duration_minutes=30,
                 ics_text=content,
+                triggered_by=triggered_by,
+                paper_ids=[paper_id] if paper_id else None,
             )
-            return {"success": True, "type": "calendar", "id": str(result.get("id", ""))}
+            
+            event_id = result.get("id")
+            logger.info(f"[ARTIFACT] Created calendar event {event_id} (triggered_by={triggered_by})")
+            
+            # Send calendar invite email if user has an email configured
+            if user_email and user_email != "default@researchpulse.local":
+                try:
+                    from ..tools.calendar_invite_sender import send_reading_reminder_invite
+                    
+                    papers_for_invite = []
+                    if paper_title:
+                        papers_for_invite.append({
+                            "title": paper_title,
+                            "url": paper_url,
+                            "importance": paper_importance,
+                        })
+                    
+                    agent_note = "Scheduled automatically by ResearchPulse based on paper importance." if triggered_by == "agent" else None
+                    
+                    invite_result = send_reading_reminder_invite(
+                        user_email=user_email,
+                        user_name=user_name,
+                        papers=papers_for_invite,
+                        start_time=start_time,
+                        duration_minutes=30,
+                        reminder_minutes=15,
+                        triggered_by=triggered_by,
+                        agent_note=agent_note,
+                    )
+                    
+                    if invite_result.get("success"):
+                        logger.info(f"[ARTIFACT] Sent calendar invite email to {user_email}")
+                        
+                        # Store the invite email record
+                        if event_id:
+                            store.create_calendar_invite_email(
+                                calendar_event_id=uuid.UUID(event_id),
+                                user_id=uuid.UUID(user_id),
+                                message_id=invite_result.get("message_id", ""),
+                                recipient_email=user_email,
+                                subject=invite_result.get("subject", title),
+                                ics_uid=invite_result.get("ics_uid", ""),
+                                triggered_by=triggered_by,
+                            )
+                    else:
+                        logger.warning(f"[ARTIFACT] Failed to send calendar invite: {invite_result.get('error')}")
+                        
+                except Exception as invite_err:
+                    logger.warning(f"[ARTIFACT] Could not send calendar invite email: {invite_err}")
+            
+            return {"success": True, "type": "calendar", "id": str(event_id) if event_id else ""}
         
         elif file_type == "reading_list":
             # Reading list entries are saved as part of the paper view with notes
@@ -811,17 +1235,19 @@ def save_artifact_to_db(
             # Extract subject from content
             lines = content.split("\n")
             subject = "Paper Recommendation"
-            recipient = ""
             body = content
             
             for line in lines:
                 if line.startswith("Subject:"):
                     subject = line.replace("Subject:", "").strip()
-                elif line.startswith("To:"):
-                    recipient = line.replace("To:", "").strip()
             
-            if not recipient:
-                recipient = "unknown@email.com"
+            # Use the user's email from profile, NOT from content parsing
+            recipient = user_email
+            if not recipient or recipient == "default@researchpulse.local":
+                logger.warning(f"[ARTIFACT] No valid user email configured, cannot save email artifact")
+                return {"success": False, "error": "No user email configured in settings"}
+            
+            logger.info(f"[ARTIFACT] Creating email record: '{subject}' to {recipient} (triggered_by={triggered_by})")
             
             result = store.create_email(
                 user_id=uuid.UUID(user_id),
@@ -829,8 +1255,182 @@ def save_artifact_to_db(
                 recipient_email=recipient,
                 subject=subject,
                 body_text=body,
+                triggered_by=triggered_by,
+                paper_ids=[paper_id] if paper_id else None,
             )
-            return {"success": True, "type": "email", "id": str(result.get("id", ""))}
+            
+            email_id = result.get("id")
+            logger.info(f"[ARTIFACT] Created email record {email_id} (triggered_by={triggered_by})")
+            
+            # Actually send the email via SMTP
+            if email_id:
+                try:
+                    # Try relative import first, fall back to absolute import for different execution contexts
+                    try:
+                        from ..tools.decide_delivery import _send_email_smtp, _generate_email_content_html, ScoredPaper
+                    except (ImportError, ValueError):
+                        # Fallback: add tools path and import directly
+                        import sys
+                        from pathlib import Path
+                        tools_path = str(Path(__file__).parent.parent / "tools")
+                        if tools_path not in sys.path:
+                            sys.path.insert(0, tools_path)
+                        from decide_delivery import _send_email_smtp, _generate_email_content_html, ScoredPaper
+                    
+                    # Clean up the body for sending (remove header lines if present)
+                    send_body = body
+                    body_lines = body.split("\n")
+                    clean_start = 0
+                    for i, line in enumerate(body_lines):
+                        if line.strip() == "" and i > 0:
+                            # Skip header section (Subject:, From:, etc.)
+                            if any(body_lines[j].startswith(("Subject:", "From:", "Date:", "To:")) for j in range(i)):
+                                clean_start = i + 1
+                                break
+                    if clean_start > 0:
+                        send_body = "\n".join(body_lines[clean_start:])
+                    
+                    # Generate HTML email from paper data
+                    html_body = None
+                    logger.info(f"[ARTIFACT] db_paper_id={db_paper_id}, paper_id={paper_id}")
+                    
+                    # Try to generate HTML - either from DB or by parsing content
+                    try:
+                        import re
+                        
+                        # Parse paper info from content
+                        priority = "medium"
+                        content_upper = content.upper()
+                        if "HIGH PRIORITY" in content_upper or "URGENT" in content_upper:
+                            priority = "high"
+                        elif "LOW PRIORITY" in content_upper:
+                            priority = "low"
+                        
+                        # Parse scores
+                        relevance_score = 0.5
+                        novelty_score = 0.5
+                        rel_match = re.search(r'Relevance Score:\s*(\d+)%', content)
+                        if rel_match:
+                            relevance_score = int(rel_match.group(1)) / 100.0
+                        nov_match = re.search(r'Novelty Score:\s*(\d+)%', content)
+                        if nov_match:
+                            novelty_score = int(nov_match.group(1)) / 100.0
+                        
+                        # Parse title
+                        title = "Research Paper"
+                        title_match = re.search(r'Title:\s*(.+?)(?:\n|$)', content)
+                        if title_match:
+                            title = title_match.group(1).strip()
+                        
+                        # Parse arXiv ID
+                        arxiv_id = paper_id or ""
+                        arxiv_match = re.search(r'arXiv ID:\s*(\S+)', content)
+                        if arxiv_match:
+                            arxiv_id = arxiv_match.group(1).strip()
+                        
+                        # Parse authors
+                        authors = []
+                        authors_match = re.search(r'Authors:\s*(.+?)(?:\n|$)', content)
+                        if authors_match:
+                            authors = [a.strip() for a in authors_match.group(1).split(",")]
+                        
+                        # Parse categories
+                        categories = []
+                        cat_match = re.search(r'Categories:\s*(.+?)(?:\n|$)', content)
+                        if cat_match:
+                            categories = [c.strip() for c in cat_match.group(1).split(",")]
+                        
+                        # Parse abstract
+                        abstract = ""
+                        abs_match = re.search(r'ABSTRACT\s*-+\s*(.+?)(?:\n={10,}|$)', content, re.DOTALL)
+                        if abs_match:
+                            abstract = abs_match.group(1).strip()
+                        
+                        # Parse explanation
+                        explanation = ""
+                        exp_match = re.search(r'Assessment:\s*(.+?)(?:\n-|$)', content, re.DOTALL)
+                        if exp_match:
+                            explanation = exp_match.group(1).strip()
+                        
+                        # Try to get more info from DB if available
+                        if db_paper_id:
+                            with get_db_session() as db:
+                                paper_row = db.query(Paper).filter_by(id=db_paper_id).first()
+                                if paper_row:
+                                    arxiv_id = paper_row.arxiv_id or arxiv_id
+                                    title = paper_row.title or title
+                                    authors = paper_row.authors.split(", ") if paper_row.authors else authors
+                                    abstract = paper_row.abstract or abstract
+                                    categories = paper_row.categories.split(", ") if paper_row.categories else categories
+                        
+                        # Create ScoredPaper for HTML generation
+                        scored_paper = ScoredPaper(
+                            arxiv_id=arxiv_id,
+                            title=title,
+                            authors=authors,
+                            abstract=abstract,
+                            publication_date="",
+                            link=f"http://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
+                            categories=categories,
+                            relevance_score=relevance_score,
+                            novelty_score=novelty_score,
+                            explanation=explanation,
+                            importance=priority,
+                        )
+                        
+                        # Get researcher name
+                        researcher_name = "Researcher"
+                        with get_db_session() as db:
+                            user_obj = db.query(User).filter_by(id=uuid.UUID(user_id)).first()
+                            if user_obj and user_obj.name:
+                                researcher_name = user_obj.name
+                        
+                        html_body = _generate_email_content_html(
+                            paper=scored_paper,
+                            priority=priority,
+                            include_abstract=True,
+                            include_explanation=True,
+                            researcher_name=researcher_name,
+                        )
+                        logger.info(f"[ARTIFACT] Generated HTML email ({len(html_body)} chars)")
+                    except Exception as html_err:
+                        logger.warning(f"[ARTIFACT] Could not generate HTML email: {html_err}")
+                    
+                    logger.info(f"[ARTIFACT] Sending email via SMTP to {recipient}...")
+                    email_sent = _send_email_smtp(
+                        to_email=recipient,
+                        subject=subject,
+                        body=send_body,
+                        html_body=html_body,
+                    )
+                    
+                    # Update email status based on send result
+                    if email_sent:
+                        store.update_email_status(
+                            email_id=uuid.UUID(email_id),
+                            status="sent",
+                        )
+                        logger.info(f"[ARTIFACT] Email sent successfully to {recipient}")
+                    else:
+                        store.update_email_status(
+                            email_id=uuid.UUID(email_id),
+                            status="failed",
+                            error="SMTP send failed - check SMTP configuration",
+                        )
+                        logger.warning(f"[ARTIFACT] Email SMTP send failed for {recipient}")
+                        
+                except Exception as send_err:
+                    logger.error(f"[ARTIFACT] Error sending email via SMTP: {send_err}")
+                    try:
+                        store.update_email_status(
+                            email_id=uuid.UUID(email_id),
+                            status="failed",
+                            error=str(send_err),
+                        )
+                    except Exception:
+                        pass
+            
+            return {"success": True, "type": "email", "id": str(email_id) if email_id else ""}
         
         elif file_type == "share":
             # Get colleague DB ID
@@ -857,16 +1457,17 @@ def save_artifact_to_db(
             return {"success": False, "error": f"Unknown artifact type: {file_type}"}
             
     except Exception as e:
-        logger.error(f"Error saving artifact to DB: {e}")
+        logger.error(f"[ARTIFACT] Error saving artifact to DB: {e}")
         return {"success": False, "error": str(e)}
 
 
-def save_artifacts_to_db(artifacts: List[Dict[str, Any]]) -> Dict[str, Any]:
+def save_artifacts_to_db(artifacts: List[Dict[str, Any]], triggered_by: str = "agent") -> Dict[str, Any]:
     """
     Save multiple artifacts to the database.
     
     Args:
         artifacts: List of artifact dictionaries with file_type, file_path, content, etc.
+        triggered_by: Who triggered these actions - 'agent' or 'user' (default: 'agent')
         
     Returns:
         Dictionary with success counts and errors
@@ -879,6 +1480,8 @@ def save_artifacts_to_db(artifacts: List[Dict[str, Any]]) -> Dict[str, Any]:
         "details": [],
     }
     
+    logger.info(f"[ARTIFACTS] Saving {len(artifacts)} artifacts to DB (triggered_by={triggered_by})")
+    
     for artifact in artifacts:
         result = save_artifact_to_db(
             file_type=artifact.get("file_type", ""),
@@ -887,19 +1490,450 @@ def save_artifacts_to_db(artifacts: List[Dict[str, Any]]) -> Dict[str, Any]:
             paper_id=artifact.get("paper_id"),
             colleague_id=artifact.get("colleague_id"),
             description=artifact.get("description"),
+            triggered_by=triggered_by,
         )
         
         if result.get("success"):
             results["saved"] += 1
             results["details"].append(result)
+            logger.info(f"[ARTIFACTS] Saved {artifact.get('file_type')} artifact successfully")
         else:
             results["failed"] += 1
             results["errors"].append(result.get("error", "Unknown error"))
+            logger.warning(f"[ARTIFACTS] Failed to save {artifact.get('file_type')} artifact: {result.get('error')}")
     
     if results["failed"] > 0:
         results["success"] = False
     
+    logger.info(f"[ARTIFACTS] Completed: {results['saved']} saved, {results['failed']} failed")
+    
     return results
+
+
+# =============================================================================
+# Saved Prompts - User-saved prompt templates for Quick Prompt Builder
+# =============================================================================
+
+def save_prompt_template(
+    name: str,
+    prompt_text: str,
+    template_type: Optional[str] = None,
+    areas: Optional[List[str]] = None,
+    topics: Optional[List[str]] = None,
+    time_period: Optional[str] = None,
+    paper_count: Optional[int] = None,
+) -> Optional[str]:
+    """
+    Save a prompt template for quick reuse.
+    
+    Args:
+        name: User-given name for the prompt
+        prompt_text: The generated prompt text
+        template_type: Type of template (topic_time, top_k, etc.)
+        areas: Selected research areas
+        topics: Focus topics
+        time_period: Time period selection
+        paper_count: Number of papers requested
+        
+    Returns:
+        ID of the saved prompt, or None if failed
+    """
+    if not is_db_available():
+        logger.warning("Database not available for saving prompt template")
+        return None
+    
+    try:
+        user_id = _get_default_user_id()
+        if not user_id:
+            logger.error("No default user found")
+            return None
+        
+        with get_db_session() as db:
+            saved_prompt = SavedPrompt(
+                user_id=uuid.UUID(user_id),
+                name=name,
+                prompt_text=prompt_text,
+                template_type=template_type,
+                areas=areas or [],
+                topics=topics or [],
+                time_period=time_period,
+                paper_count=paper_count,
+            )
+            db.add(saved_prompt)
+            db.commit()
+            db.refresh(saved_prompt)
+            
+            logger.info(f"Saved prompt template: {name} (ID: {saved_prompt.id})")
+            return str(saved_prompt.id)
+            
+    except Exception as e:
+        logger.error(f"Error saving prompt template: {e}")
+        return None
+
+
+def get_saved_prompts(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get all saved prompt templates for the current user.
+    
+    Args:
+        limit: Maximum number of prompts to return
+        
+    Returns:
+        List of saved prompt dictionaries
+    """
+    if not is_db_available():
+        return []
+    
+    try:
+        user_id = _get_default_user_id()
+        if not user_id:
+            return []
+        
+        with get_db_session() as db:
+            prompts = db.query(SavedPrompt).filter_by(
+                user_id=uuid.UUID(user_id)
+            ).order_by(
+                SavedPrompt.created_at.desc()
+            ).limit(limit).all()
+            
+            return [p.to_dict() for p in prompts]
+            
+    except Exception as e:
+        logger.error(f"Error getting saved prompts: {e}")
+        return []
+
+
+def get_saved_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a specific saved prompt by ID.
+    
+    Args:
+        prompt_id: The prompt UUID
+        
+    Returns:
+        Saved prompt dictionary or None
+    """
+    if not is_db_available():
+        return None
+    
+    try:
+        with get_db_session() as db:
+            prompt = db.query(SavedPrompt).filter_by(
+                id=uuid.UUID(prompt_id)
+            ).first()
+            
+            if prompt:
+                return prompt.to_dict()
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting saved prompt: {e}")
+        return None
+
+
+def delete_saved_prompt(prompt_id: str) -> bool:
+    """
+    Delete a saved prompt template.
+    
+    Args:
+        prompt_id: The prompt UUID to delete
+        
+    Returns:
+        True if deleted, False otherwise
+    """
+    if not is_db_available():
+        return False
+    
+    try:
+        with get_db_session() as db:
+            prompt = db.query(SavedPrompt).filter_by(
+                id=uuid.UUID(prompt_id)
+            ).first()
+            
+            if prompt:
+                db.delete(prompt)
+                db.commit()
+                logger.info(f"Deleted saved prompt: {prompt_id}")
+                return True
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error deleting saved prompt: {e}")
+        return False
+
+
+def update_saved_prompt(
+    prompt_id: str,
+    name: Optional[str] = None,
+    prompt_text: Optional[str] = None,
+    template_type: Optional[str] = None,
+    areas: Optional[List[str]] = None,
+    topics: Optional[List[str]] = None,
+    time_period: Optional[str] = None,
+    paper_count: Optional[int] = None,
+) -> bool:
+    """
+    Update a saved prompt template.
+    
+    Args:
+        prompt_id: The prompt UUID to update
+        Other args: Fields to update (None = don't change)
+        
+    Returns:
+        True if updated, False otherwise
+    """
+    if not is_db_available():
+        return False
+    
+    try:
+        with get_db_session() as db:
+            prompt = db.query(SavedPrompt).filter_by(
+                id=uuid.UUID(prompt_id)
+            ).first()
+            
+            if not prompt:
+                return False
+            
+            if name is not None:
+                prompt.name = name
+            if prompt_text is not None:
+                prompt.prompt_text = prompt_text
+            if template_type is not None:
+                prompt.template_type = template_type
+            if areas is not None:
+                prompt.areas = areas
+            if topics is not None:
+                prompt.topics = topics
+            if time_period is not None:
+                prompt.time_period = time_period
+            if paper_count is not None:
+                prompt.paper_count = paper_count
+            
+            db.commit()
+            logger.info(f"Updated saved prompt: {prompt_id}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error updating saved prompt: {e}")
+        return False
+
+
+# =============================================================================
+# Default Templates for Seeding
+# =============================================================================
+
+DEFAULT_TEMPLATES = [
+    {
+        "name": "Recent AI Papers",
+        "prompt_text": "Find recent papers on artificial intelligence and machine learning from the last week. Focus on transformer architectures and large language models.",
+        "template_type": "topic_time",
+        "areas": ["cs.AI", "cs.LG", "cs.CL"],
+        "topics": ["artificial intelligence", "machine learning", "transformers"],
+        "time_period": "last_week",
+        "paper_count": 10
+    },
+    {
+        "name": "Top 5 NLP Papers",
+        "prompt_text": "Find the top 5 most relevant papers on natural language processing from the past month.",
+        "template_type": "top_k",
+        "areas": ["cs.CL"],
+        "topics": ["natural language processing", "NLP"],
+        "time_period": "last_month",
+        "paper_count": 5
+    },
+    {
+        "name": "Computer Vision Survey",
+        "prompt_text": "Find survey papers and comprehensive reviews on computer vision and image recognition published this year.",
+        "template_type": "survey",
+        "areas": ["cs.CV"],
+        "topics": ["computer vision", "image recognition", "deep learning"],
+        "time_period": "this_year",
+        "paper_count": 10
+    },
+    {
+        "name": "Reinforcement Learning Trends",
+        "prompt_text": "What are the trending topics and methodologies in reinforcement learning research from the past month?",
+        "template_type": "trends",
+        "areas": ["cs.LG", "cs.AI"],
+        "topics": ["reinforcement learning", "RL", "deep RL"],
+        "time_period": "last_month",
+        "paper_count": 10
+    }
+]
+
+
+def seed_default_templates() -> int:
+    """
+    Seed default prompt templates if the saved_prompts table is empty.
+    
+    Call this on server startup to ensure templates are available.
+    
+    Returns:
+        Number of templates seeded (0 if templates already exist)
+    """
+    if not is_db_available():
+        logger.warning("Database not available for seeding templates")
+        return 0
+    
+    try:
+        # Check if any templates already exist
+        existing = get_saved_prompts(limit=1)
+        if existing:
+            logger.info("Templates already exist, skipping seed")
+            return 0
+        
+        seeded = 0
+        for template in DEFAULT_TEMPLATES:
+            prompt_id = save_prompt_template(
+                name=template["name"],
+                prompt_text=template["prompt_text"],
+                template_type=template.get("template_type"),
+                areas=template.get("areas", []),
+                topics=template.get("topics", []),
+                time_period=template.get("time_period"),
+                paper_count=template.get("paper_count"),
+            )
+            if prompt_id:
+                seeded += 1
+                logger.info(f"Seeded template: {template['name']}")
+        
+        logger.info(f"Seeded {seeded} default templates")
+        return seeded
+        
+    except Exception as e:
+        logger.error(f"Error seeding templates: {e}")
+        return 0
+
+
+# =============================================================================
+# Prompt Templates - Quick reusable prompt templates (PromptTemplate model)
+# =============================================================================
+
+BUILTIN_PROMPT_TEMPLATES = [
+    {"name": "Template 1: Topic + Venue + Time", "text": "Provide recent research papers on <TOPIC> published in <VENUE> within the last <TIME_PERIOD>."},
+    {"name": "Template 2: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
+    {"name": "Template 3: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
+    {"name": "Template 4: Top-K Papers", "text": "Provide the top <K> most relevant or influential research papers on <TOPIC>."},
+    {"name": "Template 5: Top-K + Time", "text": "Provide the top <K> research papers on <TOPIC> from the last <TIME_PERIOD>."},
+    {"name": "Template 6: Survey / Review", "text": "Provide recent survey or review papers on <TOPIC>."},
+    {"name": "Template 7: Method-Focused", "text": "Provide recent papers on <TOPIC> that focus on <METHOD_OR_APPROACH>."},
+    {"name": "Template 8: Application-Focused", "text": "Provide recent papers on <TOPIC> applied to <APPLICATION_DOMAIN>."},
+    {"name": "Template 9: Emerging Trends", "text": "Identify emerging research trends based on recent papers on <TOPIC>."},
+    {"name": "Template 10: Structured Output", "text": "Provide recent papers on <TOPIC> including title, authors, venue, year, and a one-sentence summary."},
+]
+
+
+def get_prompt_templates() -> List[Dict[str, Any]]:
+    """
+    Get all prompt templates, ordered by: builtin first, then custom by name.
+    
+    Returns:
+        List of template dictionaries with id, name, text, is_builtin fields
+    """
+    if not is_db_available():
+        return []
+    try:
+        with get_db_session() as db:
+            templates = db.query(PromptTemplate).order_by(
+                PromptTemplate.is_builtin.desc(),
+                PromptTemplate.name
+            ).all()
+            return [t.to_dict() for t in templates]
+    except Exception as e:
+        logger.error(f"Error getting prompt templates: {e}")
+        return []
+
+
+def create_prompt_template(name: str, text: str) -> Optional[str]:
+    """
+    Create a custom prompt template (non-builtin).
+    
+    Args:
+        name: Display name for the template
+        text: The template text content
+        
+    Returns:
+        Template ID string if successful, None otherwise
+    """
+    if not is_db_available():
+        return None
+    try:
+        with get_db_session() as db:
+            template = PromptTemplate(name=name, text=text, is_builtin=False)
+            db.add(template)
+            db.commit()
+            db.refresh(template)
+            logger.info(f"Created prompt template: {name}")
+            return str(template.id)
+    except Exception as e:
+        logger.error(f"Error creating prompt template: {e}")
+        return None
+
+
+def delete_prompt_template(template_id: str) -> bool:
+    """
+    Delete a prompt template. Only custom (non-builtin) templates can be deleted.
+    
+    Args:
+        template_id: UUID of the template to delete
+        
+    Returns:
+        True if deleted, False if builtin or not found
+    """
+    if not is_db_available():
+        return False
+    try:
+        with get_db_session() as db:
+            template = db.query(PromptTemplate).filter_by(id=uuid.UUID(template_id)).first()
+            if template and not template.is_builtin:
+                db.delete(template)
+                db.commit()
+                logger.info(f"Deleted prompt template: {template_id}")
+                return True
+            elif template and template.is_builtin:
+                logger.warning(f"Cannot delete builtin template: {template_id}")
+            return False
+    except Exception as e:
+        logger.error(f"Error deleting prompt template: {e}")
+        return False
+
+
+def seed_builtin_prompt_templates() -> int:
+    """
+    Seed builtin prompt templates if they don't exist.
+    
+    Call this on server startup to ensure the 10 default templates are available.
+    Templates are matched by name to avoid duplicates.
+    
+    Returns:
+        Number of templates seeded
+    """
+    if not is_db_available():
+        logger.warning("Database not available for seeding builtin templates")
+        return 0
+    
+    seeded = 0
+    try:
+        with get_db_session() as db:
+            for template_data in BUILTIN_PROMPT_TEMPLATES:
+                existing = db.query(PromptTemplate).filter_by(name=template_data["name"]).first()
+                if not existing:
+                    template = PromptTemplate(
+                        name=template_data["name"],
+                        text=template_data["text"],
+                        is_builtin=True
+                    )
+                    db.add(template)
+                    seeded += 1
+                    logger.debug(f"Seeded builtin template: {template_data['name']}")
+            db.commit()
+        
+        if seeded > 0:
+            logger.info(f"Seeded {seeded} builtin prompt templates")
+        return seeded
+    except Exception as e:
+        logger.error(f"Error seeding builtin templates: {e}")
+        return 0
 
 
 # =============================================================================

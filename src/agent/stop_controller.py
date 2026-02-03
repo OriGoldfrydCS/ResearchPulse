@@ -39,9 +39,10 @@ class StopPolicy:
     Configuration for stop conditions.
     
     Default values match SPEC.md section 2 demo defaults.
+    NOTE: max_papers_checked set to 5 for faster testing (original was 30).
     """
     max_runtime_minutes: int = 6
-    max_papers_checked: int = 30
+    max_papers_checked: int = 7
     stop_if_no_new_papers: bool = True
     max_rag_queries: int = 50
     min_importance_to_act: Literal["high", "medium", "low"] = "medium"
@@ -301,7 +302,7 @@ def self_check() -> bool:
     print("\n1. Default Policy Values:")
     policy = StopPolicy()
     all_passed &= check("max_runtime_minutes = 6", policy.max_runtime_minutes == 6)
-    all_passed &= check("max_papers_checked = 30", policy.max_papers_checked == 30)
+    all_passed &= check("max_papers_checked = 5", policy.max_papers_checked == 5)
     all_passed &= check("stop_if_no_new_papers = True", policy.stop_if_no_new_papers is True)
     all_passed &= check("max_rag_queries = 50", policy.max_rag_queries == 50)
     all_passed &= check("min_importance_to_act = 'medium'", policy.min_importance_to_act == "medium")

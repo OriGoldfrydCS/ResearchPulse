@@ -18,7 +18,7 @@ import os
 import json
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -32,7 +32,7 @@ try:
 except ImportError:
     pass
 
-from fastapi import APIRouter, HTTPException, Query, Response, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Response, BackgroundTasks, Body
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
@@ -295,8 +295,9 @@ class ProfileUpdate(BaseModel):
     arxiv_categories_exclude: Optional[List[str]] = None
     interests_include: Optional[str] = None  # Free text research interests
     interests_exclude: Optional[str] = None  # Free text topics to exclude
-    keywords_include: Optional[List[str]] = None
-    keywords_exclude: Optional[List[str]] = None
+    preferred_time_period: Optional[str] = None  # Preferred search time period
+    keywords_include: Optional[List[str]] = None  # Deprecated
+    keywords_exclude: Optional[List[str]] = None  # Deprecated
     colleague_ids_to_always_share: Optional[List[str]] = None
 
 
@@ -357,6 +358,7 @@ async def get_research_profile():
             "arxiv_categories_exclude": user.get("arxiv_categories_exclude", []),
             "interests_include": user.get("interests_include", ""),
             "interests_exclude": user.get("interests_exclude", ""),
+            "preferred_time_period": user.get("preferred_time_period", "last two weeks"),
             "keywords_include": user.get("keywords_include", []),
             "keywords_exclude": user.get("keywords_exclude", []),
             "colleague_ids_to_always_share": []
@@ -391,6 +393,8 @@ async def update_research_profile(data: ProfileUpdate):
             update_dict["interests_include"] = data.interests_include
         if data.interests_exclude is not None:
             update_dict["interests_exclude"] = data.interests_exclude
+        if data.preferred_time_period is not None:
+            update_dict["preferred_time_period"] = data.preferred_time_period
         if data.keywords_include is not None:
             update_dict["keywords_include"] = data.keywords_include
         if data.keywords_exclude is not None:
@@ -409,6 +413,7 @@ async def update_research_profile(data: ProfileUpdate):
             "arxiv_categories_exclude": updated_user.get("arxiv_categories_exclude", []),
             "interests_include": updated_user.get("interests_include", ""),
             "interests_exclude": updated_user.get("interests_exclude", ""),
+            "preferred_time_period": updated_user.get("preferred_time_period", "last two weeks"),
             "keywords_include": updated_user.get("keywords_include", []),
             "keywords_exclude": updated_user.get("keywords_exclude", []),
             "colleague_ids_to_always_share": []
@@ -430,8 +435,14 @@ async def list_papers(
     q: Optional[str] = Query(None, description="Search query for title/abstract"),
     limit: int = Query(50, le=200, description="Maximum results"),
     offset: int = Query(0, description="Offset for pagination"),
+    sort_by: str = Query("added_at", description="Sort field (added_at, published_at, importance, title)"),
+    sort_dir: str = Query("desc", description="Sort direction (asc, desc)"),
+    is_starred: Optional[bool] = Query(None, description="Filter by starred status"),
+    is_read: Optional[bool] = Query(None, description="Filter by read status"),
+    relevance_state: Optional[str] = Query(None, description="Filter by relevance state (relevant, not_relevant)"),
+    include_not_relevant: bool = Query(False, description="Include papers marked as not relevant"),
 ):
-    """List papers with filters."""
+    """List papers with filters and sorting."""
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
@@ -446,20 +457,26 @@ async def list_papers(
             query=q,
             limit=limit,
             offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            is_starred=is_starred,
+            is_read=is_read,
+            relevance_state=relevance_state,
+            include_not_relevant=include_not_relevant,
         )
-        return {"papers": papers, "count": len(papers), "offset": offset, "limit": limit}
+        return {"papers": papers, "count": len(papers), "offset": offset, "limit": limit, "sort_by": sort_by, "sort_dir": sort_dir}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/papers/{paper_id}")
-async def get_paper(paper_id: str):
+async def get_paper(paper_id: UUID):
     """Get a single paper with view details."""
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
-        paper_uuid = UUID(paper_id)
+        paper_uuid = paper_id
         
         view = store.get_paper_view(user_id, paper_uuid)
         if not view:
@@ -478,7 +495,7 @@ async def get_paper(paper_id: str):
 
 @router.delete("/papers/{paper_id}")
 async def delete_paper(
-    paper_id: str,
+    paper_id: UUID,
     delete_vectors: bool = Query(True, description="Also delete Pinecone vectors"),
 ):
     """Delete a paper view and optionally Pinecone vectors."""
@@ -486,7 +503,7 @@ async def delete_paper(
         store = get_default_store()
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
-        paper_uuid = UUID(paper_id)
+        paper_uuid = paper_id
         
         # Delete the paper view
         deleted = store.delete_paper_view(user_id, paper_uuid)
@@ -509,13 +526,13 @@ async def delete_paper(
 
 
 @router.post("/papers/{paper_id}/mark-unseen")
-async def mark_paper_unseen(paper_id: str):
+async def mark_paper_unseen(paper_id: UUID):
     """Mark a paper as unseen (delete view record)."""
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
-        paper_uuid = UUID(paper_id)
+        paper_uuid = paper_id
         
         deleted = store.delete_paper_view(user_id, paper_uuid)
         return {"success": deleted, "paper_id": paper_id}
@@ -526,19 +543,130 @@ async def mark_paper_unseen(paper_id: str):
 
 
 @router.put("/papers/{paper_id}")
-async def update_paper_view(paper_id: str, data: PaperViewUpdate):
+async def update_paper_view(paper_id: UUID, data: PaperViewUpdate):
     """Update paper view (notes, tags, importance, decision)."""
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
-        paper_uuid = UUID(paper_id)
+        paper_uuid = paper_id
         
         update_data = data.model_dump(exclude_none=True)
         updated = store.update_paper_view(user_id, paper_uuid, update_data)
         return updated
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Paper Toggle Endpoints (Single Item)
+# =============================================================================
+
+@router.post("/papers/{paper_id}/toggle-star")
+async def toggle_star(paper_id: UUID):
+    """Toggle starred status for a paper."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        updated = store.toggle_star(user_id, paper_uuid)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/papers/{paper_id}/toggle-read")
+async def toggle_read(paper_id: UUID):
+    """Toggle read status for a paper."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        updated = store.toggle_read(user_id, paper_uuid)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/papers/{paper_id}/mark-read")
+async def mark_read(paper_id: UUID):
+    """Mark a paper as read (idempotent)."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        updated = store.mark_read(user_id, paper_uuid)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/papers/{paper_id}/toggle-relevance")
+async def toggle_relevance(paper_id: UUID, note: Optional[str] = None):
+    """Toggle relevance state for a paper (relevant <-> not_relevant)."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        updated = store.toggle_relevance(user_id, paper_uuid, note=note)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SetRelevanceRequest(BaseModel):
+    relevance_state: str  # 'relevant' or 'not_relevant'
+    note: Optional[str] = None
+
+
+@router.post("/papers/{paper_id}/set-relevance")
+async def set_relevance(paper_id: UUID, data: SetRelevanceRequest):
+    """Set explicit relevance state for a paper."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        updated = store.set_relevance(user_id, paper_uuid, data.relevance_state, data.note)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/papers/{paper_id}/feedback-history")
+async def get_paper_feedback_history(paper_id: UUID, limit: int = Query(50, le=200)):
+    """Get feedback history for a specific paper."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        paper_uuid = paper_id
+        
+        history = store.get_feedback_history(user_id, paper_id=paper_uuid, limit=limit)
+        return {"history": history, "count": len(history)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -628,6 +756,741 @@ async def list_calendar_events(
         
         events = store.list_calendar_events(user_id, limit=limit, offset=offset)
         return {"events": events, "count": len(events)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calendar/{event_id}")
+async def get_calendar_event(event_id: UUID):
+    """Get a single calendar event with details."""
+    try:
+        store = get_default_store()
+        event = store.get_calendar_event(event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+        
+        # Include invite emails and reply history
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        invite_emails = store.list_calendar_invite_emails(user_id, calendar_event_id=event_id)
+        reply_history = store.get_reply_history_for_event(event_id)
+        
+        return {
+            "event": event,
+            "invite_emails": invite_emails,
+            "reply_history": reply_history,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RescheduleRequest(BaseModel):
+    new_start_time: str  # ISO format datetime
+    new_duration_minutes: Optional[int] = None
+    reschedule_note: Optional[str] = None
+
+
+@router.post("/calendar/{event_id}/reschedule")
+async def reschedule_calendar_event_endpoint(event_id: UUID, data: RescheduleRequest):
+    """
+    Reschedule a calendar event to a new time.
+    
+    This endpoint:
+    1. Updates the calendar event with new start time
+    2. Increments the ICS sequence number
+    3. Generates and sends a new calendar invite email with updated time
+    4. Returns the updated event
+    """
+    try:
+        from datetime import timedelta
+        from ..tools.ics_generator import generate_reschedule_ics
+        from ..tools.calendar_invite_sender import send_calendar_invite_email
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        user_name = user.get("name", "Researcher")
+        
+        # Get the existing event
+        existing_event = store.get_calendar_event(event_id)
+        if not existing_event:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+        
+        # Parse the new start time
+        try:
+            new_start_time = datetime.fromisoformat(data.new_start_time.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid datetime format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
+        
+        # Determine new duration
+        new_duration = data.new_duration_minutes or existing_event.get("duration_minutes", 30)
+        
+        # Build reschedule note
+        reschedule_note = data.reschedule_note or "Rescheduled by user"
+        if not reschedule_note.startswith("Rescheduled"):
+            reschedule_note = f"Rescheduled: {reschedule_note}"
+        
+        # Update the calendar event
+        updated_event = store.reschedule_calendar_event(
+            event_id=event_id,
+            new_start_time=new_start_time,
+            reschedule_note=reschedule_note,
+            new_duration_minutes=new_duration,
+        )
+        
+        # Send updated calendar invite if user has email
+        invite_email_record = None
+        email_sent = False
+        
+        if user_email and user_email != "user@researchpulse.local":
+            try:
+                # Get ICS UID from existing event or generate new one
+                ics_uid = existing_event.get("ics_uid")
+                if not ics_uid:
+                    from ..tools.ics_generator import generate_uid
+                    ics_uid = generate_uid()
+                
+                sequence = (existing_event.get("sequence_number") or 0) + 1
+                
+                # Get paper details for ICS
+                papers_data = []
+                paper_ids = existing_event.get("paper_ids") or []
+                for paper_id in paper_ids[:10]:  # Limit for performance
+                    try:
+                        paper_uuid = UUID(paper_id)
+                        view = store.get_paper_view(user_id, paper_uuid)
+                        if view and view.get("paper"):
+                            paper = view["paper"]
+                            external_id = paper.get("external_id") or ""
+                            papers_data.append({
+                                "title": paper.get("title") or "Untitled",
+                                "url": f"https://arxiv.org/abs/{external_id}" if external_id else "",
+                                "importance": view.get("importance") or "medium",
+                            })
+                    except Exception:
+                        continue
+                
+                # Generate reschedule ICS
+                ics_content = generate_reschedule_ics(
+                    uid=ics_uid,
+                    papers=papers_data,
+                    new_start_time=new_start_time,
+                    duration_minutes=new_duration,
+                    organizer_email=os.getenv("SMTP_FROM_EMAIL", "researchpulse@example.com"),
+                    attendee_email=user_email,
+                    reminder_minutes=15,
+                    sequence=sequence,
+                    reschedule_note=reschedule_note,
+                )
+                
+                # Generate email
+                email_subject = f"📅 Updated: {existing_event.get('title', 'Reading Reminder')}"
+                email_body_text = f"""Your reading reminder has been rescheduled.
+
+📅 NEW TIME: {new_start_time.strftime('%A, %B %d, %Y at %I:%M %p')}
+⏱️ Duration: {new_duration} minutes
+
+Reason: {reschedule_note}
+
+---
+This calendar invite was updated by ResearchPulse.
+"""
+                
+                # Send the email (returns 3 values: success, message_id, error)
+                email_sent, actual_message_id, send_error = send_calendar_invite_email(
+                    to_email=user_email,
+                    to_name=user_name,
+                    subject=email_subject,
+                    body_text=email_body_text,
+                    body_html=None,
+                    ics_content=ics_content,
+                    ics_method="REQUEST",
+                )
+                
+                # Use actual message_id from SMTP if available
+                message_id = actual_message_id or f"<{ics_uid}-{sequence}@researchpulse.local>"
+                
+                # Create email record
+                email_record = store.create_email(
+                    user_id=user_id,
+                    paper_id=None,
+                    recipient_email=user_email,
+                    subject=email_subject,
+                    body_text=email_body_text,
+                    body_preview=f"Rescheduled to {new_start_time.strftime('%B %d at %I:%M %p')}",
+                    triggered_by='user',
+                    paper_ids=paper_ids,
+                )
+                
+                email_id = UUID(email_record["id"])
+                if email_sent:
+                    store.update_email_status(email_id, status="sent")
+                else:
+                    store.update_email_status(email_id, status="failed", error=send_error)
+                
+                # Create CalendarInviteEmail record
+                invite_email_record = store.create_calendar_invite_email(
+                    calendar_event_id=event_id,
+                    user_id=user_id,
+                    message_id=message_id,
+                    recipient_email=user_email,
+                    subject=email_subject,
+                    ics_uid=ics_uid,
+                    email_id=email_id,
+                    ics_sequence=sequence,
+                    ics_method="REQUEST",
+                    triggered_by="user",
+                )
+                
+            except Exception as e:
+                print(f"Error sending reschedule invite: {e}")
+        
+        return {
+            "success": True,
+            "event": updated_event,
+            "invite_email": invite_email_record,
+            "email_sent": email_sent,
+            "message": f"Event rescheduled to {new_start_time.strftime('%B %d, %Y at %I:%M %p')}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calendar/{event_id}/history")
+async def get_calendar_event_history(event_id: UUID):
+    """
+    Get the rescheduling history for a calendar event.
+    
+    Returns all replies, invite emails, and changes made to the event.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        event = store.get_calendar_event(event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+        
+        # Get all invite emails for this event
+        invite_emails = store.list_calendar_invite_emails(user_id, calendar_event_id=event_id)
+        
+        # Get all replies related to this event
+        reply_history = store.get_reply_history_for_event(event_id)
+        
+        # Build timeline
+        timeline = []
+        
+        # Add event creation
+        timeline.append({
+            "type": "event_created",
+            "timestamp": event.get("created_at"),
+            "details": {
+                "title": event.get("title"),
+                "start_time": event.get("start_time"),
+                "triggered_by": event.get("triggered_by"),
+            }
+        })
+        
+        # Add invite emails
+        for invite in invite_emails:
+            timeline.append({
+                "type": "invite_sent",
+                "timestamp": invite.get("sent_at") or invite.get("created_at"),
+                "details": {
+                    "subject": invite.get("subject"),
+                    "recipient": invite.get("recipient_email"),
+                    "ics_sequence": invite.get("ics_sequence"),
+                    "ics_method": invite.get("ics_method"),
+                }
+            })
+        
+        # Add replies
+        for reply in reply_history:
+            timeline.append({
+                "type": "reply_received",
+                "timestamp": reply.get("received_at"),
+                "details": {
+                    "from_email": reply.get("from_email"),
+                    "intent": reply.get("intent"),
+                    "action_taken": reply.get("action_taken"),
+                    "processed": reply.get("processed"),
+                }
+            })
+        
+        # Add reschedule note if present
+        if event.get("reschedule_note"):
+            timeline.append({
+                "type": "rescheduled",
+                "timestamp": event.get("updated_at"),
+                "details": {
+                    "note": event.get("reschedule_note"),
+                    "new_start_time": event.get("start_time"),
+                    "sequence_number": event.get("sequence_number"),
+                }
+            })
+        
+        # Sort timeline by timestamp
+        timeline.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+        
+        return {
+            "event": event,
+            "timeline": timeline,
+            "invite_count": len(invite_emails),
+            "reply_count": len(reply_history),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class IngestReplyRequest(BaseModel):
+    message_id: str
+    from_email: str
+    subject: Optional[str] = None
+    body_text: Optional[str] = None
+    body_html: Optional[str] = None
+    in_reply_to: Optional[str] = None
+    references: Optional[str] = None
+
+
+@router.post("/calendar/ingest-reply")
+async def ingest_email_reply(data: IngestReplyRequest):
+    """
+    Ingest an incoming email reply for a calendar invite.
+    
+    This endpoint is called when an email reply is received (via webhook or polling).
+    It stores the reply and marks it for processing.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Find the original calendar invite by in_reply_to or references
+        original_invite = None
+        
+        if data.in_reply_to:
+            # Try to find by message_id
+            original_invite = store.get_calendar_invite_by_message_id(data.in_reply_to)
+        
+        if not original_invite and data.references:
+            # Try to find by references (may contain multiple message IDs)
+            for ref in data.references.split():
+                ref = ref.strip('<>')
+                original_invite = store.get_calendar_invite_by_message_id(f"<{ref}>")
+                if original_invite:
+                    break
+        
+        if not original_invite:
+            return {
+                "success": False,
+                "error": "Could not find original calendar invite for this reply",
+                "message_id": data.message_id,
+            }
+        
+        # Create inbound reply record
+        reply_record = store.create_inbound_email_reply(
+            user_id=user_id,
+            original_invite_id=UUID(original_invite["id"]),
+            message_id=data.message_id,
+            from_email=data.from_email,
+            subject=data.subject,
+            body_text=data.body_text,
+            body_html=data.body_html,
+            in_reply_to=data.in_reply_to,
+            references=data.references,
+        )
+        
+        return {
+            "success": True,
+            "reply": reply_record,
+            "original_invite_id": original_invite["id"],
+            "calendar_event_id": original_invite.get("calendar_event_id"),
+            "message": "Reply ingested successfully. Call /api/calendar/process-replies to process."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/calendar/process-replies")
+async def process_email_replies():
+    """
+    Process all unprocessed email replies.
+    
+    This endpoint:
+    1. Gets all unprocessed replies
+    2. Parses each reply to extract intent (reschedule, accept, decline, etc.)
+    3. Takes appropriate action (e.g., reschedule the event)
+    4. Updates reply records with processing results
+    """
+    try:
+        from ..agent.reply_parser import parse_reply, ReplyIntent
+        from datetime import timedelta
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        user_name = user.get("name", "Researcher")
+        
+        # Get all unprocessed replies
+        unprocessed = store.list_unprocessed_replies(user_id)
+        
+        if not unprocessed:
+            return {
+                "success": True,
+                "processed_count": 0,
+                "message": "No unprocessed replies found"
+            }
+        
+        results = []
+        
+        for reply in unprocessed:
+            reply_id = UUID(reply["id"])
+            body_text = reply.get("body_text") or ""
+            
+            try:
+                # Parse the reply to extract intent
+                # Try LLM first, fall back to rules
+                try:
+                    parsed = parse_reply(body_text, use_llm=True)
+                except Exception:
+                    parsed = parse_reply(body_text, use_llm=False)
+                
+                intent = parsed.intent.value
+                extracted_datetime = parsed.extracted_datetime
+                extracted_datetime_text = parsed.extracted_datetime_text
+                confidence_score = parsed.confidence
+                
+                action_taken = None
+                new_event_id = None
+                processing_error = None
+                
+                # Take action based on intent
+                if parsed.intent == ReplyIntent.RESCHEDULE and extracted_datetime:
+                    # Get the original invite and event
+                    original_invite_id = reply.get("original_invite_id")
+                    if original_invite_id:
+                        invite = None
+                        # Find the invite
+                        invites = store.list_calendar_invite_emails(user_id)
+                        for inv in invites:
+                            if str(inv.get("id")) == str(original_invite_id):
+                                invite = inv
+                                break
+                        
+                        if invite:
+                            event_id = UUID(invite["calendar_event_id"])
+                            
+                            # Reschedule the event
+                            try:
+                                reschedule_note = f"Rescheduled after user email reply: '{parsed.reason}'" if parsed.reason else "Rescheduled after user email reply"
+                                
+                                updated_event = store.reschedule_calendar_event(
+                                    event_id=event_id,
+                                    new_start_time=extracted_datetime,
+                                    reschedule_note=reschedule_note,
+                                )
+                                
+                                action_taken = f"rescheduled_to_{extracted_datetime.isoformat()}"
+                                new_event_id = event_id
+                                
+                                # Send new calendar invite
+                                if user_email and user_email != "user@researchpulse.local":
+                                    from ..tools.ics_generator import generate_reschedule_ics
+                                    from ..tools.calendar_invite_sender import send_calendar_invite_email
+                                    
+                                    event = store.get_calendar_event(event_id)
+                                    ics_uid = event.get("ics_uid") or ""
+                                    sequence = event.get("sequence_number") or 1
+                                    duration = event.get("duration_minutes") or 30
+                                    
+                                    # Get papers
+                                    papers_data = []
+                                    paper_ids = event.get("paper_ids") or []
+                                    for paper_id in paper_ids[:5]:
+                                        try:
+                                            paper_uuid = UUID(paper_id)
+                                            view = store.get_paper_view(user_id, paper_uuid)
+                                            if view and view.get("paper"):
+                                                paper = view["paper"]
+                                                external_id = paper.get("external_id") or ""
+                                                papers_data.append({
+                                                    "title": paper.get("title") or "Untitled",
+                                                    "url": f"https://arxiv.org/abs/{external_id}" if external_id else "",
+                                                    "importance": view.get("importance") or "medium",
+                                                })
+                                        except Exception:
+                                            continue
+                                    
+                                    ics_content = generate_reschedule_ics(
+                                        uid=ics_uid,
+                                        papers=papers_data,
+                                        new_start_time=extracted_datetime,
+                                        duration_minutes=duration,
+                                        organizer_email=os.getenv("SMTP_FROM_EMAIL", "researchpulse@example.com"),
+                                        attendee_email=user_email,
+                                        reminder_minutes=15,
+                                        sequence=sequence,
+                                        reschedule_note=reschedule_note,
+                                    )
+                                    
+                                    email_subject = f"📅 Rescheduled: {event.get('title', 'Reading Reminder')}"
+                                    email_body_text = f"""Your reading reminder has been rescheduled based on your reply.
+
+📅 NEW TIME: {extracted_datetime.strftime('%A, %B %d, %Y at %I:%M %p')}
+
+Your original message: "{body_text[:200]}..."
+
+---
+ResearchPulse automatically processed your reply and updated the calendar event.
+"""
+                                    
+                                    send_calendar_invite_email(
+                                        to_email=user_email,
+                                        to_name=user_name,
+                                        subject=email_subject,
+                                        body_text=email_body_text,
+                                        body_html=None,
+                                        ics_content=ics_content,
+                                        ics_method="REQUEST",
+                                    )
+                                
+                            except Exception as e:
+                                processing_error = str(e)
+                                action_taken = "reschedule_failed"
+                        else:
+                            processing_error = "Original invite not found"
+                            action_taken = "no_action_invite_not_found"
+                    else:
+                        processing_error = "No original invite ID in reply"
+                        action_taken = "no_action"
+                
+                elif parsed.intent == ReplyIntent.ACCEPT:
+                    action_taken = "noted_acceptance"
+                elif parsed.intent == ReplyIntent.DECLINE:
+                    action_taken = "noted_decline"
+                elif parsed.intent == ReplyIntent.CANCEL:
+                    action_taken = "noted_cancel_request"
+                else:
+                    action_taken = "no_action_required"
+                
+                # Update reply with processing results
+                store.update_inbound_reply_processing(
+                    reply_id=reply_id,
+                    intent=intent,
+                    extracted_datetime=extracted_datetime,
+                    extracted_datetime_text=extracted_datetime_text,
+                    confidence_score=confidence_score,
+                    action_taken=action_taken,
+                    new_event_id=new_event_id,
+                    processing_result={"parsed": parsed.__dict__ if hasattr(parsed, '__dict__') else str(parsed)},
+                    processing_error=processing_error,
+                )
+                
+                results.append({
+                    "reply_id": str(reply_id),
+                    "intent": intent,
+                    "action_taken": action_taken,
+                    "success": processing_error is None,
+                    "error": processing_error,
+                })
+                
+            except Exception as e:
+                # Mark as processed with error
+                store.update_inbound_reply_processing(
+                    reply_id=reply_id,
+                    intent="error",
+                    action_taken="processing_failed",
+                    processing_error=str(e),
+                )
+                results.append({
+                    "reply_id": str(reply_id),
+                    "intent": "error",
+                    "action_taken": "processing_failed",
+                    "success": False,
+                    "error": str(e),
+                })
+        
+        successful = sum(1 for r in results if r["success"])
+        
+        return {
+            "success": True,
+            "processed_count": len(results),
+            "successful_count": successful,
+            "results": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/calendar/poll-inbox")
+async def poll_inbox_for_replies():
+    """
+    Poll the email inbox for replies to calendar invitations.
+    
+    This endpoint:
+    1. Connects to the IMAP server (Gmail)
+    2. Fetches recent emails that appear to be replies to calendar invites
+    3. Matches replies to original calendar invite emails
+    4. Ingests new replies into the database
+    5. Processes each reply to extract intent and take action
+    
+    Note: Requires IMAP credentials (uses SMTP_USER and SMTP_PASSWORD from .env)
+    """
+    try:
+        from ..tools.email_poller import fetch_recent_replies
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        
+        # Fetch recent replies from inbox
+        replies = fetch_recent_replies(since_hours=48)
+        
+        ingested_count = 0
+        already_processed_count = 0
+        no_match_count = 0
+        errors = []
+        
+        for reply in replies:
+            try:
+                # Check if this reply was already processed
+                existing = store.get_inbound_reply_by_message_id(reply["message_id"])
+                if existing:
+                    already_processed_count += 1
+                    continue
+                
+                # Find the original calendar invite by message_id
+                in_reply_to = reply.get("in_reply_to")
+                if not in_reply_to:
+                    no_match_count += 1
+                    continue
+                
+                invite = store.get_calendar_invite_by_message_id(in_reply_to)
+                if not invite:
+                    # Try to find by partial match or thread_id
+                    no_match_count += 1
+                    continue
+                
+                # Ingest the reply
+                store.create_inbound_email_reply(
+                    user_id=user_id,
+                    original_invite_id=UUID(invite["id"]),
+                    message_id=reply["message_id"],
+                    in_reply_to=in_reply_to,
+                    from_email=reply["from_email"],
+                    subject=reply.get("subject"),
+                    body_text=reply.get("body_text"),
+                )
+                
+                ingested_count += 1
+                
+            except Exception as e:
+                errors.append(f"Error ingesting reply {reply.get('message_id', 'unknown')}: {str(e)}")
+        
+        # Now process any unprocessed replies
+        process_result = None
+        if ingested_count > 0:
+            # Call the process-replies logic inline
+            from ..agent.reply_parser import parse_reply, ReplyIntent
+            
+            unprocessed = store.list_unprocessed_replies(user_id)
+            processed_results = []
+            
+            for reply_data in unprocessed:
+                reply_id = UUID(reply_data["id"])
+                body_text = reply_data.get("body_text") or ""
+                
+                try:
+                    # Parse the reply
+                    parsed = parse_reply(body_text, use_llm=False)  # Use rules for speed
+                    
+                    intent = parsed.intent.value
+                    extracted_datetime = parsed.extracted_datetime
+                    action_taken = None
+                    new_event_id = None
+                    
+                    # Take action based on intent
+                    if parsed.intent == ReplyIntent.RESCHEDULE and extracted_datetime:
+                        original_invite_id = reply_data.get("original_invite_id")
+                        if original_invite_id:
+                            invites = store.list_calendar_invite_emails(user_id)
+                            invite = None
+                            for inv in invites:
+                                if str(inv.get("id")) == str(original_invite_id):
+                                    invite = inv
+                                    break
+                            
+                            if invite:
+                                event_id = UUID(invite["calendar_event_id"])
+                                reschedule_note = "Rescheduled after user email reply"
+                                
+                                store.reschedule_calendar_event(
+                                    event_id=event_id,
+                                    new_start_time=extracted_datetime,
+                                    reschedule_note=reschedule_note,
+                                )
+                                
+                                action_taken = f"rescheduled_to_{extracted_datetime.isoformat()}"
+                                new_event_id = event_id
+                    
+                    store.update_inbound_reply_processing(
+                        reply_id=reply_id,
+                        intent=intent,
+                        extracted_datetime=extracted_datetime,
+                        extracted_datetime_text=parsed.raw_datetime_text if hasattr(parsed, 'raw_datetime_text') else None,
+                        confidence_score=parsed.confidence,
+                        action_taken=action_taken or "no_action",
+                        new_event_id=new_event_id,
+                    )
+                    
+                    processed_results.append({
+                        "reply_id": str(reply_id),
+                        "intent": intent,
+                        "action_taken": action_taken,
+                        "success": True,
+                    })
+                    
+                except Exception as e:
+                    store.update_inbound_reply_processing(
+                        reply_id=reply_id,
+                        intent="error",
+                        action_taken="processing_failed",
+                        processing_error=str(e),
+                    )
+                    processed_results.append({
+                        "reply_id": str(reply_id),
+                        "intent": "error",
+                        "success": False,
+                        "error": str(e),
+                    })
+            
+            process_result = {
+                "processed_count": len(processed_results),
+                "successful_count": sum(1 for r in processed_results if r["success"]),
+                "results": processed_results,
+            }
+        
+        return {
+            "success": True,
+            "emails_scanned": len(replies),
+            "ingested_count": ingested_count,
+            "already_processed_count": already_processed_count,
+            "no_match_count": no_match_count,
+            "errors": errors,
+            "processing": process_result,
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -927,6 +1790,8 @@ async def trigger_run(data: RunTrigger, background_tasks: BackgroundTasks):
                                         researcher_email=profile.get("email", ""),
                                         researcher_name=profile.get("researcher_name", "Researcher"),
                                         email_settings=email_settings,
+                                        query_text=prompt,
+                                        triggered_by="agent",
                                     )
                 except Exception as digest_err:
                     print(f"Warning: Could not send digest email: {digest_err}")
@@ -1063,11 +1928,146 @@ async def health_check():
 
 
 # =============================================================================
+# Debug / Test Routes
+# =============================================================================
+
+@router.post("/debug/test-agent-actions")
+async def test_agent_actions():
+    """
+    Debug route to test the agent's email/calendar creation pipeline.
+    
+    Creates a test email and calendar event as if the agent triggered them,
+    to verify the end-to-end flow is working.
+    """
+    import logging
+    from datetime import timedelta
+    from uuid import uuid4
+    
+    logger = logging.getLogger(__name__)
+    logger.info("[DEBUG] Testing agent action pipeline...")
+    
+    try:
+        from ..db.data_service import save_artifact_to_db, is_db_available, get_or_create_default_user
+        
+        if not is_db_available():
+            return {
+                "success": False,
+                "error": "Database not available",
+                "message": "Cannot test without database connection"
+            }
+        
+        user = get_or_create_default_user()
+        if not user:
+            return {
+                "success": False,
+                "error": "No user found",
+                "message": "Cannot test without a user profile"
+            }
+        
+        user_email = user.get("email", "")
+        
+        results = {
+            "user_email": user_email,
+            "email_result": None,
+            "calendar_result": None,
+        }
+        
+        # Try to get a real paper from the database for realistic testing
+        sample_paper_id = None
+        sample_paper_title = "Sample Research Paper"
+        try:
+            from ..db.postgres_store import PostgresStore
+            store = PostgresStore()
+            user_id = UUID(user.get("id"))
+            papers = store.list_papers(user_id, limit=1)
+            if papers:
+                sample_paper = papers[0]
+                # Get nested paper object for external_id (arXiv ID) and title
+                nested_paper = sample_paper.get("paper", {})
+                sample_paper_id = nested_paper.get("external_id")  # arXiv ID
+                sample_paper_title = nested_paper.get("title") or sample_paper.get("title") or "Sample Paper"
+                logger.info(f"[DEBUG] Using sample paper: {sample_paper_id} - {sample_paper_title[:50]}...")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not fetch sample paper: {e}")
+        
+        # Test creating an email artifact
+        test_email_content = f"""Subject: [ResearchPulse] New Paper: {sample_paper_title[:60]}
+
+Dear Researcher,
+
+ResearchPulse has found a paper that matches your interests:
+
+Title: {sample_paper_title}
+{f"arXiv ID: {sample_paper_id}" if sample_paper_id else ""}
+Link: https://arxiv.org/abs/{sample_paper_id or "test"}
+
+This email was sent automatically by ResearchPulse.
+
+Generated at: {datetime.utcnow().isoformat()}"""
+        
+        email_result = save_artifact_to_db(
+            file_type="email",
+            file_path="/debug/test-email.txt",
+            content=test_email_content,
+            paper_id=sample_paper_id,
+            description="Test email from debug route",
+            triggered_by="agent",
+        )
+        results["email_result"] = email_result
+        logger.info(f"[DEBUG] Email result: {email_result}")
+        
+        # Test creating a calendar event artifact
+        test_start = datetime.utcnow() + timedelta(days=1)
+        event_title = f"📖 Read: {sample_paper_title[:40]}..." if sample_paper_id else "ResearchPulse Test Reading"
+        test_ics = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ResearchPulse//Debug Test//EN
+BEGIN:VEVENT
+UID:test-{uuid4()}@researchpulse.local
+DTSTART:{test_start.strftime('%Y%m%dT%H%M%S')}Z
+DTEND:{(test_start + timedelta(minutes=30)).strftime('%Y%m%dT%H%M%S')}Z
+SUMMARY:{event_title}
+DESCRIPTION:Reading reminder from ResearchPulse.{f" Paper: {sample_paper_title}" if sample_paper_id else ""} Link: https://arxiv.org/abs/{sample_paper_id or "test"}
+END:VEVENT
+END:VCALENDAR"""
+        
+        calendar_result = save_artifact_to_db(
+            file_type="calendar",
+            file_path="/debug/test-event.ics",
+            content=test_ics,
+            paper_id=sample_paper_id,
+            description="Test calendar from debug route",
+            triggered_by="agent",
+        )
+        results["calendar_result"] = calendar_result
+        logger.info(f"[DEBUG] Calendar result: {calendar_result}")
+        
+        success = (
+            results["email_result"].get("success", False) and 
+            results["calendar_result"].get("success", False)
+        )
+        
+        return {
+            "success": success,
+            "message": "Test completed. Check Emails and Calendar tabs for items with 'Auto' badge.",
+            "results": results,
+        }
+        
+    except Exception as e:
+        logger.error(f"[DEBUG] Test failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Test failed with exception"
+        }
+
+
+# =============================================================================
 # Bulk Actions
 # =============================================================================
 
-@router.post("/papers/bulk/delete")
-async def bulk_delete_papers(paper_ids: List[str]):
+@router.post("/bulk/papers/delete")
+async def bulk_delete_papers(paper_ids: List[str] = Body(embed=False)):
     """Delete multiple papers at once."""
     try:
         store = get_default_store()
@@ -1088,10 +2088,949 @@ async def bulk_delete_papers(paper_ids: List[str]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/papers/bulk/mark-unseen")
-async def bulk_mark_unseen(paper_ids: List[str]):
+@router.post("/bulk/papers/mark-unseen")
+async def bulk_mark_unseen(paper_ids: List[str] = Body(embed=False)):
     """Mark multiple papers as unseen."""
     return await bulk_delete_papers(paper_ids)
+
+
+@router.post("/bulk/papers/toggle-read")
+async def bulk_toggle_read(paper_ids: List[str] = Body(embed=False)):
+    """Toggle read status for multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        paper_uuids = [UUID(pid) for pid in paper_ids]
+        updated = store.bulk_toggle_read(user_id, paper_uuids)
+        return {"updated": updated, "count": len(updated)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/mark-read")
+async def bulk_mark_read(paper_ids: List[str] = Body(embed=False)):
+    """Mark multiple papers as read."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        updated_count = 0
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                store.mark_read(user_id, paper_uuid)
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/mark-unread")
+async def bulk_mark_unread(paper_ids: List[str] = Body(embed=False)):
+    """Mark multiple papers as unread."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        updated_count = 0
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                store.update_paper_view(user_id, paper_uuid, {"is_read": False, "read_at": None})
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/toggle-star")
+async def bulk_toggle_star(paper_ids: List[str] = Body(embed=False)):
+    """Toggle starred status for multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        paper_uuids = [UUID(pid) for pid in paper_ids]
+        updated = store.bulk_toggle_star(user_id, paper_uuids)
+        return {"updated": updated, "count": len(updated)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkRelevanceRequest(BaseModel):
+    paper_ids: List[str]
+    relevance_state: str  # 'relevant' or 'not_relevant'
+    note: Optional[str] = None
+
+
+@router.post("/bulk/papers/set-relevance")
+async def bulk_set_relevance(data: BulkRelevanceRequest):
+    """Set relevance state for multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        paper_uuids = [UUID(pid) for pid in data.paper_ids]
+        updated = store.bulk_set_relevance(user_id, paper_uuids, data.relevance_state, data.note)
+        return {"updated": updated, "count": len(updated)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/mark-not-relevant")
+async def bulk_mark_not_relevant(paper_ids: List[str] = Body(embed=False)):
+    """Mark multiple papers as not relevant."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        paper_uuids = [UUID(pid) for pid in paper_ids]
+        updated = store.bulk_set_relevance(user_id, paper_uuids, "not_relevant")
+        return {"updated": updated, "count": len(updated)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/mark-not-relevant-and-remove")
+async def bulk_mark_not_relevant_and_remove(paper_ids: List[str] = Body(embed=False)):
+    """Mark multiple papers as not relevant and soft-delete them."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        updated_count = 0
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                store.update_paper_view(user_id, paper_uuid, {"is_relevant": False, "is_deleted": True})
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/star")
+async def bulk_star_papers(paper_ids: List[str] = Body(embed=False)):
+    """Star/pin multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        updated_count = 0
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                store.update_paper_view(user_id, paper_uuid, {"is_starred": True})
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/unstar")
+async def bulk_unstar_papers(paper_ids: List[str] = Body(embed=False)):
+    """Unstar/unpin multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        updated_count = 0
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                store.update_paper_view(user_id, paper_uuid, {"is_starred": False})
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/papers/download-pdf")
+async def bulk_download_pdf(paper_ids: List[str] = Body(embed=False)):
+    """Get PDF download URLs for multiple papers."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        pdf_urls = []
+        failed_ids = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                views = store.list_papers(user_id, limit=10000)
+                view = next((v for v in views if str(v.get("paper_id")) == paper_id), None)
+                if view and view.get("paper"):
+                    paper = view["paper"]
+                    external_id = paper.get("external_id", "")
+                    if external_id:
+                        pdf_url = f"https://arxiv.org/pdf/{external_id}.pdf"
+                        pdf_urls.append({"paper_id": paper_id, "title": paper.get("title", ""), "pdf_url": pdf_url})
+                    else:
+                        failed_ids.append(paper_id)
+                else:
+                    failed_ids.append(paper_id)
+            except Exception as e:
+                failed_ids.append(paper_id)
+        
+        return {"pdf_urls": pdf_urls, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkReminderRequest(BaseModel):
+    paper_ids: List[str]
+    reminder_date: Optional[str] = None  # ISO format date, defaults to tomorrow
+    reminder_time: Optional[str] = None  # HH:MM format, defaults to 10:00
+
+
+class CreateReminderRequest(BaseModel):
+    paper_ids: List[str]
+    reminder_date: Optional[str] = None  # ISO format date, defaults to tomorrow
+    reminder_time: Optional[str] = None  # HH:MM format, defaults to 10:00
+    triggered_by: str = "user"  # 'user' or 'agent'
+    agent_note: Optional[str] = None  # Optional note from agent
+
+
+@router.post("/bulk/papers/create-reminder")
+async def bulk_create_reminder(paper_ids: List[str] = Body(...)):
+    """
+    Create a calendar reminder for reading selected papers.
+    
+    This endpoint:
+    1. Fetches paper details from the database
+    2. ResearchPulse agent estimates required reading time based on:
+       - Number of papers
+       - Paper complexity (importance level)
+    3. Creates a calendar event with paper titles and links
+    4. Sends a calendar invitation email with .ics attachment
+    5. Persists the reminder and invite email with triggered_by='user'
+    6. Returns the created calendar event and email records
+    """
+    try:
+        from datetime import timedelta
+        from ..tools.ics_generator import generate_uid, generate_reading_reminder_ics
+        from ..tools.calendar_invite_sender import send_calendar_invite_email
+        import uuid as uuid_module
+        
+        # No date/time specified, will use defaults (tomorrow at 10:00 AM)
+        reminder_date = None
+        reminder_time = None
+        triggered_by = "user"
+        agent_note = None
+        
+        if not paper_ids:
+            raise HTTPException(status_code=400, detail="No paper IDs provided")
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        user_name = user.get("name", "Researcher")
+        
+        # Fetch paper details
+        papers_data = []
+        paper_id_list = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                view = store.get_paper_view(user_id, paper_uuid)
+                if view and view.get("paper"):
+                    paper = view["paper"]
+                    external_id = paper.get("external_id") or ""
+                    abstract = paper.get("abstract") or ""
+                    papers_data.append({
+                        "id": paper_id,
+                        "title": paper.get("title") or "Untitled",
+                        "url": f"https://arxiv.org/abs/{external_id}" if external_id else (paper.get("url") or ""),
+                        "importance": view.get("importance") or "medium",
+                        "abstract_length": len(abstract),
+                        "authors": paper.get("authors") or [],
+                    })
+                    paper_id_list.append(paper_id)
+            except Exception as e:
+                print(f"Error processing paper {paper_id}: {e}")
+                continue
+        
+        if not papers_data:
+            raise HTTPException(status_code=400, detail="No valid papers found for the given IDs")
+        
+        # Agent estimates reading time based on papers
+        estimated_minutes = _estimate_reading_time(papers_data)
+        
+        # Determine start time (default: tomorrow at 10:00 AM)
+        if reminder_date:
+            try:
+                start_date = datetime.fromisoformat(reminder_date.replace('Z', '+00:00'))
+            except:
+                start_date = datetime.utcnow() + timedelta(days=1)
+        else:
+            start_date = datetime.utcnow() + timedelta(days=1)
+        
+        if reminder_time:
+            try:
+                hour, minute = map(int, reminder_time.split(':'))
+                start_date = start_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            except:
+                start_date = start_date.replace(hour=10, minute=0, second=0, microsecond=0)
+        else:
+            start_date = start_date.replace(hour=10, minute=0, second=0, microsecond=0)
+        
+        # Generate event title and description
+        if len(papers_data) == 1:
+            title = f"📖 Read: {papers_data[0]['title'][:50]}..."
+        else:
+            title = f"📖 Read {len(papers_data)} research papers (ResearchPulse)"
+        
+        description = _generate_reminder_description(papers_data, estimated_minutes, agent_note)
+        
+        # Generate unique ICS UID for this calendar event
+        ics_uid = generate_uid()
+        
+        # Generate ICS content for calendar invite
+        ics_content = generate_reading_reminder_ics(
+            uid=ics_uid,
+            papers=papers_data,
+            start_time=start_date,
+            duration_minutes=estimated_minutes,
+            organizer_email=os.getenv("SMTP_FROM_EMAIL", "researchpulse@example.com"),
+            attendee_email=user_email,
+            reminder_minutes=15,
+            sequence=0,
+            agent_note=agent_note,
+        )
+        
+        # Create the calendar event with triggered_by and ICS UID
+        event_record = store.create_calendar_event(
+            user_id=user_id,
+            paper_id=None,  # Bulk reminder, no single paper
+            title=title,
+            start_time=start_date,
+            duration_minutes=estimated_minutes,
+            ics_text=ics_content,
+            description=description,
+            reminder_minutes=15,  # 15 minute notification before
+            triggered_by=triggered_by,
+            paper_ids=paper_id_list,
+        )
+        
+        event_id = UUID(event_record["id"])
+        
+        # Update the event with ICS UID (store method may need enhancement)
+        try:
+            store.update_calendar_event(event_id, {"ics_uid": ics_uid, "sequence_number": 0})
+        except Exception:
+            pass  # Continue if update fails
+        
+        # Send calendar invitation email if user has email configured
+        invite_email_record = None
+        email_sent = False
+        
+        if user_email and user_email != "user@researchpulse.local":
+            try:
+                # Generate email body
+                email_subject = f"📅 Reading Reminder: {title}"
+                email_body_text = _generate_invite_email_body(papers_data, start_date, estimated_minutes, agent_note)
+                email_body_html = _generate_invite_email_html(papers_data, start_date, estimated_minutes, agent_note)
+                
+                # Send the calendar invite email (returns 3 values: success, message_id, error)
+                email_sent, actual_message_id, send_error = send_calendar_invite_email(
+                    to_email=user_email,
+                    to_name=user_name,
+                    subject=email_subject,
+                    body_text=email_body_text,
+                    body_html=email_body_html,
+                    ics_content=ics_content,
+                    ics_method="REQUEST",
+                )
+                
+                # Use actual message_id from SMTP if available, else generate one
+                message_id = actual_message_id or f"<{ics_uid}@researchpulse.local>"
+                
+                # Create Email record
+                email_record = store.create_email(
+                    user_id=user_id,
+                    paper_id=None,
+                    recipient_email=user_email,
+                    subject=email_subject,
+                    body_text=email_body_text,
+                    body_preview=f"Reading reminder for {len(papers_data)} paper(s) scheduled for {start_date.strftime('%B %d at %I:%M %p')}",
+                    triggered_by=triggered_by,
+                    paper_ids=paper_id_list,
+                )
+                
+                email_id = UUID(email_record["id"])
+                
+                # Update email status
+                if email_sent:
+                    store.update_email_status(email_id, status="sent")
+                else:
+                    store.update_email_status(email_id, status="failed", error=send_error)
+                
+                # Create CalendarInviteEmail record to link email to calendar event
+                invite_email_record = store.create_calendar_invite_email(
+                    calendar_event_id=event_id,
+                    user_id=user_id,
+                    message_id=message_id,
+                    recipient_email=user_email,
+                    subject=email_subject,
+                    ics_uid=ics_uid,
+                    email_id=email_id,
+                    ics_sequence=0,
+                    ics_method="REQUEST",
+                    triggered_by=triggered_by,
+                )
+                
+            except Exception as e:
+                print(f"Error sending calendar invite email: {e}")
+        
+        return {
+            "success": True,
+            "event": event_record,
+            "invite_email": invite_email_record,
+            "email_sent": email_sent,
+            "papers_count": len(papers_data),
+            "estimated_reading_time_minutes": estimated_minutes,
+            "scheduled_for": start_date.isoformat(),
+            "message": f"Reading reminder created for {start_date.strftime('%B %d, %Y at %I:%M %p')}" + 
+                       (f" and calendar invite sent to {user_email}" if email_sent else "")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _generate_invite_email_body(papers: List[Dict[str, Any]], start_time: datetime, duration_minutes: int, agent_note: Optional[str] = None) -> str:
+    """Generate plain text email body for calendar invite."""
+    lines = []
+    lines.append("ResearchPulse Reading Reminder")
+    lines.append("=" * 40)
+    lines.append("")
+    lines.append(f"📅 Scheduled: {start_time.strftime('%A, %B %d, %Y at %I:%M %p')}")
+    lines.append(f"⏱️ Duration: {duration_minutes} minutes")
+    lines.append("")
+    
+    if agent_note:
+        lines.append("💡 Agent Note:")
+        lines.append(agent_note)
+        lines.append("")
+    
+    lines.append("Papers to Read:")
+    lines.append("-" * 40)
+    
+    for i, paper in enumerate(papers, 1):
+        importance = paper.get("importance", "medium").upper()
+        lines.append(f"{i}. [{importance}] {paper['title']}")
+        lines.append(f"   Link: {paper['url']}")
+        lines.append("")
+    
+    lines.append("-" * 40)
+    lines.append("")
+    lines.append("To reschedule this reading session, simply reply to this email with")
+    lines.append("your preferred date and time (e.g., 'Please move to tomorrow at 2pm').")
+    lines.append("")
+    lines.append("This reminder was created by ResearchPulse.")
+    
+    return "\n".join(lines)
+
+
+def _generate_invite_email_html(papers: List[Dict[str, Any]], start_time: datetime, duration_minutes: int, agent_note: Optional[str] = None) -> str:
+    """Generate HTML email body for calendar invite."""
+    html = []
+    html.append("""<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .paper { background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #667eea; }
+        .importance-high { border-left-color: #e53e3e; }
+        .importance-critical { border-left-color: #c53030; }
+        .importance-medium { border-left-color: #dd6b20; }
+        .importance-low { border-left-color: #38a169; }
+        .footer { padding: 15px; background: #eee; border-radius: 0 0 8px 8px; font-size: 12px; color: #666; }
+        .agent-note { background: #e6f3ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #3182ce; }
+        a { color: #667eea; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 ResearchPulse Reading Reminder</h1>
+    </div>
+    <div class="content">
+""")
+    
+    html.append(f"""
+        <p><strong>📅 Scheduled:</strong> {start_time.strftime('%A, %B %d, %Y at %I:%M %p')}</p>
+        <p><strong>⏱️ Duration:</strong> {duration_minutes} minutes</p>
+""")
+    
+    if agent_note:
+        html.append(f"""
+        <div class="agent-note">
+            <strong>💡 Agent Note:</strong><br>
+            {agent_note}
+        </div>
+""")
+    
+    html.append("""
+        <h2>Papers to Read</h2>
+""")
+    
+    for i, paper in enumerate(papers, 1):
+        importance = paper.get("importance", "medium")
+        importance_class = f"importance-{importance}"
+        html.append(f"""
+        <div class="paper {importance_class}">
+            <strong>{i}. {paper['title']}</strong>
+            <br>
+            <small>Importance: {importance.upper()}</small>
+            <br>
+            <a href="{paper['url']}">📄 Read Paper</a>
+        </div>
+""")
+    
+    html.append("""
+    </div>
+    <div class="footer">
+        <p>To reschedule this reading session, simply reply to this email with your preferred date and time 
+        (e.g., "Please move to tomorrow at 2pm").</p>
+        <p>This reminder was created by <strong>ResearchPulse</strong>.</p>
+    </div>
+</body>
+</html>
+""")
+    
+    return "".join(html)
+
+
+def _estimate_reading_time(papers: List[Dict[str, Any]]) -> int:
+    """
+    ResearchPulse agent estimates reading time based on:
+    - Number of papers
+    - Paper importance (critical/high papers need more attention)
+    - Abstract length as proxy for paper complexity
+    
+    Returns estimated time in minutes.
+    """
+    total_minutes = 0
+    
+    for paper in papers:
+        importance = paper.get("importance", "medium")
+        abstract_length = paper.get("abstract_length", 1000)
+        
+        # Base reading time per paper (in minutes)
+        if importance == "critical":
+            base_time = 30  # Critical papers: deep reading
+        elif importance == "high":
+            base_time = 25  # High importance: thorough reading
+        elif importance == "medium":
+            base_time = 20  # Medium: standard reading
+        else:
+            base_time = 15  # Low: quick skim
+        
+        # Adjust for abstract length (proxy for paper complexity)
+        if abstract_length > 2000:
+            base_time += 10  # Complex/long paper
+        elif abstract_length > 1500:
+            base_time += 5   # Moderately complex
+        
+        total_minutes += base_time
+    
+    # Round to nearest 5 minutes
+    total_minutes = ((total_minutes + 4) // 5) * 5
+    
+    # Minimum 15 minutes, maximum 4 hours
+    return max(15, min(total_minutes, 240))
+
+
+def _generate_reminder_description(papers: List[Dict[str, Any]], estimated_minutes: int, agent_note: Optional[str] = None) -> str:
+    """
+    Generate the calendar event description with paper details.
+    """
+    lines = []
+    lines.append(f"📚 ResearchPulse Reading Session")
+    lines.append(f"Estimated time: {estimated_minutes} minutes")
+    lines.append("")
+    
+    if agent_note:
+        lines.append("💡 Agent Note:")
+        lines.append(agent_note)
+        lines.append("")
+    
+    lines.append("Papers to read:")
+    lines.append("")
+    
+    for i, paper in enumerate(papers, 1):
+        importance = paper.get("importance", "medium").upper()
+        lines.append(f"{i}. [{importance}] {paper['title']}")
+        lines.append(f"   Link: {paper['url']}")
+        lines.append("")
+    
+    lines.append("---")
+    lines.append("This reminder was created by ResearchPulse at your request.")
+    lines.append("Tip: Start with high-priority papers for maximum productivity.")
+    
+    return "\n".join(lines)
+
+
+@router.post("/bulk/papers/email-summary")
+async def bulk_email_summary(paper_ids: List[str] = Body(embed=False)):
+    """
+    Generate and send an email summary for selected papers.
+    
+    This endpoint:
+    1. Fetches paper details from the database
+    2. Uses ResearchPulse agent to generate a SHORT, intelligent summary
+    3. Sends the summary email to the user's email address
+    4. Persists the email in the database with triggered_by='user'
+    5. Returns the created email record
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        user_name = user.get("name", "Researcher")
+        
+        if not user_email or user_email == "user@researchpulse.local":
+            raise HTTPException(
+                status_code=400, 
+                detail="No email address configured. Please update your profile in Settings."
+            )
+        
+        # Fetch paper details
+        papers_data = []
+        paper_id_list = []
+        for paper_id in paper_ids:
+            try:
+                paper_uuid = UUID(paper_id)
+                view = store.get_paper_view(user_id, paper_uuid)
+                if view and view.get("paper"):
+                    paper = view["paper"]
+                    external_id = paper.get("external_id") or ""
+                    
+                    # Get abstract - fetch from arXiv if not in DB
+                    abstract = paper.get("abstract") or ""
+                    if not abstract and external_id:
+                        abstract = _fetch_abstract_from_arxiv(external_id) or ""
+                    
+                    papers_data.append({
+                        "id": paper_id,
+                        "title": paper.get("title") or "Untitled",
+                        "authors": paper.get("authors") or [],
+                        "abstract": abstract,
+                        "url": f"https://arxiv.org/abs/{external_id}" if external_id else (paper.get("url") or ""),
+                        "pdf_url": f"https://arxiv.org/pdf/{external_id}" if external_id else (paper.get("pdf_url") or ""),
+                        "importance": view.get("importance") or "medium",
+                        "categories": paper.get("categories") or [],
+                    })
+                    paper_id_list.append(paper_id)
+            except Exception:
+                continue
+        
+        if not papers_data:
+            raise HTTPException(status_code=400, detail="No valid papers found for the given IDs")
+        
+        # Generate agent-style concise summary
+        # The agent decides the summary style based on number and content of papers
+        summary_body = _generate_agent_email_summary(papers_data, user_name)
+        
+        # Create email subject
+        if len(papers_data) == 1:
+            subject = f"📚 ResearchPulse: Summary of \"{papers_data[0]['title'][:50]}...\""
+        else:
+            subject = f"📚 ResearchPulse: Summary of {len(papers_data)} Research Papers"
+        
+        # Create the email record with triggered_by='user'
+        email_record = store.create_email(
+            user_id=user_id,
+            paper_id=None,  # Bulk email, no single paper
+            recipient_email=user_email,
+            subject=subject,
+            body_text=summary_body,
+            body_preview=summary_body[:200] + "..." if len(summary_body) > 200 else summary_body,
+            triggered_by='user',
+            paper_ids=paper_id_list,
+        )
+        
+        email_id = UUID(email_record["id"])
+        
+        # Actually send the email via SMTP
+        try:
+            # Try relative import first, fall back to absolute import for different execution contexts
+            try:
+                from ..tools.decide_delivery import _send_email_smtp
+            except (ImportError, ValueError):
+                # Fallback: add tools path and import directly
+                import sys
+                from pathlib import Path
+                tools_path = str(Path(__file__).parent.parent / "tools")
+                if tools_path not in sys.path:
+                    sys.path.insert(0, tools_path)
+                from decide_delivery import _send_email_smtp
+            email_sent = _send_email_smtp(
+                to_email=user_email,
+                subject=subject,
+                body=summary_body,
+            )
+            
+            if email_sent:
+                email_record = store.update_email_status(email_id, status="sent")
+                return {
+                    "success": True,
+                    "email": email_record,
+                    "papers_count": len(papers_data),
+                    "message": f"Email summary sent to {user_email}"
+                }
+            else:
+                email_record = store.update_email_status(email_id, status="failed")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to send email. Check SMTP configuration (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)."
+                )
+        except ImportError:
+            email_record = store.update_email_status(email_id, status="failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Email sending module not available."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _fetch_abstract_from_arxiv(arxiv_id: str) -> str:
+    """
+    Fetch abstract from arXiv API if not stored in DB.
+    
+    Args:
+        arxiv_id: The arXiv paper ID (e.g., "2601.23262v1")
+        
+    Returns:
+        The paper abstract text, or empty string if not found.
+    """
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    
+    try:
+        # Handle version suffix (e.g., "2601.23262v1" -> "2601.23262")
+        base_id = arxiv_id.split('v')[0] if 'v' in arxiv_id else arxiv_id
+        url = f"http://export.arxiv.org/api/query?id_list={base_id}"
+        print(f"[DEBUG] Fetching abstract from arXiv for ID: {base_id}")
+        response = urllib.request.urlopen(url, timeout=10)
+        xml_data = response.read().decode('utf-8')
+        root = ET.fromstring(xml_data)
+        
+        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        entry = root.find('atom:entry', ns)
+        if entry is not None:
+            summary = entry.find('atom:summary', ns)
+            if summary is not None and summary.text:
+                abstract = summary.text.strip()
+                print(f"[DEBUG] Found abstract ({len(abstract)} chars)")
+                return abstract
+        print(f"[DEBUG] No abstract found in arXiv response for {base_id}")
+    except Exception as e:
+        print(f"[DEBUG] Error fetching abstract from arXiv: {e}")
+    return ""
+
+
+def _generate_paper_summary(abstract: str, title: str) -> str:
+    """
+    Generate a concise 2-3 sentence summary of a paper from its abstract.
+    
+    Uses LLM if available, otherwise extracts key sentences heuristically.
+    """
+    if not abstract:
+        return "No abstract available for this paper."
+    
+    # Try LLM-based summary if available
+    try:
+        import os
+        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+        if api_key:
+            import openai
+            
+            # Check if Azure or OpenAI
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            if azure_endpoint:
+                client = openai.AzureOpenAI(
+                    api_key=api_key,
+                    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+                    azure_endpoint=azure_endpoint
+                )
+                model = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+            else:
+                client = openai.OpenAI(api_key=api_key)
+                model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a research assistant. Summarize academic papers concisely in 2-3 sentences, focusing on the main contribution and methodology. Be specific about what makes this paper unique."},
+                    {"role": "user", "content": f"Summarize this paper:\n\nTitle: {title}\n\nAbstract: {abstract}"}
+                ],
+                max_tokens=150,
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip()
+    except Exception:
+        pass  # Fall back to heuristic
+    
+    # Heuristic fallback: extract key sentences from abstract
+    sentences = abstract.replace('\n', ' ').split('. ')
+    
+    # Try to find the most informative sentences
+    key_sentences = []
+    
+    # Look for contribution/result sentence
+    contribution_keywords = ['propose', 'present', 'introduce', 'develop', 'demonstrate', 'show', 'achieve', 'outperform', 'novel', 'new approach']
+    result_keywords = ['results', 'experiments', 'evaluation', 'performance', 'accuracy', 'improvement']
+    
+    contribution_sentence = None
+    result_sentence = None
+    
+    for sent in sentences:
+        sent_lower = sent.lower()
+        if not contribution_sentence and any(kw in sent_lower for kw in contribution_keywords):
+            contribution_sentence = sent.strip()
+        elif not result_sentence and any(kw in sent_lower for kw in result_keywords):
+            result_sentence = sent.strip()
+    
+    # Build summary from found sentences
+    if contribution_sentence:
+        key_sentences.append(contribution_sentence)
+    elif sentences:
+        # Use first sentence as fallback
+        key_sentences.append(sentences[0].strip())
+    
+    if result_sentence and result_sentence != contribution_sentence:
+        key_sentences.append(result_sentence)
+    elif len(sentences) > 1 and sentences[-1].strip() and sentences[-1] != sentences[0]:
+        # Use last sentence as fallback for results
+        key_sentences.append(sentences[-1].strip())
+    
+    # Join and clean up
+    summary = '. '.join(key_sentences)
+    if not summary.endswith('.'):
+        summary += '.'
+    
+    # Truncate if too long
+    if len(summary) > 400:
+        summary = summary[:397].rsplit(' ', 1)[0] + '...'
+    
+    return summary
+
+
+def _generate_agent_email_summary(papers: List[Dict[str, Any]], user_name: str) -> str:
+    """
+    Generate an agent-style concise summary of papers.
+    
+    The ResearchPulse agent generates intelligent summaries:
+    - For a single paper: detailed summary with key contribution
+    - For multiple papers: bullet-point list with mini-summaries
+    """
+    lines = []
+    lines.append(f"Hi {user_name},")
+    lines.append("")
+    
+    if len(papers) == 1:
+        # Single paper - detailed summary
+        p = papers[0]
+        lines.append(f"Here's a summary of the paper you selected:")
+        lines.append("")
+        lines.append(f"📄 **{p['title']}**")
+        lines.append("")
+        if p['authors']:
+            author_str = ", ".join(p['authors'][:3])
+            if len(p['authors']) > 3:
+                author_str += f" et al."
+            lines.append(f"👤 Authors: {author_str}")
+        if p['categories']:
+            lines.append(f"🏷️ Categories: {', '.join(p['categories'][:3])}")
+        lines.append(f"⭐ Importance: {p['importance'].upper()}")
+        lines.append("")
+        
+        # Generate intelligent summary
+        summary = _generate_paper_summary(p.get('abstract', ''), p['title'])
+        lines.append("📝 **Summary:**")
+        lines.append(summary)
+        lines.append("")
+        lines.append(f"🔗 Read the full paper: {p['url']}")
+        if p.get('pdf_url'):
+            lines.append(f"📥 Download PDF: {p['pdf_url']}")
+    else:
+        # Multiple papers - compact list with mini-summaries
+        lines.append(f"Here's a summary of the {len(papers)} papers you selected:")
+        lines.append("")
+        
+        # Group by importance
+        high_importance = [p for p in papers if p['importance'] in ('high', 'critical')]
+        medium_importance = [p for p in papers if p['importance'] == 'medium']
+        low_importance = [p for p in papers if p['importance'] == 'low']
+        
+        paper_groups = [
+            ("🔴 HIGH PRIORITY", high_importance),
+            ("🟡 MEDIUM PRIORITY", medium_importance),
+            ("🟢 OTHER PAPERS", low_importance),
+        ]
+        
+        for group_name, group_papers in paper_groups:
+            if group_papers:
+                lines.append(f"{group_name}:")
+                lines.append("")
+                for p in group_papers:
+                    lines.append(f"  📄 **{p['title']}**")
+                    # Generate short summary for each paper
+                    summary = _generate_paper_summary(p.get('abstract', ''), p['title'])
+                    # Truncate for multi-paper emails
+                    if len(summary) > 200:
+                        summary = summary[:197].rsplit(' ', 1)[0] + '...'
+                    lines.append(f"     {summary}")
+                    lines.append(f"     🔗 Abstract: {p['url']}")
+                    if p.get('pdf_url'):
+                        lines.append(f"     📥 PDF: {p['pdf_url']}")
+                    lines.append("")
+    
+    lines.append("---")
+    lines.append("This summary was generated by ResearchPulse at your request.")
+    lines.append("")
+    
+    return "\n".join(lines)
 
 
 @router.post("/reindex")
@@ -1172,7 +3111,7 @@ async def get_stats():
         user_id = UUID(user["id"])
         
         # Get counts
-        all_papers = store.list_papers(user_id, limit=10000)
+        all_papers = store.list_papers(user_id, limit=10000, include_not_relevant=True)
         emails = store.list_emails(user_id, limit=10000)
         calendar = store.list_calendar_events(user_id, limit=10000)
         shares = store.list_shares(user_id, limit=10000)
@@ -1211,5 +3150,613 @@ async def get_stats():
                 "last_run": runs[0] if runs else None,
             },
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# User Feedback Signals for Agent
+# =============================================================================
+
+@router.get("/user/feedback-signals")
+async def get_user_feedback_signals():
+    """
+    Get aggregated user feedback signals for agent use.
+    
+    Returns data that helps the agent understand user preferences:
+    - Papers marked not relevant (with authors, categories, keywords)
+    - Papers marked relevant 
+    - Starred papers (high interest)
+    - Read vs unread patterns
+    - Feedback history summary
+    
+    The agent should call this at the start of each run to adjust recommendations.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        signals = store.get_user_feedback_signals(user_id)
+        return signals
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user/feedback-history")
+async def get_all_feedback_history(
+    limit: int = Query(100, le=500),
+    offset: int = Query(0),
+):
+    """Get complete feedback history for the current user."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        history = store.get_feedback_history(user_id, limit=limit, offset=offset)
+        return {"history": history, "count": len(history), "offset": offset, "limit": limit}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Email Management Endpoints
+# =============================================================================
+
+@router.get("/emails/{email_id}")
+async def get_email(email_id: UUID):
+    """Get a single email with full details."""
+    try:
+        store = get_default_store()
+        email = store.get_email(email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        return email
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/emails/{email_id}")
+async def delete_email(email_id: UUID):
+    """Delete a single email."""
+    try:
+        store = get_default_store()
+        deleted = store.delete_email(email_id)
+        return {"deleted": deleted, "email_id": str(email_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/emails/{email_id}/resend")
+async def resend_email(email_id: UUID):
+    """Resend an email (creates a new email with the same content)."""
+    try:
+        from ..tools.calendar_invite_sender import send_calendar_invite_email
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_name = user.get("name", "Researcher")
+        
+        # Get original email
+        original = store.get_email(email_id)
+        if not original:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        recipient = original.get("recipient_email", "")
+        subject = original.get("subject", "")
+        body_text = original.get("body_text", "")
+        
+        if not recipient:
+            raise HTTPException(status_code=400, detail="No recipient email in original")
+        
+        # Send the email
+        email_sent, message_id, send_error = send_calendar_invite_email(
+            to_email=recipient,
+            to_name=user_name,
+            subject=f"[Resent] {subject}",
+            body_text=body_text,
+            body_html=None,
+            ics_content=None,
+            ics_method=None,
+        )
+        
+        # Create new email record
+        new_email = store.create_email(
+            user_id=user_id,
+            paper_id=original.get("paper_id"),
+            recipient_email=recipient,
+            subject=f"[Resent] {subject}",
+            body_text=body_text,
+            body_preview=original.get("body_preview", ""),
+            triggered_by="user",
+            paper_ids=original.get("paper_ids", []),
+        )
+        
+        new_email_id = UUID(new_email["id"])
+        if email_sent:
+            store.update_email_status(new_email_id, status="sent")
+        else:
+            store.update_email_status(new_email_id, status="failed", error=send_error)
+        
+        return {
+            "success": email_sent,
+            "new_email_id": str(new_email_id),
+            "message": "Email resent successfully" if email_sent else f"Failed to resend: {send_error}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/emails/delete")
+async def bulk_delete_emails(email_ids: List[str] = Body(embed=False)):
+    """Delete multiple emails at once."""
+    try:
+        store = get_default_store()
+        
+        deleted_count = 0
+        failed_ids = []
+        for email_id in email_ids:
+            try:
+                email_uuid = UUID(email_id)
+                deleted = store.delete_email(email_uuid)
+                if deleted:
+                    deleted_count += 1
+                else:
+                    failed_ids.append(email_id)
+            except Exception as e:
+                failed_ids.append(email_id)
+        
+        return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/emails/resend")
+async def bulk_resend_emails(email_ids: List[str] = Body(embed=False)):
+    """Resend multiple emails."""
+    try:
+        from ..tools.calendar_invite_sender import send_calendar_invite_email
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_name = user.get("name", "Researcher")
+        
+        sent_count = 0
+        failed_ids = []
+        for email_id in email_ids:
+            try:
+                email_uuid = UUID(email_id)
+                original = store.get_email(email_uuid)
+                if not original:
+                    failed_ids.append(email_id)
+                    continue
+                
+                recipient = original.get("recipient_email", "")
+                if not recipient:
+                    failed_ids.append(email_id)
+                    continue
+                
+                subject = original.get("subject", "")
+                body_text = original.get("body_text", "")
+                
+                email_sent, _, _ = send_calendar_invite_email(
+                    to_email=recipient,
+                    to_name=user_name,
+                    subject=f"[Resent] {subject}",
+                    body_text=body_text,
+                    body_html=None,
+                    ics_content=None,
+                    ics_method=None,
+                )
+                
+                if email_sent:
+                    sent_count += 1
+                else:
+                    failed_ids.append(email_id)
+            except Exception:
+                failed_ids.append(email_id)
+        
+        return {"sent_count": sent_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bulk/emails/export")
+async def bulk_export_emails(email_ids: Optional[str] = Query(None, description="Comma-separated email IDs")):
+    """Export emails to CSV format."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Get emails
+        if email_ids:
+            id_list = [UUID(eid.strip()) for eid in email_ids.split(",")]
+            emails = [store.get_email(eid) for eid in id_list]
+            emails = [e for e in emails if e]
+        else:
+            emails = store.list_emails(user_id, limit=1000)
+        
+        # Create CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Recipient", "Subject", "Status", "Created At", "Sent At", "Body Preview"])
+        
+        for email in emails:
+            writer.writerow([
+                email.get("id", ""),
+                email.get("recipient_email", ""),
+                email.get("subject", ""),
+                email.get("status", ""),
+                email.get("created_at", ""),
+                email.get("sent_at", ""),
+                email.get("body_preview", "")[:100],
+            ])
+        
+        output.seek(0)
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=emails_export.csv"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Calendar Event Management Endpoints
+# =============================================================================
+
+@router.delete("/calendar/{event_id}")
+async def delete_calendar_event(event_id: UUID):
+    """Delete a single calendar event."""
+    try:
+        store = get_default_store()
+        deleted = store.delete_calendar_event(event_id)
+        return {"deleted": deleted, "event_id": str(event_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calendar/{event_id}/ics")
+async def download_calendar_ics(event_id: UUID):
+    """Download the ICS file for a calendar event."""
+    try:
+        store = get_default_store()
+        event = store.get_calendar_event(event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+        
+        ics_content = event.get("ics_text", "")
+        if not ics_content:
+            # Generate ICS if not stored
+            from ..tools.ics_generator import generate_uid, generate_reading_reminder_ics
+            
+            ics_uid = event.get("ics_uid") or generate_uid()
+            start_time = event.get("start_time")
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            
+            duration = event.get("duration_minutes") or 30
+            
+            ics_content = generate_reading_reminder_ics(
+                uid=ics_uid,
+                papers=[{"title": event.get("title", "Reading Reminder"), "url": "", "importance": "medium"}],
+                start_time=start_time,
+                duration_minutes=duration,
+                organizer_email=os.getenv("SMTP_FROM_EMAIL", "researchpulse@example.com"),
+                attendee_email="",
+                reminder_minutes=15,
+                sequence=event.get("sequence_number") or 0,
+            )
+        
+        title = event.get("title", "event")[:30].replace(" ", "_")
+        filename = f"researchpulse_{title}.ics"
+        
+        return Response(
+            content=ics_content,
+            media_type="text/calendar",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateEventRequest(BaseModel):
+    title: str
+    start_time: str  # ISO format datetime
+    duration_minutes: int = 30
+    description: Optional[str] = None
+    reminder_minutes: int = 15
+    send_invite: bool = True
+    triggered_by: Optional[str] = None
+
+
+@router.post("/calendar/create")
+@router.post("/calendar")
+async def create_calendar_event_endpoint(data: CreateEventRequest):
+    """Create a new calendar event manually."""
+    try:
+        from ..tools.ics_generator import generate_uid, generate_reading_reminder_ics
+        from ..tools.calendar_invite_sender import send_calendar_invite_email
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        user_email = user.get("email", "")
+        user_name = user.get("name", "Researcher")
+        
+        # Parse start time
+        try:
+            start_time = datetime.fromisoformat(data.start_time.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid datetime format")
+        
+        # Generate ICS
+        ics_uid = generate_uid()
+        ics_content = generate_reading_reminder_ics(
+            uid=ics_uid,
+            papers=[{"title": data.title, "url": "", "importance": "medium"}],
+            start_time=start_time,
+            duration_minutes=data.duration_minutes,
+            organizer_email=os.getenv("SMTP_FROM_EMAIL", "researchpulse@example.com"),
+            attendee_email=user_email,
+            reminder_minutes=data.reminder_minutes,
+            sequence=0,
+        )
+        
+        # Create calendar event
+        event = store.create_calendar_event(
+            user_id=user_id,
+            paper_id=None,
+            title=data.title,
+            start_time=start_time,
+            duration_minutes=data.duration_minutes,
+            ics_text=ics_content,
+            description=data.description,
+            reminder_minutes=data.reminder_minutes,
+            triggered_by="user",
+            paper_ids=[],
+        )
+        
+        event_id = UUID(event["id"])
+        store.update_calendar_event(event_id, {"ics_uid": ics_uid, "sequence_number": 0})
+        
+        # Send invite email
+        email_sent = False
+        if data.send_invite and user_email and user_email != "user@researchpulse.local":
+            try:
+                email_subject = f"📅 {data.title}"
+                email_body = f"""Calendar Event Created
+
+📅 {data.title}
+🕐 {start_time.strftime('%A, %B %d, %Y at %I:%M %p')}
+⏱️ Duration: {data.duration_minutes} minutes
+
+{data.description or ''}
+
+---
+Created by ResearchPulse
+"""
+                email_sent, message_id, _ = send_calendar_invite_email(
+                    to_email=user_email,
+                    to_name=user_name,
+                    subject=email_subject,
+                    body_text=email_body,
+                    body_html=None,
+                    ics_content=ics_content,
+                    ics_method="REQUEST",
+                )
+            except Exception:
+                pass
+        
+        return {
+            "success": True,
+            "event": event,
+            "email_sent": email_sent,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateEventRequest(BaseModel):
+    title: Optional[str] = None
+    start_time: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    description: Optional[str] = None
+    reminder_minutes: Optional[int] = None
+
+
+@router.put("/calendar/{event_id}")
+async def update_calendar_event_endpoint(event_id: UUID, data: UpdateEventRequest):
+    """Update a calendar event."""
+    try:
+        store = get_default_store()
+        
+        update_data = data.model_dump(exclude_none=True)
+        
+        # Parse start_time if provided
+        if "start_time" in update_data:
+            try:
+                update_data["start_time"] = datetime.fromisoformat(
+                    update_data["start_time"].replace('Z', '+00:00')
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid datetime format")
+        
+        updated = store.update_calendar_event(event_id, update_data)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Calendar event not found")
+        
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/calendar/delete")
+async def bulk_delete_calendar_events(event_ids: List[str] = Body(embed=False)):
+    """Delete multiple calendar events at once."""
+    try:
+        store = get_default_store()
+        
+        deleted_count = 0
+        failed_ids = []
+        for event_id in event_ids:
+            try:
+                event_uuid = UUID(event_id)
+                deleted = store.delete_calendar_event(event_uuid)
+                if deleted:
+                    deleted_count += 1
+                else:
+                    failed_ids.append(event_id)
+            except Exception:
+                failed_ids.append(event_id)
+        
+        return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bulk/calendar/download-ics")
+async def bulk_download_ics(event_ids: Optional[str] = Query(None, description="Comma-separated event IDs")):
+    """Download ICS files for multiple events as a combined file."""
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Get events
+        if event_ids:
+            id_list = [UUID(eid.strip()) for eid in event_ids.split(",")]
+            events = [store.get_calendar_event(eid) for eid in id_list]
+            events = [e for e in events if e]
+        else:
+            events = store.list_calendar_events(user_id, limit=100)
+        
+        if not events:
+            raise HTTPException(status_code=404, detail="No events found")
+        
+        # Combine ICS files
+        from ..tools.ics_generator import generate_uid
+        
+        ics_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//ResearchPulse//Calendar//EN",
+            "METHOD:PUBLISH",
+            "X-WR-CALNAME:ResearchPulse Events",
+        ]
+        
+        for event in events:
+            ics_content = event.get("ics_text", "")
+            if ics_content:
+                # Extract VEVENT from ICS
+                lines = ics_content.split("\n")
+                in_event = False
+                for line in lines:
+                    line = line.strip()
+                    if line == "BEGIN:VEVENT":
+                        in_event = True
+                    if in_event:
+                        ics_lines.append(line)
+                    if line == "END:VEVENT":
+                        in_event = False
+            else:
+                # Generate minimal VEVENT
+                ics_uid = event.get("ics_uid") or generate_uid()
+                start_time = event.get("start_time")
+                if isinstance(start_time, str):
+                    start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                
+                duration = event.get("duration_minutes") or 30
+                end_time = start_time + timedelta(minutes=duration)
+                
+                ics_lines.extend([
+                    "BEGIN:VEVENT",
+                    f"UID:{ics_uid}",
+                    f"DTSTART:{start_time.strftime('%Y%m%dT%H%M%S')}",
+                    f"DTEND:{end_time.strftime('%Y%m%dT%H%M%S')}",
+                    f"SUMMARY:{event.get('title', 'Event')}",
+                    f"DESCRIPTION:{event.get('description', '')}",
+                    "END:VEVENT",
+                ])
+        
+        ics_lines.append("END:VCALENDAR")
+        ics_content = "\r\n".join(ics_lines)
+        
+        return Response(
+            content=ics_content,
+            media_type="text/calendar",
+            headers={"Content-Disposition": "attachment; filename=researchpulse_events.ics"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkRescheduleRequest(BaseModel):
+    event_ids: List[str]
+    new_start_time: str  # ISO format datetime
+    new_duration_minutes: Optional[int] = None
+
+
+@router.post("/bulk/calendar/reschedule")
+async def bulk_reschedule_events(data: BulkRescheduleRequest):
+    """Reschedule multiple calendar events to the same time."""
+    try:
+        from datetime import timedelta
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        
+        # Parse new start time
+        try:
+            new_start_time = datetime.fromisoformat(data.new_start_time.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid datetime format")
+        
+        updated_count = 0
+        failed_ids = []
+        
+        for event_id in data.event_ids:
+            try:
+                event_uuid = UUID(event_id)
+                existing = store.get_calendar_event(event_uuid)
+                if not existing:
+                    failed_ids.append(event_id)
+                    continue
+                
+                new_duration = data.new_duration_minutes or existing.get("duration_minutes", 30)
+                
+                store.reschedule_calendar_event(
+                    event_id=event_uuid,
+                    new_start_time=new_start_time,
+                    reschedule_note="Bulk rescheduled by user",
+                    new_duration_minutes=new_duration,
+                )
+                updated_count += 1
+                
+                # Offset each subsequent event by its duration to avoid overlap
+                new_start_time = new_start_time + timedelta(minutes=new_duration + 15)
+            except Exception:
+                failed_ids.append(event_id)
+        
+        return {"updated_count": updated_count, "failed_ids": failed_ids}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

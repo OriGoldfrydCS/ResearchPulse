@@ -41,6 +41,14 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.stop_controller import StopController, StopPolicy, RunMetrics, StopReason
+from agent.prompt_controller import (
+    PromptController,
+    ParsedPrompt,
+    PromptTemplate,
+    MAX_RETRIEVAL_RESULTS,
+    DEFAULT_OUTPUT_COUNT,
+    prompt_controller,
+)
 
 
 # =============================================================================
@@ -244,6 +252,9 @@ class AgentEpisode(BaseModel):
     start_time: str = Field(..., description="Episode start time")
     end_time: Optional[str] = Field(None, description="Episode end time")
     user_message: str = Field(..., description="Original user request")
+    detected_template: Optional[str] = Field(None, description="Detected prompt template")
+    requested_paper_count: Optional[int] = Field(None, description="Number of papers requested by user")
+    output_paper_count: Optional[int] = Field(None, description="Actual number of papers in output")
     steps: List[AgentStep] = Field(default_factory=list, description="All steps taken")
     tool_calls: List[ToolCall] = Field(default_factory=list, description="All tool calls made")
     stop_reason: Optional[str] = Field(None, description="Why the episode ended")
@@ -252,6 +263,9 @@ class AgentEpisode(BaseModel):
     decisions_made: List[Dict[str, Any]] = Field(default_factory=list, description="Decisions made")
     actions_taken: List[Dict[str, Any]] = Field(default_factory=list, description="Actions taken")
     artifacts_generated: List[Dict[str, Any]] = Field(default_factory=list, description="Artifacts generated")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class AgentConfig(BaseModel):
@@ -261,6 +275,10 @@ class AgentConfig(BaseModel):
     use_mock_arxiv: bool = Field(True, description="Use mock arXiv data for demo")
     verbose: bool = Field(True, description="Enable verbose logging")
     initial_prompt: Optional[str] = Field(None, description="The user's initial prompt/message")
+    parsed_prompt: Optional[ParsedPrompt] = Field(None, description="Parsed prompt with template and constraints")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # =============================================================================
@@ -471,6 +489,11 @@ class ResearchReActAgent:
         self._decisions: List[Dict] = []
         self._actions: List[Dict] = []
         self._artifacts: List[Dict] = []
+        
+        # Prompt controller for template matching and output enforcement
+        self._prompt_controller = prompt_controller
+        self._parsed_prompt: Optional[ParsedPrompt] = None
+        self._prompt_id: Optional[str] = None  # Database ID for prompt tracking
     
     def _log(self, level: str, message: str):
         """Log a message."""
@@ -563,8 +586,32 @@ class ResearchReActAgent:
         3. For each unseen paper: query RAG, score, decide, persist
         4. Generate report
         5. Terminate
+        
+        SYSTEM CONTROLLER INTEGRATION:
+        - Prompt is parsed to standardized template with output constraints
+        - Internal retrieval uses MAX_RETRIEVAL_RESULTS for ranking
+        - Final output is truncated to EXACTLY user's requested count (K)
         """
         self._log("INFO", f"Starting workflow for: {user_message[:100]}...")
+        
+        # Parse prompt for template matching and output constraints (CRITICAL)
+        # Also saves prompt to database for audit/compliance tracking
+        self._parsed_prompt, self._prompt_id = self._prompt_controller.parse_and_save(
+            user_message, run_id=self.run_id
+        )
+        self._log("INFO", f"Detected prompt template: {self._parsed_prompt.template.value}")
+        if self._prompt_id:
+            self._log("INFO", f"Prompt saved to DB with ID: {self._prompt_id}")
+        self._log("INFO", f"Requested output count: {self._parsed_prompt.output_count} papers")
+        self._log("INFO", f"Internal retrieval limit: {self._parsed_prompt.retrieval_count} papers")
+        if self._parsed_prompt.time_period:
+            self._log("INFO", f"Time filter: {self._parsed_prompt.time_period} ({self._parsed_prompt.time_days} days)")
+        if self._parsed_prompt.topic:
+            self._log("INFO", f"Topic extracted: {self._parsed_prompt.topic}")
+        
+        # Store parsed info in episode for reporting
+        self.episode.detected_template = self._parsed_prompt.template.value
+        self.episode.requested_paper_count = self._parsed_prompt.output_count
         
         # Reset run tracker for idempotency
         reset_run_tracker()
@@ -609,7 +656,9 @@ class ResearchReActAgent:
             "fetch_arxiv_papers",
             categories_include=categories_include,
             categories_exclude=categories_exclude,
-            max_results=self.config.stop_policy.max_papers_checked,
+            # Use parsed prompt's retrieval count (MAX_RETRIEVAL_RESULTS) for internal ranking
+            # This is separate from user's requested output count which is enforced later
+            max_results=self._parsed_prompt.retrieval_count if self._parsed_prompt else MAX_RETRIEVAL_RESULTS,
         )
         
         if not success or not fetch_result.get("success"):
@@ -780,6 +829,58 @@ class ResearchReActAgent:
     def _finalize_episode(self, stop_reason: str) -> AgentEpisode:
         """Finalize the episode with report generation."""
         self._log("INFO", f"Finalizing episode with stop reason: {stop_reason}")
+        
+        # ==================================================================
+        # OUTPUT ENFORCEMENT (CRITICAL - SYSTEM CONTROLLER RULE)
+        # ==================================================================
+        # The agent may retrieve up to MAX_RETRIEVAL_RESULTS internally for
+        # ranking and filtering. However, the FINAL OUTPUT must contain
+        # EXACTLY the number of papers requested by the user (K).
+        # 
+        # If user asks for "top 5 papers", output MUST have EXACTLY 5 papers.
+        # This is a critical failure if violated.
+        # ==================================================================
+        if self._parsed_prompt:
+            self._log("INFO", f"Enforcing output limit: {self._parsed_prompt.output_count} papers requested by user")
+            
+            # Apply output enforcement - truncate to exactly K papers
+            enforced_result = self._prompt_controller.enforce_output(
+                self._scored_papers,
+                self._parsed_prompt,
+                sort_key="relevance_score"
+            )
+            
+            # Update scored papers to the enforced subset
+            original_count = len(self._scored_papers)
+            self._scored_papers = enforced_result.papers
+            
+            if enforced_result.insufficient:
+                self._log("WARN", enforced_result.message)
+            elif enforced_result.truncated:
+                self._log("INFO", f"Output truncated from {original_count} to {len(self._scored_papers)} papers as requested")
+            
+            # Record actual output count in episode
+            self.episode.output_paper_count = len(self._scored_papers)
+            
+            # Validate output count matches request (critical check)
+            is_valid, error_msg = self._prompt_controller.validate_output_count(
+                self._scored_papers, self._parsed_prompt
+            )
+            if not is_valid:
+                self._log("ERROR", error_msg)
+            
+            # Update compliance status in database (if prompt was saved)
+            if self._prompt_id:
+                compliance_updated = self._prompt_controller.update_prompt_compliance(
+                    prompt_id=self._prompt_id,
+                    papers_retrieved=original_count,
+                    papers_returned=len(self._scored_papers),
+                    output_enforced=enforced_result.truncated,
+                    output_insufficient=enforced_result.insufficient,
+                    compliance_message=error_msg if not is_valid else enforced_result.message,
+                )
+                if compliance_updated:
+                    self._log("INFO", f"Prompt compliance status updated in DB")
         
         # Generate report
         report_result, success, error = self._invoke_tool(

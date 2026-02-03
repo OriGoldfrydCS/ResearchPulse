@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, case, desc, asc
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 
@@ -20,8 +20,10 @@ from .store import Store
 from .database import get_db_session, check_connection, is_database_configured
 from .orm_models import (
     User, Paper, PaperView, Colleague, Run, Action, Email, CalendarEvent, Share, DeliveryPolicy,
+    PaperFeedbackHistory, CalendarInviteEmail, InboundEmailReply,
     user_to_dict, paper_to_dict, paper_view_to_dict, colleague_to_dict,
     run_to_dict, email_to_dict, calendar_event_to_dict, share_to_dict, policy_to_dict,
+    feedback_history_to_dict, calendar_invite_email_to_dict, inbound_email_reply_to_dict,
 )
 
 
@@ -204,18 +206,57 @@ class PostgresStore(Store):
         query: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        sort_by: str = "added_at",
+        sort_dir: str = "desc",
+        is_starred: Optional[bool] = None,
+        is_read: Optional[bool] = None,
+        relevance_state: Optional[str] = None,
+        include_not_relevant: bool = False,
     ) -> List[Dict[str, Any]]:
-        """List papers with filters."""
+        """List papers with filters and sorting.
+        
+        Args:
+            user_id: User ID to filter by
+            seen: Filter by seen status
+            decision: Filter by decision status
+            importance: Filter by importance level
+            category: Filter by arXiv category
+            query: Text search in title/abstract
+            limit: Max results to return
+            offset: Results offset for pagination
+            sort_by: Sort field ('added_at', 'published_at', 'importance', 'title')
+            sort_dir: Sort direction ('asc' or 'desc')
+            is_starred: Filter by starred status
+            is_read: Filter by read status
+            relevance_state: Filter by relevance state ('relevant', 'not_relevant')
+            include_not_relevant: Whether to include not_relevant papers (default False)
+        """
         with get_db_session() as db:
             q = db.query(PaperView).options(joinedload(PaperView.paper)).filter(
                 PaperView.user_id == user_id
             )
+            
+            # By default, exclude not_relevant papers unless explicitly requested
+            if not include_not_relevant and relevance_state != 'not_relevant':
+                q = q.filter(or_(
+                    PaperView.relevance_state == None,
+                    PaperView.relevance_state != 'not_relevant'
+                ))
+            
+            if relevance_state:
+                q = q.filter(PaperView.relevance_state == relevance_state)
             
             if decision:
                 q = q.filter(PaperView.decision == decision)
             
             if importance:
                 q = q.filter(PaperView.importance == importance)
+            
+            if is_starred is not None:
+                q = q.filter(PaperView.is_starred == is_starred)
+            
+            if is_read is not None:
+                q = q.filter(PaperView.is_read == is_read)
             
             if query:
                 # Search in title and abstract
@@ -232,7 +273,33 @@ class PostgresStore(Store):
                     Paper.categories.contains([category])
                 )
             
-            q = q.order_by(PaperView.last_seen_at.desc())
+            # Dynamic sorting
+            is_descending = sort_dir.lower() == "desc"
+            
+            if sort_by == "added_at":
+                sort_col = PaperView.first_seen_at
+                q = q.order_by(desc(sort_col) if is_descending else asc(sort_col))
+            elif sort_by == "published_at":
+                q = q.join(Paper, isouter=True)
+                sort_col = func.coalesce(Paper.published_at, PaperView.first_seen_at)
+                q = q.order_by(desc(sort_col) if is_descending else asc(sort_col))
+            elif sort_by == "importance":
+                # Order by importance level: critical > high > medium > low
+                importance_order = case(
+                    (PaperView.importance == 'critical', 4),
+                    (PaperView.importance == 'high', 3),
+                    (PaperView.importance == 'medium', 2),
+                    else_=1
+                )
+                q = q.order_by(desc(importance_order) if is_descending else asc(importance_order))
+            elif sort_by == "title":
+                q = q.join(Paper, isouter=True)
+                q = q.order_by(desc(Paper.title) if is_descending else asc(Paper.title))
+            else:
+                # Default fallback
+                sort_col = PaperView.last_seen_at
+                q = q.order_by(desc(sort_col) if is_descending else asc(sort_col))
+            
             q = q.offset(offset).limit(limit)
             
             views = q.all()
@@ -337,6 +404,349 @@ class PostgresStore(Store):
             db.commit()
             db.refresh(view)
             return paper_view_to_dict(view)
+    
+    def record_feedback_history(
+        self,
+        db: Session,
+        paper_view_id: UUID,
+        user_id: UUID,
+        paper_id: UUID,
+        action_type: str,
+        old_value: Optional[str],
+        new_value: Optional[str],
+        note: Optional[str] = None,
+    ) -> PaperFeedbackHistory:
+        """Record a feedback change in history. Must be called within an active session."""
+        history = PaperFeedbackHistory(
+            paper_view_id=paper_view_id,
+            user_id=user_id,
+            paper_id=paper_id,
+            action_type=action_type,
+            old_value=old_value,
+            new_value=new_value,
+            note=note,
+        )
+        db.add(history)
+        return history
+    
+    def toggle_star(self, user_id: UUID, paper_id: UUID) -> Dict[str, Any]:
+        """Toggle starred status for a paper."""
+        with get_db_session() as db:
+            view = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.paper_id == paper_id)
+            ).first()
+            
+            if not view:
+                raise ValueError(f"Paper view not found: user={user_id}, paper={paper_id}")
+            
+            old_value = str(view.is_starred) if view.is_starred is not None else None
+            view.is_starred = not view.is_starred
+            new_value = str(view.is_starred)
+            view.starred_at = datetime.utcnow() if view.is_starred else None
+            
+            # Record in feedback history
+            self.record_feedback_history(
+                db=db,
+                paper_view_id=view.id,
+                user_id=user_id,
+                paper_id=paper_id,
+                action_type="star_toggle",
+                old_value=old_value,
+                new_value=new_value,
+            )
+            
+            db.commit()
+            db.refresh(view)
+            return paper_view_to_dict(view)
+    
+    def toggle_read(self, user_id: UUID, paper_id: UUID) -> Dict[str, Any]:
+        """Toggle read status for a paper."""
+        with get_db_session() as db:
+            view = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.paper_id == paper_id)
+            ).first()
+            
+            if not view:
+                raise ValueError(f"Paper view not found: user={user_id}, paper={paper_id}")
+            
+            old_value = str(view.is_read) if view.is_read is not None else None
+            view.is_read = not view.is_read
+            new_value = str(view.is_read)
+            view.read_at = datetime.utcnow() if view.is_read else None
+            
+            # Record in feedback history
+            self.record_feedback_history(
+                db=db,
+                paper_view_id=view.id,
+                user_id=user_id,
+                paper_id=paper_id,
+                action_type="read_toggle",
+                old_value=old_value,
+                new_value=new_value,
+            )
+            
+            db.commit()
+            db.refresh(view)
+            return paper_view_to_dict(view)
+    
+    def mark_read(self, user_id: UUID, paper_id: UUID) -> Dict[str, Any]:
+        """Mark a paper as read (idempotent)."""
+        with get_db_session() as db:
+            view = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.paper_id == paper_id)
+            ).first()
+            
+            if not view:
+                raise ValueError(f"Paper view not found: user={user_id}, paper={paper_id}")
+            
+            if not view.is_read:
+                old_value = str(view.is_read) if view.is_read is not None else None
+                view.is_read = True
+                view.read_at = datetime.utcnow()
+                
+                # Record in feedback history
+                self.record_feedback_history(
+                    db=db,
+                    paper_view_id=view.id,
+                    user_id=user_id,
+                    paper_id=paper_id,
+                    action_type="read_toggle",
+                    old_value=old_value,
+                    new_value="True",
+                )
+                
+                db.commit()
+                db.refresh(view)
+            
+            return paper_view_to_dict(view)
+    
+    def toggle_relevance(self, user_id: UUID, paper_id: UUID, note: Optional[str] = None) -> Dict[str, Any]:
+        """Toggle relevance state for a paper (relevant <-> not_relevant)."""
+        with get_db_session() as db:
+            view = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.paper_id == paper_id)
+            ).first()
+            
+            if not view:
+                raise ValueError(f"Paper view not found: user={user_id}, paper={paper_id}")
+            
+            old_value = view.relevance_state
+            
+            # Toggle: if not_relevant -> relevant, otherwise -> not_relevant
+            if view.relevance_state == "not_relevant":
+                view.relevance_state = "relevant"
+                view.is_relevant = True
+            else:
+                view.relevance_state = "not_relevant"
+                view.is_relevant = False
+            
+            view.feedback_timestamp = datetime.utcnow()
+            view.feedback_reason = note
+            
+            # Record in feedback history
+            self.record_feedback_history(
+                db=db,
+                paper_view_id=view.id,
+                user_id=user_id,
+                paper_id=paper_id,
+                action_type="relevance_change",
+                old_value=old_value,
+                new_value=view.relevance_state,
+                note=note,
+            )
+            
+            db.commit()
+            db.refresh(view)
+            return paper_view_to_dict(view)
+    
+    def set_relevance(self, user_id: UUID, paper_id: UUID, relevance_state: str, note: Optional[str] = None) -> Dict[str, Any]:
+        """Set explicit relevance state for a paper."""
+        with get_db_session() as db:
+            view = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.paper_id == paper_id)
+            ).first()
+            
+            if not view:
+                raise ValueError(f"Paper view not found: user={user_id}, paper={paper_id}")
+            
+            old_value = view.relevance_state
+            view.relevance_state = relevance_state
+            view.is_relevant = relevance_state == "relevant"
+            view.feedback_timestamp = datetime.utcnow()
+            view.feedback_reason = note
+            
+            # Record in feedback history
+            self.record_feedback_history(
+                db=db,
+                paper_view_id=view.id,
+                user_id=user_id,
+                paper_id=paper_id,
+                action_type="relevance_change",
+                old_value=old_value,
+                new_value=relevance_state,
+                note=note,
+            )
+            
+            db.commit()
+            db.refresh(view)
+            return paper_view_to_dict(view)
+    
+    def bulk_toggle_read(self, user_id: UUID, paper_ids: List[UUID]) -> List[Dict[str, Any]]:
+        """Toggle read status for multiple papers."""
+        results = []
+        for paper_id in paper_ids:
+            try:
+                result = self.toggle_read(user_id, paper_id)
+                results.append(result)
+            except ValueError:
+                pass  # Skip papers that don't exist
+        return results
+    
+    def bulk_toggle_star(self, user_id: UUID, paper_ids: List[UUID]) -> List[Dict[str, Any]]:
+        """Toggle starred status for multiple papers."""
+        results = []
+        for paper_id in paper_ids:
+            try:
+                result = self.toggle_star(user_id, paper_id)
+                results.append(result)
+            except ValueError:
+                pass  # Skip papers that don't exist
+        return results
+    
+    def bulk_set_relevance(self, user_id: UUID, paper_ids: List[UUID], relevance_state: str, note: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Set relevance state for multiple papers."""
+        results = []
+        for paper_id in paper_ids:
+            try:
+                result = self.set_relevance(user_id, paper_id, relevance_state, note)
+                results.append(result)
+            except ValueError:
+                pass  # Skip papers that don't exist
+        return results
+    
+    def get_feedback_history(self, user_id: UUID, paper_id: Optional[UUID] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get feedback history for a user, optionally filtered by paper."""
+        with get_db_session() as db:
+            q = db.query(PaperFeedbackHistory).filter(PaperFeedbackHistory.user_id == user_id)
+            
+            if paper_id:
+                q = q.filter(PaperFeedbackHistory.paper_id == paper_id)
+            
+            q = q.order_by(PaperFeedbackHistory.created_at.desc())
+            q = q.offset(offset).limit(limit)
+            
+            history = q.all()
+            return [feedback_history_to_dict(h) for h in history]
+    
+    def get_user_feedback_signals(self, user_id: UUID) -> Dict[str, Any]:
+        """
+        Get aggregated user feedback signals for agent use.
+        
+        Returns data that helps the agent understand user preferences:
+        - Papers marked not relevant (with authors, categories, keywords)
+        - Papers marked relevant 
+        - Starred papers (high interest)
+        - Read vs unread patterns
+        - Feedback history summary
+        """
+        with get_db_session() as db:
+            # Get papers marked as not relevant
+            not_relevant_views = db.query(PaperView).options(
+                joinedload(PaperView.paper)
+            ).filter(
+                and_(
+                    PaperView.user_id == user_id,
+                    PaperView.relevance_state == "not_relevant"
+                )
+            ).all()
+            
+            # Get papers marked as relevant
+            relevant_views = db.query(PaperView).options(
+                joinedload(PaperView.paper)
+            ).filter(
+                and_(
+                    PaperView.user_id == user_id,
+                    PaperView.relevance_state == "relevant"
+                )
+            ).all()
+            
+            # Get starred papers
+            starred_views = db.query(PaperView).options(
+                joinedload(PaperView.paper)
+            ).filter(
+                and_(
+                    PaperView.user_id == user_id,
+                    PaperView.is_starred == True
+                )
+            ).all()
+            
+            # Get overall read/unread stats
+            read_count = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.is_read == True)
+            ).count()
+            
+            unread_count = db.query(PaperView).filter(
+                and_(PaperView.user_id == user_id, PaperView.is_read == False)
+            ).count()
+            
+            # Extract patterns from not relevant papers
+            not_relevant_authors = []
+            not_relevant_categories = []
+            not_relevant_paper_ids = []
+            
+            for view in not_relevant_views:
+                if view.paper:
+                    not_relevant_paper_ids.append(str(view.paper.external_id))
+                    if view.paper.authors:
+                        not_relevant_authors.extend(view.paper.authors)
+                    if view.paper.categories:
+                        not_relevant_categories.extend(view.paper.categories)
+            
+            # Extract patterns from starred papers (positive signals)
+            starred_authors = []
+            starred_categories = []
+            
+            for view in starred_views:
+                if view.paper:
+                    if view.paper.authors:
+                        starred_authors.extend(view.paper.authors)
+                    if view.paper.categories:
+                        starred_categories.extend(view.paper.categories)
+            
+            # Get recent feedback history (last 100 entries)
+            recent_feedback = db.query(PaperFeedbackHistory).filter(
+                PaperFeedbackHistory.user_id == user_id
+            ).order_by(
+                PaperFeedbackHistory.created_at.desc()
+            ).limit(100).all()
+            
+            # Count feedback by type
+            feedback_counts = {}
+            for fb in recent_feedback:
+                key = fb.action_type
+                feedback_counts[key] = feedback_counts.get(key, 0) + 1
+            
+            return {
+                "not_relevant": {
+                    "count": len(not_relevant_views),
+                    "paper_ids": not_relevant_paper_ids,
+                    "authors": list(set(not_relevant_authors)),
+                    "categories": list(set(not_relevant_categories)),
+                },
+                "relevant": {
+                    "count": len(relevant_views),
+                },
+                "starred": {
+                    "count": len(starred_views),
+                    "authors": list(set(starred_authors)),
+                    "categories": list(set(starred_categories)),
+                },
+                "read_stats": {
+                    "read": read_count,
+                    "unread": unread_count,
+                },
+                "feedback_summary": feedback_counts,
+            }
     
     # =========================================================================
     # Colleague Operations
@@ -551,8 +961,21 @@ class PostgresStore(Store):
         subject: str,
         body_text: str,
         body_preview: Optional[str] = None,
+        triggered_by: str = 'agent',
+        paper_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Create an email record."""
+        """Create an email record.
+        
+        Args:
+            user_id: User ID
+            paper_id: Single paper ID (for single-paper emails)
+            recipient_email: Email recipient
+            subject: Email subject
+            body_text: Email body text
+            body_preview: Short preview of email body
+            triggered_by: Who triggered this email - 'agent' or 'user'
+            paper_ids: List of paper IDs (for bulk emails)
+        """
         with get_db_session() as db:
             email = Email(
                 user_id=user_id,
@@ -562,6 +985,8 @@ class PostgresStore(Store):
                 body_text=body_text,
                 body_preview=body_preview or body_text[:500] if body_text else None,
                 status="queued",
+                triggered_by=triggered_by,
+                paper_ids=paper_ids,
             )
             db.add(email)
             try:
@@ -611,6 +1036,22 @@ class PostgresStore(Store):
             ).first()
             return result is not None
     
+    def get_email(self, email_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get a single email by ID."""
+        with get_db_session() as db:
+            email = db.query(Email).filter(Email.id == email_id).first()
+            return email_to_dict(email) if email else None
+    
+    def delete_email(self, email_id: UUID) -> bool:
+        """Delete an email by ID."""
+        with get_db_session() as db:
+            email = db.query(Email).filter(Email.id == email_id).first()
+            if email:
+                db.delete(email)
+                db.commit()
+                return True
+            return False
+    
     # =========================================================================
     # Calendar Event Operations
     # =========================================================================
@@ -623,8 +1064,25 @@ class PostgresStore(Store):
         start_time: datetime,
         duration_minutes: int = 30,
         ics_text: Optional[str] = None,
+        description: Optional[str] = None,
+        reminder_minutes: int = 15,
+        triggered_by: str = 'agent',
+        paper_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Create a calendar event record."""
+        """Create a calendar event record.
+        
+        Args:
+            user_id: User ID
+            paper_id: Single paper ID (for single-paper reminders)
+            title: Event title
+            start_time: Event start time
+            duration_minutes: Event duration in minutes
+            ics_text: ICS calendar text
+            description: Event description with paper details
+            reminder_minutes: Minutes before event to send reminder
+            triggered_by: Who triggered this event - 'agent' or 'user'
+            paper_ids: List of paper IDs (for bulk reminders)
+        """
         with get_db_session() as db:
             event = CalendarEvent(
                 user_id=user_id,
@@ -633,7 +1091,11 @@ class PostgresStore(Store):
                 start_time=start_time,
                 duration_minutes=duration_minutes,
                 ics_text=ics_text,
+                description=description,
+                reminder_minutes=reminder_minutes,
                 status="created",
+                triggered_by=triggered_by,
+                paper_ids=paper_ids,
             )
             db.add(event)
             try:
@@ -672,6 +1134,10 @@ class PostgresStore(Store):
         start_time: datetime,
         duration_minutes: int = 30,
         ics_text: Optional[str] = None,
+        description: Optional[str] = None,
+        reminder_minutes: int = 15,
+        triggered_by: str = 'agent',
+        paper_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Alias for create_calendar_event for backward compatibility."""
         return self.create_calendar_event(
@@ -681,7 +1147,333 @@ class PostgresStore(Store):
             start_time=start_time,
             duration_minutes=duration_minutes,
             ics_text=ics_text,
+            description=description,
+            reminder_minutes=reminder_minutes,
+            triggered_by=triggered_by,
+            paper_ids=paper_ids,
         )
+    
+    def get_calendar_event(self, event_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get a calendar event by ID."""
+        with get_db_session() as db:
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id).first()
+            return calendar_event_to_dict(event) if event else None
+    
+    def update_calendar_event(self, event_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a calendar event."""
+        with get_db_session() as db:
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id).first()
+            if not event:
+                raise ValueError(f"Calendar event not found: {event_id}")
+            
+            for key, value in data.items():
+                if hasattr(event, key) and key not in ("id", "user_id", "created_at"):
+                    setattr(event, key, value)
+            
+            event.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(event)
+            return calendar_event_to_dict(event)
+    
+    def reschedule_calendar_event(
+        self,
+        event_id: UUID,
+        new_start_time: datetime,
+        reschedule_note: str,
+        new_duration_minutes: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Reschedule a calendar event to a new time.
+        
+        Updates the event's start_time, increments sequence_number,
+        and adds a reschedule note.
+        """
+        with get_db_session() as db:
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id).first()
+            if not event:
+                raise ValueError(f"Calendar event not found: {event_id}")
+            
+            # Update event
+            event.start_time = new_start_time
+            if new_duration_minutes:
+                event.duration_minutes = new_duration_minutes
+            event.sequence_number = (event.sequence_number or 0) + 1
+            event.reschedule_note = reschedule_note
+            event.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(event)
+            return calendar_event_to_dict(event)
+    
+    def mark_calendar_event_superseded(
+        self,
+        original_event_id: UUID,
+        new_event_id: UUID,
+    ) -> Dict[str, Any]:
+        """
+        Mark an original calendar event as superseded by a new event.
+        
+        Used when creating a new event for rescheduling instead of
+        updating the existing one.
+        """
+        with get_db_session() as db:
+            original = db.query(CalendarEvent).filter(CalendarEvent.id == original_event_id).first()
+            if not original:
+                raise ValueError(f"Original calendar event not found: {original_event_id}")
+            
+            original.status = "superseded"
+            original.updated_at = datetime.utcnow()
+            
+            # Set the new event's original_event_id
+            new_event = db.query(CalendarEvent).filter(CalendarEvent.id == new_event_id).first()
+            if new_event:
+                new_event.original_event_id = original_event_id
+            
+            db.commit()
+            db.refresh(original)
+            return calendar_event_to_dict(original)
+    
+    def delete_calendar_event(self, event_id: UUID) -> bool:
+        """Delete a calendar event by ID."""
+        with get_db_session() as db:
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id).first()
+            if event:
+                db.delete(event)
+                db.commit()
+                return True
+            return False
+    
+    # =========================================================================
+    # Calendar Invite Email Operations
+    # =========================================================================
+    
+    def create_calendar_invite_email(
+        self,
+        calendar_event_id: UUID,
+        user_id: UUID,
+        message_id: str,
+        recipient_email: str,
+        subject: str,
+        ics_uid: str,
+        email_id: Optional[UUID] = None,
+        thread_id: Optional[str] = None,
+        ics_sequence: int = 0,
+        ics_method: str = "REQUEST",
+        triggered_by: str = "agent",
+    ) -> Dict[str, Any]:
+        """
+        Create a calendar invite email record.
+        
+        Tracks sent calendar invitations for reply processing.
+        """
+        with get_db_session() as db:
+            invite_email = CalendarInviteEmail(
+                calendar_event_id=calendar_event_id,
+                email_id=email_id,
+                user_id=user_id,
+                message_id=message_id,
+                thread_id=thread_id,
+                recipient_email=recipient_email,
+                subject=subject,
+                ics_uid=ics_uid,
+                ics_sequence=ics_sequence,
+                ics_method=ics_method,
+                triggered_by=triggered_by,
+                status="sent",
+                is_latest=True,
+                sent_at=datetime.utcnow(),
+            )
+            db.add(invite_email)
+            
+            # Mark any previous invites for this event as not latest
+            db.query(CalendarInviteEmail).filter(
+                and_(
+                    CalendarInviteEmail.calendar_event_id == calendar_event_id,
+                    CalendarInviteEmail.id != invite_email.id,
+                )
+            ).update({"is_latest": False})
+            
+            db.commit()
+            db.refresh(invite_email)
+            return calendar_invite_email_to_dict(invite_email)
+    
+    def get_calendar_invite_by_message_id(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Get calendar invite email by message_id for reply matching."""
+        with get_db_session() as db:
+            invite = db.query(CalendarInviteEmail).filter(
+                CalendarInviteEmail.message_id == message_id
+            ).first()
+            return calendar_invite_email_to_dict(invite) if invite else None
+    
+    def get_calendar_invite_by_ics_uid(self, ics_uid: str) -> Optional[Dict[str, Any]]:
+        """Get calendar invite email by ICS UID."""
+        with get_db_session() as db:
+            invite = db.query(CalendarInviteEmail).filter(
+                CalendarInviteEmail.ics_uid == ics_uid
+            ).first()
+            return calendar_invite_email_to_dict(invite) if invite else None
+    
+    def list_calendar_invite_emails(
+        self,
+        user_id: UUID,
+        calendar_event_id: Optional[UUID] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List calendar invite emails for a user."""
+        with get_db_session() as db:
+            q = db.query(CalendarInviteEmail).filter(
+                CalendarInviteEmail.user_id == user_id
+            )
+            
+            if calendar_event_id:
+                q = q.filter(CalendarInviteEmail.calendar_event_id == calendar_event_id)
+            
+            q = q.order_by(CalendarInviteEmail.created_at.desc())
+            q = q.offset(offset).limit(limit)
+            
+            return [calendar_invite_email_to_dict(e) for e in q.all()]
+    
+    # =========================================================================
+    # Inbound Email Reply Operations
+    # =========================================================================
+    
+    def create_inbound_email_reply(
+        self,
+        user_id: UUID,
+        original_invite_id: UUID,
+        message_id: str,
+        from_email: str,
+        subject: Optional[str] = None,
+        body_text: Optional[str] = None,
+        body_html: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create an inbound email reply record.
+        
+        Stores user replies to calendar invitation emails.
+        """
+        with get_db_session() as db:
+            reply = InboundEmailReply(
+                user_id=user_id,
+                original_invite_id=original_invite_id,
+                message_id=message_id,
+                from_email=from_email,
+                subject=subject,
+                body_text=body_text,
+                body_html=body_html,
+                in_reply_to=in_reply_to,
+                references=references,
+                processed=False,
+                received_at=datetime.utcnow(),
+            )
+            db.add(reply)
+            db.commit()
+            db.refresh(reply)
+            return inbound_email_reply_to_dict(reply)
+    
+    def get_inbound_reply(self, reply_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get inbound email reply by ID."""
+        with get_db_session() as db:
+            reply = db.query(InboundEmailReply).filter(
+                InboundEmailReply.id == reply_id
+            ).first()
+            return inbound_email_reply_to_dict(reply) if reply else None
+    
+    def get_inbound_reply_by_message_id(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Get inbound email reply by message ID."""
+        with get_db_session() as db:
+            reply = db.query(InboundEmailReply).filter(
+                InboundEmailReply.message_id == message_id
+            ).first()
+            return inbound_email_reply_to_dict(reply) if reply else None
+    
+    def list_unprocessed_replies(
+        self,
+        user_id: Optional[UUID] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List unprocessed inbound email replies."""
+        with get_db_session() as db:
+            q = db.query(InboundEmailReply).filter(
+                InboundEmailReply.processed == False
+            )
+            
+            if user_id:
+                q = q.filter(InboundEmailReply.user_id == user_id)
+            
+            q = q.order_by(InboundEmailReply.received_at.asc())
+            q = q.limit(limit)
+            
+            return [inbound_email_reply_to_dict(r) for r in q.all()]
+    
+    def update_inbound_reply_processing(
+        self,
+        reply_id: UUID,
+        intent: str,
+        extracted_datetime: Optional[datetime] = None,
+        extracted_datetime_text: Optional[str] = None,
+        confidence_score: Optional[float] = None,
+        action_taken: Optional[str] = None,
+        new_event_id: Optional[UUID] = None,
+        processing_result: Optional[Dict[str, Any]] = None,
+        processing_error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Update inbound reply with processing results.
+        
+        Called after the agent processes the reply.
+        """
+        with get_db_session() as db:
+            reply = db.query(InboundEmailReply).filter(
+                InboundEmailReply.id == reply_id
+            ).first()
+            
+            if not reply:
+                raise ValueError(f"Inbound reply not found: {reply_id}")
+            
+            reply.intent = intent
+            reply.extracted_datetime = extracted_datetime
+            reply.extracted_datetime_text = extracted_datetime_text
+            reply.confidence_score = confidence_score
+            reply.processed = True
+            reply.processed_at = datetime.utcnow()
+            reply.action_taken = action_taken
+            reply.new_event_id = new_event_id
+            reply.processing_result = processing_result
+            reply.processing_error = processing_error
+            
+            db.commit()
+            db.refresh(reply)
+            return inbound_email_reply_to_dict(reply)
+    
+    def get_reply_history_for_event(
+        self,
+        calendar_event_id: UUID,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all replies related to a calendar event.
+        
+        Includes replies to any invite email for the event.
+        """
+        with get_db_session() as db:
+            # Get all invite emails for the event
+            invite_ids = db.query(CalendarInviteEmail.id).filter(
+                CalendarInviteEmail.calendar_event_id == calendar_event_id
+            ).all()
+            invite_id_list = [i[0] for i in invite_ids]
+            
+            if not invite_id_list:
+                return []
+            
+            # Get all replies to those invites
+            replies = db.query(InboundEmailReply).filter(
+                InboundEmailReply.original_invite_id.in_(invite_id_list)
+            ).order_by(InboundEmailReply.received_at.asc()).all()
+            
+            return [inbound_email_reply_to_dict(r) for r in replies]
     
     # =========================================================================
     # Share Operations

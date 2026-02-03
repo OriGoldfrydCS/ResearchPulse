@@ -18,6 +18,7 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -193,6 +194,37 @@ class RunManager:
     def clear_runs(self) -> None:
         """Clear all runs (useful for testing)."""
         self._runs.clear()
+
+    def cancel_run(self, run_id: str, reason: str = "User cancelled") -> bool:
+        """
+        Cancel a running run.
+        
+        Args:
+            run_id: The unique identifier for the run.
+            reason: The reason for cancellation.
+            
+        Returns:
+            True if the run was found and cancelled, False otherwise.
+        """
+        run = self.get_run(run_id)
+        if run and run.status == RunStatus.RUNNING:
+            run.status = RunStatus.CANCELLED
+            run.add_log("INFO", f"Run cancelled: {reason}")
+            return True
+        return False
+
+    def is_cancelled(self, run_id: str) -> bool:
+        """
+        Check if a run has been cancelled.
+        
+        Args:
+            run_id: The unique identifier for the run.
+            
+        Returns:
+            True if the run is cancelled, False otherwise.
+        """
+        run = self.get_run(run_id)
+        return run is not None and run.status == RunStatus.CANCELLED
 
 
 # Global instance

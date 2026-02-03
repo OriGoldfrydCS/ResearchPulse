@@ -116,13 +116,47 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
+    # Import retrieval limits for logging
+    from src.agent.prompt_controller import MAX_RETRIEVAL_RESULTS
+    from src.agent.stop_controller import StopPolicy
+    
     print("=" * 60)
     print("ResearchPulse - Research Awareness and Sharing Agent")
     print("=" * 60)
     print(f"Server starting on http://{APP_HOST}:{APP_PORT}")
     print(f"API documentation: http://{APP_HOST}:{APP_PORT}/docs")
     print(f"Web UI: http://{APP_HOST}:{APP_PORT}/")
+    print(f"ResearchPulse retrieval_limit={MAX_RETRIEVAL_RESULTS}")
+    print(f"ResearchPulse max_papers_checked={StopPolicy().max_papers_checked}")
     print("=" * 60)
+    
+    # Log database configuration and seed templates
+    try:
+        from src.db.database import get_database_url, is_database_configured
+        from src.db.data_service import get_saved_prompts, seed_default_templates, seed_builtin_prompt_templates
+        
+        db_url = get_database_url()
+        if db_url:
+            # Mask password in URL for logging
+            masked_url = db_url.split("@")[-1] if "@" in db_url else "configured"
+            print(f"Database: {masked_url}")
+            
+            if is_database_configured():
+                # Seed the old default templates (for saved prompts)
+                seeded = seed_default_templates()
+                if seeded > 0:
+                    print(f"Seeded {seeded} default templates")
+                prompts = get_saved_prompts()
+                print(f"Saved templates in DB: {len(prompts)}")
+                
+                # Seed builtin prompt templates (for new Prompt Templates feature)
+                builtin_seeded = seed_builtin_prompt_templates()
+                if builtin_seeded > 0:
+                    print(f"Seeded {builtin_seeded} builtin prompt templates")
+        else:
+            print("Database: not configured (using local files)")
+    except Exception as e:
+        print(f"Database check error: {e}")
 
 
 # =============================================================================

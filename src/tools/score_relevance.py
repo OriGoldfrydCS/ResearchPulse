@@ -11,6 +11,7 @@ compared to existing knowledge (via RAG results), and determines an importance l
    - Category alignment (arxiv_categories_include vs exclude)
    - Avoid-topic penalties
    - Venue preference bonus
+   - User feedback signals (papers marked not_relevant get excluded or penalized)
    
 2. **Novelty Score (0-1)**: Based on RAG results:
    - High similarity to existing papers = low novelty
@@ -22,7 +23,12 @@ compared to existing knowledge (via RAG results), and determines an importance l
    - medium: relevance >= 0.4 OR (relevance >= 0.3 AND novelty >= 0.6)
    - low: everything else
 
-4. **Optional LLM Enhancement**: When LLM_API_KEY is configured,
+4. **User Feedback Integration**: The tool now respects user feedback:
+   - Papers previously marked "not_relevant" are excluded (importance=low, relevance=0)
+   - Authors/topics frequently marked not_relevant receive reduced scores
+   - Feedback signals are loaded from DB via get_user_feedback_signals()
+
+5. **Optional LLM Enhancement**: When LLM_API_KEY is configured,
    can refine scoring with semantic understanding. Falls back to
    heuristics if LLM unavailable.
 
@@ -36,7 +42,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field
 
@@ -82,6 +88,38 @@ class RAGResults(BaseModel):
     query: str = Field("", description="The query used")
 
 
+class UserFeedbackSignals(BaseModel):
+    """User feedback signals for adjusting paper scoring."""
+    not_relevant_paper_ids: List[str] = Field(
+        default_factory=list,
+        description="arxiv_ids of papers marked as not_relevant"
+    )
+    not_relevant_authors: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Author names mapped to count of not_relevant papers"
+    )
+    not_relevant_topics: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Topic keywords mapped to count of not_relevant papers"
+    )
+    not_relevant_categories: Dict[str, int] = Field(
+        default_factory=dict,
+        description="arXiv categories mapped to count of not_relevant papers"
+    )
+    starred_paper_ids: List[str] = Field(
+        default_factory=list,
+        description="arxiv_ids of starred papers (positive signal)"
+    )
+    starred_authors: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Author names from starred papers"
+    )
+    starred_topics: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Topic keywords from starred papers"
+    )
+
+
 class ScoringResult(BaseModel):
     """Result of paper scoring."""
     arxiv_id: str = Field(..., description="arXiv paper ID")
@@ -121,6 +159,15 @@ MEDIUM_NOVELTY_THRESHOLD = 0.6
 # Novelty calculation from RAG
 NOVELTY_BASE = 1.0
 NOVELTY_DECAY_FACTOR = 0.85  # How much high similarity reduces novelty
+
+# Feedback-based scoring adjustments
+FEEDBACK_AUTHOR_PENALTY_WEIGHT = 0.15  # Penalty per not_relevant author match
+FEEDBACK_TOPIC_PENALTY_WEIGHT = 0.10   # Penalty per not_relevant topic match  
+FEEDBACK_CATEGORY_PENALTY_WEIGHT = 0.08  # Penalty per not_relevant category match
+FEEDBACK_AUTHOR_BONUS_WEIGHT = 0.10    # Bonus per starred author match
+FEEDBACK_TOPIC_BONUS_WEIGHT = 0.05     # Bonus per starred topic match
+MAX_FEEDBACK_PENALTY = 0.5             # Maximum feedback penalty
+MAX_FEEDBACK_BONUS = 0.3               # Maximum feedback bonus
 
 # Importance level order for threshold comparison
 IMPORTANCE_ORDER = {"low": 0, "medium": 1, "high": 2}
@@ -404,6 +451,82 @@ def _meets_importance_threshold(importance: str, min_importance: Optional[str]) 
     return paper_level >= threshold_level
 
 
+def _calculate_feedback_adjustments(
+    paper: PaperForScoring,
+    paper_keywords: Set[str],
+    feedback_signals: Optional[UserFeedbackSignals]
+) -> tuple[float, float, Dict[str, Any]]:
+    """
+    Calculate scoring adjustments based on user feedback signals.
+    
+    Returns:
+        (penalty, bonus, feedback_factors)
+        - penalty: 0.0 to MAX_FEEDBACK_PENALTY (reduces relevance)
+        - bonus: 0.0 to MAX_FEEDBACK_BONUS (increases relevance)
+        - feedback_factors: dict of detailed feedback factors
+    """
+    if not feedback_signals:
+        return (0.0, 0.0, {})
+    
+    penalty = 0.0
+    bonus = 0.0
+    factors = {
+        "not_relevant_author_matches": 0,
+        "not_relevant_topic_matches": 0,
+        "not_relevant_category_matches": 0,
+        "starred_author_matches": 0,
+        "starred_topic_matches": 0,
+    }
+    
+    # Check author matches against not_relevant authors
+    for author in paper.authors:
+        author_lower = author.lower().strip()
+        for nr_author, count in feedback_signals.not_relevant_authors.items():
+            if author_lower == nr_author.lower() or author_lower in nr_author.lower() or nr_author.lower() in author_lower:
+                penalty += min(count, 3) * FEEDBACK_AUTHOR_PENALTY_WEIGHT
+                factors["not_relevant_author_matches"] += 1
+                break
+    
+    # Check topic/keyword matches against not_relevant topics
+    for keyword in paper_keywords:
+        if keyword in feedback_signals.not_relevant_topics:
+            count = feedback_signals.not_relevant_topics[keyword]
+            penalty += min(count, 3) * FEEDBACK_TOPIC_PENALTY_WEIGHT
+            factors["not_relevant_topic_matches"] += 1
+    
+    # Check category matches against not_relevant categories
+    for category in paper.categories:
+        if category in feedback_signals.not_relevant_categories:
+            count = feedback_signals.not_relevant_categories[category]
+            penalty += min(count, 3) * FEEDBACK_CATEGORY_PENALTY_WEIGHT
+            factors["not_relevant_category_matches"] += 1
+    
+    # Check author matches against starred authors (positive signal)
+    for author in paper.authors:
+        author_lower = author.lower().strip()
+        for star_author, count in feedback_signals.starred_authors.items():
+            if author_lower == star_author.lower() or author_lower in star_author.lower() or star_author.lower() in author_lower:
+                bonus += min(count, 3) * FEEDBACK_AUTHOR_BONUS_WEIGHT
+                factors["starred_author_matches"] += 1
+                break
+    
+    # Check topic/keyword matches against starred topics
+    for keyword in paper_keywords:
+        if keyword in feedback_signals.starred_topics:
+            count = feedback_signals.starred_topics[keyword]
+            bonus += min(count, 3) * FEEDBACK_TOPIC_BONUS_WEIGHT
+            factors["starred_topic_matches"] += 1
+    
+    # Cap the adjustments
+    penalty = min(penalty, MAX_FEEDBACK_PENALTY)
+    bonus = min(bonus, MAX_FEEDBACK_BONUS)
+    
+    factors["total_feedback_penalty"] = round(penalty, 3)
+    factors["total_feedback_bonus"] = round(bonus, 3)
+    
+    return (penalty, bonus, factors)
+
+
 # =============================================================================
 # Main Tool Implementation
 # =============================================================================
@@ -413,6 +536,7 @@ def score_relevance_and_importance(
     research_profile: Dict[str, Any],
     rag_results: Optional[Dict[str, Any]] = None,
     min_importance_to_act: Optional[str] = None,
+    user_feedback: Optional[Dict[str, Any]] = None,
 ) -> ScoringResult:
     """
     Score a paper's relevance, novelty, and determine importance.
@@ -445,6 +569,15 @@ def score_relevance_and_importance(
         min_importance_to_act: Optional minimum importance threshold
             from stop policy ("high", "medium", or "low")
             
+        user_feedback: Optional user feedback signals with:
+            - not_relevant_paper_ids: List of paper IDs marked not relevant
+            - not_relevant_authors: Dict of author names -> count
+            - not_relevant_topics: Dict of topic keywords -> count
+            - not_relevant_categories: Dict of categories -> count
+            - starred_paper_ids: List of starred paper IDs (positive signal)
+            - starred_authors: Dict of author names -> count
+            - starred_topics: Dict of topic keywords -> count
+            
     Returns:
         ScoringResult with relevance_score, novelty_score, importance,
         explanation, and meets_importance_threshold.
@@ -465,6 +598,31 @@ def score_relevance_and_importance(
         rag_obj = RAGResults(
             matches=[RAGMatch(**m) for m in rag_results.get("matches", [])],
             query=rag_results.get("query", "")
+        )
+    
+    feedback_obj = None
+    if user_feedback:
+        feedback_obj = UserFeedbackSignals(**user_feedback)
+    
+    # =================================
+    # Check if paper is already marked not_relevant
+    # =================================
+    
+    if feedback_obj and paper_obj.arxiv_id in feedback_obj.not_relevant_paper_ids:
+        # Paper was previously marked as not relevant by user
+        # Return low importance immediately to exclude it
+        return ScoringResult(
+            arxiv_id=paper_obj.arxiv_id,
+            title=paper_obj.title,
+            relevance_score=0.0,
+            novelty_score=0.5,
+            importance="low",
+            explanation="Previously marked as not relevant by user.",
+            scoring_factors={
+                "excluded_by_user_feedback": True,
+                "reason": "Paper was marked not_relevant"
+            },
+            meets_importance_threshold=_meets_importance_threshold("low", min_importance_to_act),
         )
     
     # Combine title and abstract for keyword extraction
@@ -495,6 +653,11 @@ def score_relevance_and_importance(
     title_keywords = _extract_keywords(paper_obj.title)
     title_topic_match = _calculate_topic_overlap(title_keywords, profile_obj.research_topics)
     
+    # 6. User feedback adjustments
+    feedback_penalty, feedback_bonus, feedback_factors = _calculate_feedback_adjustments(
+        paper_obj, paper_keywords, feedback_obj
+    )
+    
     # Combine factors into relevance score
     relevance_score = (
         topic_overlap * TOPIC_MATCH_WEIGHT +
@@ -505,6 +668,9 @@ def score_relevance_and_importance(
     
     # Apply avoid penalty
     relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
+    
+    # Apply user feedback adjustments
+    relevance_score = relevance_score * (1.0 - feedback_penalty) + feedback_bonus
     
     # Hard floor for excluded categories
     if category_score == 0:
@@ -537,6 +703,9 @@ def score_relevance_and_importance(
         "novelty_explanation": novelty_explanation,
         "rag_matches_count": len(rag_obj.matches) if rag_obj else 0,
         "rag_max_similarity": max((m.score for m in rag_obj.matches), default=0.0) if rag_obj and rag_obj.matches else None,
+        "feedback_penalty": feedback_factors.get("total_feedback_penalty", 0.0),
+        "feedback_bonus": feedback_factors.get("total_feedback_bonus", 0.0),
+        **feedback_factors,
     }
     
     # =================================
@@ -570,6 +739,7 @@ def score_relevance_and_importance_json(
     research_profile: Dict[str, Any],
     rag_results: Optional[Dict[str, Any]] = None,
     min_importance_to_act: Optional[str] = None,
+    user_feedback: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """
     JSON-serializable version of score_relevance_and_importance.
@@ -579,6 +749,7 @@ def score_relevance_and_importance_json(
         research_profile: Research profile dictionary
         rag_results: Optional RAG results dictionary
         min_importance_to_act: Optional minimum importance threshold
+        user_feedback: Optional user feedback signals dictionary
         
     Returns:
         Dictionary with scoring results
@@ -588,6 +759,7 @@ def score_relevance_and_importance_json(
         research_profile=research_profile,
         rag_results=rag_results,
         min_importance_to_act=min_importance_to_act,
+        user_feedback=user_feedback,
     )
     return result.model_dump()
 
@@ -601,6 +773,7 @@ def score_papers_batch(
     research_profile: Dict[str, Any],
     rag_results_map: Optional[Dict[str, Dict[str, Any]]] = None,
     min_importance_to_act: Optional[str] = None,
+    user_feedback: Optional[Dict[str, Any]] = None,
 ) -> List[ScoringResult]:
     """
     Score multiple papers in batch.
@@ -610,6 +783,7 @@ def score_papers_batch(
         research_profile: Research profile dictionary
         rag_results_map: Optional dict mapping arxiv_id to RAG results
         min_importance_to_act: Optional minimum importance threshold
+        user_feedback: Optional user feedback signals dictionary
         
     Returns:
         List of ScoringResult objects
@@ -626,6 +800,7 @@ def score_papers_batch(
             research_profile=research_profile,
             rag_results=rag_results,
             min_importance_to_act=min_importance_to_act,
+            user_feedback=user_feedback,
         )
         results.append(result)
     
@@ -644,6 +819,7 @@ Input:
 - research_profile: Profile with research_topics, avoid_topics, arxiv_categories_include/exclude
 - rag_results: Optional RAG retrieval results for novelty scoring
 - min_importance_to_act: Optional threshold from stop policy
+- user_feedback: Optional user feedback signals for personalized scoring
 
 Output:
 - relevance_score: 0.0 to 1.0 (how relevant to researcher's interests)
@@ -652,11 +828,17 @@ Output:
 - explanation: Short user-facing explanation
 - meets_importance_threshold: Whether paper meets min_importance_to_act
 
+User Feedback Integration:
+- Papers marked not_relevant are excluded (importance=low, relevance=0)
+- Authors/topics frequently marked not_relevant receive reduced scores
+- Starred papers/authors receive bonus scores
+- Feedback signals should be loaded from DB via get_user_feedback_signals()
+
 Use this tool after retrieving similar papers via RAG to determine
 what action to take for each paper.
 
 Scoring logic:
-- Relevance: topic match + category alignment - avoid penalties
+- Relevance: topic match + category alignment - avoid penalties +/- feedback adjustments
 - Novelty: inverse of RAG similarity (high similarity = low novelty)
 - High importance: relevance >= 0.65 AND novelty >= 0.5
 - Medium importance: relevance >= 0.4 OR (relevance >= 0.3 AND novelty >= 0.6)
@@ -743,6 +925,42 @@ SCORE_RELEVANCE_SCHEMA = {
                 "type": "string",
                 "enum": ["high", "medium", "low"],
                 "description": "Minimum importance threshold from stop policy"
+            },
+            "user_feedback": {
+                "type": "object",
+                "description": "User feedback signals for personalized scoring",
+                "properties": {
+                    "not_relevant_paper_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "arxiv_ids of papers marked as not_relevant"
+                    },
+                    "not_relevant_authors": {
+                        "type": "object",
+                        "description": "Author names mapped to count of not_relevant papers"
+                    },
+                    "not_relevant_topics": {
+                        "type": "object",
+                        "description": "Topic keywords mapped to count of not_relevant papers"
+                    },
+                    "not_relevant_categories": {
+                        "type": "object",
+                        "description": "arXiv categories mapped to count of not_relevant papers"
+                    },
+                    "starred_paper_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "arxiv_ids of starred papers"
+                    },
+                    "starred_authors": {
+                        "type": "object",
+                        "description": "Author names from starred papers"
+                    },
+                    "starred_topics": {
+                        "type": "object",
+                        "description": "Topic keywords from starred papers"
+                    }
+                }
             }
         },
         "required": ["paper", "research_profile"]
@@ -961,3 +1179,60 @@ if __name__ == "__main__":
     import sys
     success = self_check()
     sys.exit(0 if success else 1)
+
+
+# =============================================================================
+# User Feedback Signals Loader (for Agent Integration)
+# =============================================================================
+
+def get_user_feedback_signals(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Load user feedback signals from the database for use in paper scoring.
+    
+    This function connects to the database via PostgresStore and retrieves
+    aggregated feedback signals that can be passed to score_relevance_and_importance.
+    
+    Args:
+        user_id: Optional user ID. If not provided, uses the default user.
+        
+    Returns:
+        Dictionary with feedback signals:
+        - not_relevant_paper_ids: List of arxiv_ids marked not relevant
+        - not_relevant_authors: Dict of author names -> count
+        - not_relevant_topics: Dict of topic keywords -> count
+        - not_relevant_categories: Dict of categories -> count
+        - starred_paper_ids: List of starred paper arxiv_ids
+        - starred_authors: Dict of author names -> count
+        - starred_topics: Dict of topic keywords -> count
+        
+    Example:
+        >>> signals = get_user_feedback_signals("user-123")
+        >>> result = score_relevance_and_importance(paper, profile, user_feedback=signals)
+    """
+    try:
+        from db.postgres_store import get_default_store
+        store = get_default_store()
+        return store.get_user_feedback_signals(user_id=user_id)
+    except ImportError:
+        # Fallback if import fails (e.g., during testing without DB)
+        return {
+            "not_relevant_paper_ids": [],
+            "not_relevant_authors": {},
+            "not_relevant_topics": {},
+            "not_relevant_categories": {},
+            "starred_paper_ids": [],
+            "starred_authors": {},
+            "starred_topics": {},
+        }
+    except Exception as e:
+        # Log error and return empty signals
+        print(f"Warning: Failed to load user feedback signals: {e}")
+        return {
+            "not_relevant_paper_ids": [],
+            "not_relevant_authors": {},
+            "not_relevant_topics": {},
+            "not_relevant_categories": {},
+            "starred_paper_ids": [],
+            "starred_authors": {},
+            "starred_topics": {},
+        }
