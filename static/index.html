@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -10,6 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -31,6 +32,70 @@
         }
     </script>
     <style>
+        /* ========== Animated Background ========== */
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.6;
+            transition: opacity 0.5s ease;
+        }
+
+        /* ========== Logo Container & Hover Effects ========== */
+        .logo-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-glow {
+            position: absolute;
+            inset: -4px;
+            background: linear-gradient(to right, var(--primary), var(--accent));
+            border-radius: 12px;
+            filter: blur(8px);
+            opacity: 0.3;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+
+        .logo-container:hover .logo-glow {
+            opacity: 0.6;
+        }
+
+        .logo {
+            position: relative;
+            width: 100px;
+            height: 56px;
+            object-fit: contain;
+            border-radius: 10px;
+            transition: transform 0.3s ease, filter 0.3s ease;
+            z-index: 1;
+        }
+
+        .logo-container:hover .logo {
+            transform: scale(1.1);
+            filter: brightness(1.15);
+        }
+
+        /* ========== Header Title Group ========== */
+        .header-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .header-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin: 0;
+            font-weight: 400;
+        }
+
         /* ========== Base Reset & Variables ========== */
         *,
         *::before,
@@ -39,8 +104,8 @@
         }
 
         :root {
-            --primary: #a84370;
-            --primary-light: #db2777;
+            --primary: #4f125e;
+            --primary-light: #991399;
             --primary-dark: #77347c;
             --accent: #f1c4e6;
             --accent-light: #f6e5f3;
@@ -60,8 +125,8 @@
         }
 
         html.dark {
-            --primary: #db2777;
-            --primary-light: #f472b6;
+            --primary: #a94bd4;
+            --primary-light: #d2a3e7;
             --primary-dark: #a84370;
             --accent: #77347c;
             --accent-light: #9d5ba3;
@@ -70,7 +135,7 @@
             --text: #d2c4de;
             --text-muted: #c2b6cf;
             --border: #3d3544;
-            --bubble-user: linear-gradient(135deg, #a84370 0%, #db2777 100%);
+            --bubble-user: linear-gradient(135deg, #df85ad 0%, #c7acb8 100%);
             --bubble-agent: rgba(44, 38, 50, 0.85);
             --glass-bg: rgba(44, 38, 50, 0.7);
             --glass-border: rgba(255, 255, 255, 0.1);
@@ -164,21 +229,24 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
-            max-width: 1400px;
+            max-width: 1024px;
             margin: 0 auto;
             width: 100%;
+            padding: 16px;
         }
 
         header {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--glass-border);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
             padding: 16px 24px;
             display: flex;
             align-items: center;
             gap: 16px;
             transition: background 0.3s ease;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
         }
 
         header h1 {
@@ -192,10 +260,10 @@
         }
 
         header .logo {
-            width: 100px;
-            height: 100px;
-            border-radius: 12px;
-            object-fit: cover;
+            width: 52px;
+            height: 66px;
+            border-radius: 10px;
+            object-fit: contain;
         }
 
         header .header-right {
@@ -268,13 +336,16 @@
         .nav-tabs {
             display: flex;
             background: var(--glass-bg);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            border-bottom: 1px solid var(--glass-border);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
             padding: 8px 16px;
             gap: 6px;
             overflow-x: auto;
             transition: background 0.3s ease;
+            margin-top: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
         }
 
         .nav-tab {
@@ -300,6 +371,15 @@
             background: rgba(219, 39, 119, 0.15);
         }
 
+        html.dark header,
+        html.dark .nav-tabs {
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        html.dark .chat-panel {
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
         .nav-tab.active {
             color: white;
             background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
@@ -315,7 +395,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            padding: 16px;
+            padding: 16px 0 0 0;
             gap: 16px;
         }
 
@@ -884,6 +964,16 @@
             display: flex;
             flex-direction: column;
             gap: 14px;
+            justify-content: flex-start;
+        }
+
+        /* When empty-state is the only child, center it */
+        .chat-messages>.empty-state:only-child {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .message {
@@ -966,24 +1056,31 @@
         }
 
         .send-btn {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            background: linear-gradient(135deg, #a84370 0%, #77347c 100%);
             color: white;
             border: none;
-            padding: 14px 28px;
-            border-radius: 24px;
+            padding: 0;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
             box-shadow: 0 4px 16px rgba(168, 67, 112, 0.35);
+            flex-shrink: 0;
+        }
+
+        .send-btn span {
+            display: none;
         }
 
         .send-btn:hover:not(:disabled) {
-            box-shadow: 0 6px 20px rgba(168, 67, 112, 0.45);
-            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(168, 67, 112, 0.5);
+            transform: scale(1.05);
         }
 
         .send-btn:disabled {
@@ -1993,6 +2090,11 @@
             text-align: center;
             padding: 40px;
             color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            flex: 1;
         }
 
         .empty-state .emoji {
@@ -2070,14 +2172,197 @@
             }
         }
 
+        /* Chat Header with Logo */
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .chat-header-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .chat-logo-icon {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+        }
+
+        .chat-empty-logo {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .chat-empty-logo-img {
+            width: 400px;
+            height: 140px;
+            object-fit: contain;
+            opacity: 0.95;
+        }
+
+        /* Chat Container Width Consistency */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 100%;
+        }
+
+        .chat-header,
+        .chat-messages,
+        .input-area,
+        .prompt-templates {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* Input Area Layout - Search button left, input in middle, send button right */
+        .input-area {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            width: 100%;
+        }
+
+        .input-area #message-input {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* FAQ Accordion Styles */
+        .faq-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .faq-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .faq-item:hover {
+            border-color: var(--primary);
+        }
+
+        .faq-question {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text);
+            transition: background 0.2s ease;
+        }
+
+        .faq-question:hover {
+            background: rgba(168, 67, 112, 0.05);
+        }
+
+        html.dark .faq-question:hover {
+            background: rgba(219, 39, 119, 0.1);
+        }
+
+        .faq-chevron {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            transition: transform 0.2s ease;
+        }
+
+        .faq-item.expanded .faq-chevron {
+            transform: rotate(90deg);
+        }
+
+        .faq-answer {
+            display: none;
+            padding: 0 16px 16px 16px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .faq-item.expanded .faq-answer {
+            display: block;
+        }
+
+        .faq-answer p {
+            margin: 0 0 8px 0;
+        }
+
+        .faq-answer p:last-child {
+            margin-bottom: 0;
+        }
+
+        .faq-answer ul {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .faq-answer li {
+            margin: 4px 0;
+        }
+
+        .about-content kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
+            .app-container {
+                padding: 8px;
+            }
+
             header {
                 padding: 12px 16px;
+                border-radius: 12px;
             }
 
             header h1 {
-                font-size: 1.2rem;
+                font-size: 1.1rem;
+            }
+
+            .header-subtitle {
+                font-size: 0.75rem;
+            }
+
+            .header-title-group {
+                gap: 0;
+            }
+
+            .logo {
+                width: 36px;
+                height: 46px;
+            }
+
+            .nav-tabs {
+                border-radius: 12px;
+                margin-top: 8px;
             }
 
             main {
@@ -2090,6 +2375,11 @@
 
             .input-area {
                 padding: 12px;
+            }
+
+            .send-btn {
+                width: 42px;
+                height: 42px;
             }
 
             .send-btn span {
@@ -2489,11 +2779,20 @@
     </style>
 </head>
 
-<body>
+<body class="antialiased min-h-screen bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark">
+    <!-- Animated Background Canvas -->
+    <div id="canvas-container"></div>
+
     <div class="app-container">
-        <header>
-            <img src="/static/public/logo.png" alt="ResearchPulse Logo" class="logo">
-            <h1>ResearchPulse</h1>
+        <header class="glass-panel rounded-2xl">
+            <div class="logo-container">
+                <div class="logo-glow"></div>
+                <img src="/static/public/logo.png" alt="ResearchPulse Logo" class="logo">
+            </div>
+            <div class="header-title-group">
+                <h1>ResearchPulse</h1>
+                <p class="header-subtitle">Your AI-powered research assistant</p>
+            </div>
             <div class="header-right">
                 <div class="theme-toggle-container">
                     <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode">
@@ -2506,15 +2805,15 @@
         </header>
 
         <!-- Navigation Tabs -->
-        <nav class="nav-tabs">
+        <nav class="nav-tabs glass-panel rounded-2xl">
             <button class="nav-tab active" data-tab="chat"><span class="tab-icon">💬</span>Chat</button>
             <button class="nav-tab" data-tab="papers"><span class="tab-icon">📄</span>Papers</button>
             <button class="nav-tab" data-tab="emails"><span class="tab-icon">📧</span>Emails</button>
             <button class="nav-tab" data-tab="calendar"><span class="tab-icon">📅</span>Calendar</button>
             <button class="nav-tab" data-tab="shares"><span class="tab-icon">📤</span>Shares</button>
             <button class="nav-tab" data-tab="colleagues"><span class="tab-icon">👥</span>Colleagues</button>
-            <button class="nav-tab" data-tab="runs"><span class="tab-icon">🚀</span>Runs</button>
             <button class="nav-tab" data-tab="settings"><span class="tab-icon">⚙️</span>Settings</button>
+            <button class="nav-tab" data-tab="about"><span class="tab-icon">❓</span>About</button>
         </nav>
 
         <main>
@@ -2523,12 +2822,24 @@
                 <!-- Chat Panel -->
                 <div class="chat-panel">
                     <div class="chat-header">
-                        <span></span>
-                        <button id="new-chat-btn" class="action-btn small" onclick="newChat()">🔄 New Chat</button>
+                        <div class="chat-header-logo">
+                            <img>
+                            <span>ResearchPulse Chat</span>
+                        </div>
+                        <button id="new-chat-btn" class="action-btn small" onclick="newChat()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="margin-right: 4px;">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                            New Chat
+                        </button>
                     </div>
                     <div id="chat-messages" class="chat-messages">
                         <div class="empty-state">
-                            <div class="emoji">📚</div>
+                            <div class="chat-empty-logo">
+                                <img src="/static/public/logo2.png" alt="ResearchPulse" class="chat-empty-logo-img">
+                            </div>
                             <div>Start by asking ResearchPulse to find papers!</div>
                             <div style="margin-top:8px;font-size:0.9rem;color:#94a3b8;">
                                 Try: "Find recent papers on transformer architectures"
@@ -2555,7 +2866,7 @@
                     <!-- Prompt Templates Accordion -->
                     <div class="prompt-templates" id="prompt-templates">
                         <div class="prompt-templates-header" onclick="toggleTemplates()">
-                            <span>📋 Prompt Templates</span>
+                            <span>Prompt Templates</span>
                             <span id="templates-chevron" class="chevron">▶</span>
                         </div>
                         <div class="prompt-templates-content" id="prompt-templates-content">
@@ -2871,29 +3182,170 @@
             <div class="tab-panel" id="tab-colleagues">
                 <div class="dashboard-header">
                     <h2>👥 Colleagues</h2>
-                    <button onclick="showAddColleagueModal()" class="action-btn primary">➕ Add Colleague</button>
+                    <div class="dashboard-actions">
+                        <input type="text" id="colleagues-search" placeholder="Search colleagues..."
+                            class="search-input" oninput="debouncedColleagueSearch()" />
+                        <button onclick="refreshColleagues()" class="action-btn">🔄 Refresh</button>
+                        <button onclick="showAddColleagueModal()" class="action-btn primary">➕ Add Colleague</button>
+                    </div>
                 </div>
-                <div id="colleagues-list" class="data-list">
-                    <div class="empty-state">
-                        <div class="emoji">👥</div>
-                        <div>No colleagues configured. Add colleagues to enable paper sharing!</div>
+
+                <!-- Colleague Bulk Action Bar -->
+                <div id="colleague-bulk-action-bar" class="bulk-action-bar">
+                    <span class="bulk-selection-info" id="colleague-bulk-selection-count">0 selected</span>
+                    <button class="bulk-action-btn danger" onclick="bulkDeleteColleagues()">🗑️ Delete</button>
+                    <button class="bulk-clear-btn" onclick="clearColleagueSelection()">✕ Clear</button>
+                </div>
+
+                <div class="data-list" style="padding: 0;" id="colleagues-container">
+                    <div class="paper-list-header" id="colleague-list-header" style="display: none;">
+                        <input type="checkbox" class="select-all-checkbox" id="select-all-colleagues-checkbox"
+                            onclick="toggleSelectAllColleagues()" title="Select all colleagues" />
+                        <span>Select All</span>
+                        <div class="sort-controls">
+                            <span style="font-weight: normal;">Sort by:</span>
+                            <button class="sort-btn active" onclick="setColleagueSortOrder('name', this)"
+                                data-sort="name">Name</button>
+                            <button class="sort-btn" onclick="setColleagueSortOrder('email', this)"
+                                data-sort="email">Email</button>
+                            <button class="sort-btn" onclick="setColleagueSortOrder('created_at', this)"
+                                data-sort="created_at">Added Date</button>
+                            <button class="sort-dir-btn" id="colleague-sort-dir-btn"
+                                onclick="toggleColleagueSortDirection()" title="Toggle sort direction">↑</button>
+                        </div>
+                    </div>
+                    <div id="colleagues-list">
+                        <div class="empty-state">
+                            <div class="emoji">👥</div>
+                            <div>No colleagues configured. Add colleagues to enable paper sharing!</div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Runs Tab Panel -->
-            <div class="tab-panel" id="tab-runs">
+            <!-- About / Help Tab Panel -->
+            <div class="tab-panel" id="tab-about">
                 <div class="dashboard-header">
-                    <h2>🚀 Agent Runs</h2>
-                    <div class="dashboard-actions">
-                        <button onclick="triggerRun()" class="action-btn primary">▶️ Trigger New Run</button>
-                        <button onclick="refreshRuns()" class="action-btn">🔄 Refresh</button>
-                    </div>
+                    <h2>❓ About & Help</h2>
                 </div>
-                <div id="runs-list" class="data-list">
-                    <div class="empty-state">
-                        <div class="emoji">🚀</div>
-                        <div>No runs recorded yet.</div>
+                <div class="about-content glass-panel" style="padding: 24px; border-radius: 16px;">
+                    <div class="about-intro" style="margin-bottom: 24px;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.25rem;">Welcome to ResearchPulse</h3>
+                        <p style="color: var(--text-muted); line-height: 1.6;">ResearchPulse is your AI-powered research
+                            assistant that helps you discover, organize, and stay updated on the latest academic papers
+                            relevant to your research interests.</p>
+                    </div>
+
+                    <h3 style="margin: 0 0 16px 0; font-size: 1.1rem;">Frequently Asked Questions</h3>
+                    <div class="faq-list" id="faq-list">
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do I get started with ResearchPulse?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>1. Go to the <strong>Settings</strong> tab and fill in your Research Profile with
+                                    your interests and preferences.</p>
+                                <p>2. Return to the <strong>Chat</strong> tab and use the "Search for me" button or type
+                                    your own query.</p>
+                                <p>3. The AI agent will search for relevant papers based on your interests and display
+                                    them in the Papers tab.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What does the "Search for me" button do?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>The "Search for me" button automatically generates a search query based on the
+                                    research interests you've configured in the Settings tab. It's a quick way to find
+                                    relevant papers without typing a detailed prompt.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do I use Prompt Templates?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Prompt Templates are pre-defined search queries that help you quickly find specific
+                                    types of papers. Click on the "Prompt Templates" section at the bottom of the Chat
+                                    tab, then click on any template to insert it into the chat input. You can also
+                                    create your own custom templates.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How can I organize papers I've found?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>In the <strong>Papers</strong> tab, you can:</p>
+                                <ul>
+                                    <li>⭐ Star important papers for quick access</li>
+                                    <li>Mark papers as read/unread</li>
+                                    <li>Mark papers as "not relevant" to filter them out</li>
+                                    <li>Use bulk actions to manage multiple papers at once</li>
+                                    <li>Export papers to CSV for external use</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What are Colleagues and how do I use them?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Colleagues are collaborators or team members you can share papers with. Add
+                                    colleagues in the <strong>Colleagues</strong> tab with their research interests.
+                                    When the agent finds papers matching their interests, it can automatically share
+                                    relevant papers with them via email.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do Calendar Events work?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Calendar Events help you schedule time to read papers. You can:</p>
+                                <ul>
+                                    <li>Create reading reminders for papers</li>
+                                    <li>Download ICS files to add events to your calendar app</li>
+                                    <li>The AI can also automatically suggest calendar events for important papers</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do I configure email notifications?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Email notifications require setting up your email in the Settings tab. Once
+                                    configured, ResearchPulse can send you digests of new papers matching your
+                                    interests, and share papers with your colleagues automatically.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What paper sources does ResearchPulse use?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>ResearchPulse primarily searches <strong>arXiv</strong>, a popular preprint
+                                    repository for scientific papers. This gives you access to the latest research in
+                                    fields like computer science, physics, mathematics, and more.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="about-footer"
+                        style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+                        <p style="color: var(--text-muted); font-size: 0.9rem;">💡 <strong>Tip:</strong> Use keyboard
+                            shortcuts like <kbd>Ctrl+A</kbd> to select all papers, or <kbd>Escape</kbd> to clear
+                            selection.</p>
                     </div>
                 </div>
             </div>
@@ -3104,7 +3556,9 @@
             // Clear chat messages and restore empty state
             elements.chatMessages.innerHTML = `
                 <div class="empty-state">
-                    <div class="emoji">📚</div>
+                    <div class="chat-empty-logo">
+                        <img src="/static/public/logo2.png" alt="ResearchPulse" class="chat-empty-logo-img">
+                    </div>
                     <div>Start by asking ResearchPulse to find papers!</div>
                     <div style="margin-top:8px;font-size:0.9rem;color:#94a3b8;">
                         Try: "Find recent papers on transformer architectures"
@@ -5367,26 +5821,199 @@
             }
         }
 
+        // ========== Colleagues Tab State Management ==========
+        let selectedColleagueIds = new Set();
+        let allColleagueIds = [];
+        let allColleaguesData = [];
+        let currentColleagueSortField = 'name';
+        let currentColleagueSortDir = 'asc';
+        let colleagueSearchTimeout = null;
+
+        function debouncedColleagueSearch() {
+            clearTimeout(colleagueSearchTimeout);
+            colleagueSearchTimeout = setTimeout(() => {
+                refreshColleagues();
+            }, 250);
+        }
+
+        function setColleagueSortOrder(field, btn) {
+            currentColleagueSortField = field;
+            document.querySelectorAll('#colleague-list-header .sort-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            refreshColleagues();
+        }
+
+        function toggleColleagueSortDirection() {
+            currentColleagueSortDir = currentColleagueSortDir === 'desc' ? 'asc' : 'desc';
+            const btn = document.getElementById('colleague-sort-dir-btn');
+            btn.textContent = currentColleagueSortDir === 'desc' ? '↓' : '↑';
+            btn.title = currentColleagueSortDir === 'desc' ? 'Descending (click to toggle)' : 'Ascending (click to toggle)';
+            refreshColleagues();
+        }
+
+        function toggleColleagueSelection(colleagueId) {
+            if (selectedColleagueIds.has(colleagueId)) {
+                selectedColleagueIds.delete(colleagueId);
+            } else {
+                selectedColleagueIds.add(colleagueId);
+            }
+            updateColleagueBulkActionBar();
+            updateColleagueRowStyles();
+        }
+
+        function toggleSelectAllColleagues() {
+            if (selectedColleagueIds.size === allColleagueIds.length && allColleagueIds.length > 0) {
+                // Deselect all
+                selectedColleagueIds.clear();
+            } else {
+                // Select all
+                allColleagueIds.forEach(id => selectedColleagueIds.add(id));
+            }
+            updateColleagueBulkActionBar();
+            updateColleagueRowStyles();
+        }
+
+        function clearColleagueSelection() {
+            selectedColleagueIds.clear();
+            updateColleagueBulkActionBar();
+            updateColleagueRowStyles();
+        }
+
+        function updateColleagueRowStyles() {
+            allColleagueIds.forEach(colleagueId => {
+                const row = document.getElementById('colleague-row-' + colleagueId);
+                const checkbox = document.getElementById('colleague-cb-' + colleagueId);
+                if (row && checkbox) {
+                    if (selectedColleagueIds.has(colleagueId)) {
+                        row.classList.add('selected');
+                        checkbox.checked = true;
+                    } else {
+                        row.classList.remove('selected');
+                        checkbox.checked = false;
+                    }
+                }
+            });
+
+            // Update select-all checkbox state
+            const selectAllCb = document.getElementById('select-all-colleagues-checkbox');
+            if (selectAllCb) {
+                if (allColleagueIds.length > 0 && selectedColleagueIds.size === allColleagueIds.length) {
+                    selectAllCb.checked = true;
+                    selectAllCb.indeterminate = false;
+                } else if (selectedColleagueIds.size > 0) {
+                    selectAllCb.checked = false;
+                    selectAllCb.indeterminate = true;
+                } else {
+                    selectAllCb.checked = false;
+                    selectAllCb.indeterminate = false;
+                }
+            }
+        }
+
+        function updateColleagueBulkActionBar() {
+            const bar = document.getElementById('colleague-bulk-action-bar');
+            const count = document.getElementById('colleague-bulk-selection-count');
+            if (selectedColleagueIds.size > 0) {
+                bar.classList.add('visible');
+                count.textContent = `${selectedColleagueIds.size} selected`;
+            } else {
+                bar.classList.remove('visible');
+            }
+        }
+
+        async function bulkDeleteColleagues() {
+            if (selectedColleagueIds.size === 0) return;
+            if (!confirm(`Are you sure you want to delete ${selectedColleagueIds.size} colleague(s)?`)) return;
+
+            try {
+                const response = await fetch('/api/bulk/colleagues/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(Array.from(selectedColleagueIds))
+                });
+                if (!response.ok) throw new Error('Failed to delete colleagues');
+                const result = await response.json();
+                showToast(`Deleted ${result.deleted_count} colleague(s)`);
+                clearColleagueSelection();
+                refreshColleagues();
+            } catch (err) {
+                console.error('Error:', err);
+                alert('Failed to delete colleagues: ' + err.message);
+            }
+        }
+
         async function refreshColleagues() {
             const list = document.getElementById('colleagues-list');
+            const header = document.getElementById('colleague-list-header');
+
             try {
-                const response = await fetch('/api/colleagues');
+                const q = document.getElementById('colleagues-search')?.value || '';
+                const params = new URLSearchParams({
+                    sort_by: currentColleagueSortField,
+                    sort_dir: currentColleagueSortDir
+                });
+
+                const response = await fetch('/api/colleagues?' + params.toString());
                 if (!response.ok) throw new Error('Failed to fetch colleagues');
                 const data = await response.json();
 
-                if (!data.colleagues || data.colleagues.length === 0) {
-                    list.innerHTML = '<div class="empty-state"><div class="emoji">👥</div><div>No colleagues configured. Add colleagues to enable paper sharing!</div></div>';
+                // Store data
+                allColleaguesData = data.colleagues || [];
+
+                // Filter by search query if present
+                if (q) {
+                    const searchLower = q.toLowerCase();
+                    allColleaguesData = allColleaguesData.filter(c =>
+                        (c.name || '').toLowerCase().includes(searchLower) ||
+                        (c.email || '').toLowerCase().includes(searchLower) ||
+                        (c.keywords || []).some(k => k.toLowerCase().includes(searchLower)) ||
+                        (c.categories || []).some(cat => cat.toLowerCase().includes(searchLower))
+                    );
+                }
+
+                allColleagueIds = allColleaguesData.map(c => c.id);
+
+                // Clean up selection
+                const visibleIds = new Set(allColleagueIds);
+                selectedColleagueIds.forEach(id => {
+                    if (!visibleIds.has(id)) selectedColleagueIds.delete(id);
+                });
+
+                if (allColleaguesData.length === 0) {
+                    list.innerHTML = `<div class="empty-state"><div class="emoji">👥</div><div>${q ? 'No colleagues match your search.' : 'No colleagues configured. Add colleagues to enable paper sharing!'}</div></div>`;
+                    header.style.display = 'none';
+                    updateColleagueBulkActionBar();
                     return;
                 }
 
-                list.innerHTML = data.colleagues.map(c => `
-                    <div class="data-item">
-                        <div class="data-info">
-                            <div class="data-title">${escapeHtml(c.name)}</div>
-                            <div class="data-meta">
-                                <span>📧 ${escapeHtml(c.email)}</span>
-                                <span>🏷️ ${(c.categories || []).slice(0, 3).join(', ') || 'No categories'}</span>
-                                <span>🔑 ${(c.keywords || []).slice(0, 3).join(', ') || 'No keywords'}</span>
+                header.style.display = 'flex';
+
+                list.innerHTML = allColleaguesData.map(c => {
+                    const isSelected = selectedColleagueIds.has(c.id);
+                    const addedByBadge = c.added_by === 'email'
+                        ? '<span class="importance-badge importance-medium" title="This colleague signed up via email">🤖 Added by ResearchPulse</span>'
+                        : '<span class="importance-badge importance-low" title="You added this colleague manually">👤 Added by me</span>';
+                    const autoSendBadge = c.auto_send_emails !== false
+                        ? '<span class="importance-badge importance-high" title="Auto-sending research emails">📬 Auto-send</span>'
+                        : '<span class="importance-badge importance-low" title="Not auto-sending">📭 No auto-send</span>';
+
+                    return `
+                    <div class="paper-row ${isSelected ? 'selected' : ''}" id="colleague-row-${c.id}">
+                        <input type="checkbox" class="paper-checkbox" id="colleague-cb-${c.id}" 
+                            ${isSelected ? 'checked' : ''} 
+                            onchange="toggleColleagueSelection('${c.id}')" />
+                        <div class="paper-content">
+                            <div class="paper-title-row">
+                                <span class="paper-title-link" style="cursor: default;">${escapeHtml(c.name)}</span>
+                            </div>
+                            <div class="paper-meta-row">
+                                <span class="paper-meta-item">📧 ${escapeHtml(c.email)}</span>
+                                <span class="paper-meta-item">🏷️ ${(c.categories || []).slice(0, 3).join(', ') || 'No categories'}</span>
+                                <span class="paper-meta-item">🔑 ${(c.keywords || []).slice(0, 3).join(', ') || 'No keywords'}</span>
+                            </div>
+                            <div class="paper-agent-decisions" style="margin-top: 4px;">
+                                ${addedByBadge}
+                                ${autoSendBadge}
                                 <span class="importance-badge importance-${c.enabled ? 'high' : 'low'}">${c.enabled ? 'Active' : 'Disabled'}</span>
                             </div>
                         </div>
@@ -5395,7 +6022,10 @@
                             <button class="data-btn danger" onclick="deleteColleague('${c.id}')">🗑️ Delete</button>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
+
+                updateColleagueBulkActionBar();
             } catch (err) {
                 console.error('Error fetching colleagues:', err);
                 list.innerHTML = '<div class="empty-state"><div class="emoji">❌</div><div>Failed to load colleagues.</div></div>';
@@ -5433,14 +6063,25 @@
                                 <input type="email" id="colleague-email" placeholder="jane@university.edu" />
                             </div>
                             <div class="form-group">
-                                <label>Keywords (comma-separated)</label>
-                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
+                                <label>Research Interests</label>
+                                <textarea id="colleague-research-interests" rows="3" placeholder="e.g., I'm interested in machine learning, particularly deep learning for natural language processing and transformer architectures..."></textarea>
+                                <small style="color: #666; display: block; margin-top: 4px;">Describe research interests in free text. Keywords and categories will be automatically inferred.</small>
                             </div>
                             <div class="form-group">
-                                <label>Categories (select all that apply)</label>
+                                <label>Keywords (comma-separated, optional)</label>
+                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
+                                <small style="color: #666; display: block; margin-top: 4px;">Leave empty to auto-generate from research interests.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Categories (select all that apply, optional)</label>
                                 <div id="colleague-categories" class="category-grid">
                                     ${categoryCheckboxes}
                                 </div>
+                                <small style="color: #666; display: block; margin-top: 4px;">Leave empty to auto-generate from research interests.</small>
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="colleague-auto-send" checked /> Enable automatic research emails</label>
+                                <small style="color: #666; display: block; margin-top: 4px;">Automatically send research paper recommendations.</small>
                             </div>
                             <div class="form-group">
                                 <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
@@ -5471,12 +6112,20 @@
                                 <input type="email" id="colleague-email" placeholder="jane@university.edu" />
                             </div>
                             <div class="form-group">
-                                <label>Keywords (comma-separated)</label>
+                                <label>Research Interests</label>
+                                <textarea id="colleague-research-interests" rows="3" placeholder="e.g., I'm interested in machine learning, particularly deep learning for natural language processing..."></textarea>
+                                <small style="color: #666; display: block; margin-top: 4px;">Describe research interests in free text. Keywords and categories will be automatically inferred.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Keywords (comma-separated, optional)</label>
                                 <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
                             </div>
                             <div class="form-group">
-                                <label>Categories (comma-separated, e.g. cs.AI, cs.LG)</label>
+                                <label>Categories (comma-separated, e.g. cs.AI, cs.LG, optional)</label>
                                 <input type="text" id="colleague-categories-text" placeholder="cs.AI, cs.LG" />
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="colleague-auto-send" checked /> Enable automatic research emails</label>
                             </div>
                             <div class="form-group">
                                 <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
@@ -5499,8 +6148,10 @@
         async function saveColleague() {
             const name = document.getElementById('colleague-name').value.trim();
             const email = document.getElementById('colleague-email').value.trim();
+            const researchInterests = document.getElementById('colleague-research-interests')?.value.trim() || '';
             const keywords = document.getElementById('colleague-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
             const enabled = document.getElementById('colleague-enabled').checked;
+            const autoSendEmails = document.getElementById('colleague-auto-send')?.checked ?? true;
 
             // Get categories from checkboxes or text input
             let categories = [];
@@ -5525,7 +6176,15 @@
                 const response = await fetch('/api/colleagues', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, email, keywords, categories, enabled })
+                    body: JSON.stringify({
+                        name,
+                        email,
+                        research_interests: researchInterests,
+                        keywords,
+                        categories,
+                        enabled,
+                        auto_send_emails: autoSendEmails
+                    })
                 });
 
                 if (!response.ok) {
@@ -6082,8 +6741,19 @@
                 return;
             }
 
+            // Sort templates: extract numeric part and sort numerically
+            const sortedTemplates = [...promptTemplates].sort((a, b) => {
+                // Extract numbers from template names (e.g., "Template 1" -> 1, "Template 10" -> 10)
+                const numA = parseInt((a.name.match(/\d+/) || ['0'])[0]);
+                const numB = parseInt((b.name.match(/\d+/) || ['0'])[0]);
+                // If both have numbers, sort numerically
+                if (numA && numB) return numA - numB;
+                // Otherwise sort alphabetically
+                return a.name.localeCompare(b.name);
+            });
+
             let html = '';
-            for (const t of promptTemplates) {
+            for (const t of sortedTemplates) {
                 const preview = t.text.length > 60 ? t.text.substring(0, 60) + '...' : t.text;
                 const builtinBadge = t.is_builtin ? '<span class="template-builtin-badge">Built-in</span>' : '';
                 const deleteBtn = !t.is_builtin ? `<button class="template-delete-btn" onclick="deleteTemplate(event, '${t.id}')" title="Delete">🗑️</button>` : '';
@@ -6123,6 +6793,11 @@
             if (template) {
                 document.getElementById('message-input').value = template.text;
                 document.getElementById('message-input').focus();
+
+                // Auto-collapse the templates panel after selection
+                if (templatesExpanded) {
+                    toggleTemplates();
+                }
             }
         }
 
@@ -6207,7 +6882,11 @@
         function toggleTheme() {
             const html = document.documentElement;
             html.classList.toggle('dark');
-            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+            const newTheme = html.classList.contains('dark') ? 'dark' : 'light';
+            localStorage.setItem('theme', newTheme);
+            if (typeof updateThreeJsTheme === 'function') {
+                updateThreeJsTheme(newTheme);
+            }
         }
 
         // Initialize theme on page load
@@ -6215,6 +6894,14 @@
 
         // Add click handler for theme toggle
         document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
+
+        // FAQ Toggle Function
+        function toggleFaq(element) {
+            const faqItem = element.closest('.faq-item');
+            if (faqItem) {
+                faqItem.classList.toggle('expanded');
+            }
+        }
 
         // Listen for system theme changes
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
@@ -6224,7 +6911,100 @@
                 } else {
                     document.documentElement.classList.remove('dark');
                 }
+                if (typeof updateThreeJsTheme === 'function') {
+                    updateThreeJsTheme(e.matches ? 'dark' : 'light');
+                }
             }
+        });
+    </script>
+
+    <!-- Three.js Animated Background -->
+    <script>
+        // Three.js Animated Dots Background
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Create particles
+        const geometry = new THREE.BufferGeometry();
+        const particlesCount = 500;
+        const posArray = new Float32Array(particlesCount * 3);
+        for (let i = 0; i < particlesCount * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 12;
+        }
+        geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+
+        // Create circular particle texture
+        function createCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const material = new THREE.PointsMaterial({
+            size: 0.04,
+            color: 0xa84370,
+            transparent: true,
+            opacity: 0.7,
+            map: createCircleTexture(),
+            depthWrite: false,
+        });
+
+        const particlesMesh = new THREE.Points(geometry, material);
+        scene.add(particlesMesh);
+        camera.position.z = 3;
+
+        // Mouse movement tracking
+        let mouseX = 0;
+        let mouseY = 0;
+        document.addEventListener('mousemove', (event) => {
+            mouseX = event.clientX / window.innerWidth - 0.5;
+            mouseY = event.clientY / window.innerHeight - 0.5;
+        });
+
+        const clock = new THREE.Clock();
+
+        // Animation loop
+        function animateBackground() {
+            requestAnimationFrame(animateBackground);
+            const elapsedTime = clock.getElapsedTime();
+            particlesMesh.rotation.y = elapsedTime * 0.03;
+            particlesMesh.rotation.x = mouseY * 0.08;
+            particlesMesh.rotation.y += mouseX * 0.08;
+            renderer.render(scene, camera);
+        }
+        animateBackground();
+
+        // Theme-aware particle colors
+        function updateThreeJsTheme(theme) {
+            if (theme === 'light') {
+                material.color.setHex(0x77347c);
+                material.opacity = 0.5;
+                document.getElementById('canvas-container').style.opacity = '0.3';
+            } else {
+                material.color.setHex(0xa84370);
+                material.opacity = 0.7;
+                document.getElementById('canvas-container').style.opacity = '0.6';
+            }
+        }
+
+        // Initialize with current theme
+        updateThreeJsTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         });
     </script>
 </body>

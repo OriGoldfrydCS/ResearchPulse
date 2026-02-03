@@ -75,6 +75,12 @@ class ColleagueInfo(BaseModel):
     arxiv_categories_interest: List[str] = Field(
         default_factory=list, description="Interested arXiv categories"
     )
+    added_by: Literal["manual", "email"] = Field(
+        "manual", description="How the colleague was added: 'manual' by user, 'email' via email signup"
+    )
+    auto_send_emails: bool = Field(
+        True, description="Whether to automatically send research update emails to this colleague"
+    )
 
 
 class ResearcherAction(BaseModel):
@@ -1220,8 +1226,36 @@ def _generate_share_content(
     paper: ScoredPaper,
     colleague: ColleagueInfo,
     relevance_reason: str,
+    owner_name: str = "a researcher",
 ) -> str:
-    """Generate share notification content for a colleague."""
+    """Generate share notification content for a colleague.
+    
+    The tone of the email varies based on how the colleague was added:
+    - 'email': The colleague signed up themselves, so we speak as ResearchPulse agent
+    - 'manual': The owner added them, so we speak on behalf of the owner
+    """
+    first_name = colleague.name.split()[0] if colleague.name else "there"
+    
+    # Generate intro based on how colleague was added
+    if colleague.added_by == "email":
+        # Colleague signed up themselves via email
+        intro_lines = [
+            f"Hi {first_name},",
+            "",
+            f"This is ResearchPulse, the research paper assistant for {owner_name}.",
+            "You asked me to share relevant papers with you, and I found one that",
+            f"matches your interests in {', '.join(colleague.topics[:3]) if colleague.topics else 'your research area'}.",
+        ]
+    else:
+        # Owner manually added this colleague
+        intro_lines = [
+            f"Hi {first_name},",
+            "",
+            f"{owner_name} wanted to share a relevant research paper with you.",
+            "Based on your interests, this paper might be useful for your research",
+            f"in {', '.join(colleague.topics[:3]) if colleague.topics else 'your area'}.",
+        ]
+    
     lines = [
         f"Subject: Paper recommendation: {paper.title}",
         f"To: {colleague.name} <{colleague.email}>",
@@ -1232,16 +1266,17 @@ def _generate_share_content(
         "PAPER RECOMMENDATION",
         "=" * 60,
         "",
-        f"Hi {colleague.name.split()[0]},",
-        "",
-        "I found a paper that might interest you based on your research in",
-        f"{', '.join(colleague.topics[:3]) if colleague.topics else 'your area'}.",
+    ]
+    
+    lines.extend(intro_lines)
+    
+    lines.extend([
         "",
         "-" * 40,
         "",
         f"Title: {paper.title}",
         f"arXiv ID: {paper.arxiv_id}",
-    ]
+    ])
     
     if paper.authors:
         lines.append(f"Authors: {', '.join(paper.authors[:5])}")
@@ -1313,6 +1348,7 @@ def decide_delivery_action(
     artifacts_dir: str = "artifacts",
     researcher_name: str = "Researcher",
     researcher_email: str = "",
+    skip_colleague_sharing: bool = True,
 ) -> DeliveryDecisionResult:
     """
     Decide delivery actions for a scored paper.
@@ -1321,6 +1357,12 @@ def decide_delivery_action(
     1. Paper's importance level
     2. Delivery policy settings
     3. Colleague interests and sharing preferences
+    
+    IMPORTANT: ResearchPulse is the OWNER's research agent first.
+    Colleagues only benefit from SURPLUS papers discovered during the 
+    owner-focused workflow. By default, skip_colleague_sharing=True to
+    defer colleague matching to post-processing (after owner's papers
+    are selected). Use process_colleague_surplus() after owner selection.
     
     Args:
         scored_paper: Paper with scoring results. Required fields:
@@ -1345,6 +1387,10 @@ def decide_delivery_action(
             - arxiv_categories_interest: Categories they follow
             
         artifacts_dir: Base directory for simulated outputs (default: "artifacts")
+        
+        skip_colleague_sharing: If True (default), skip colleague sharing 
+            in this call. Colleague sharing should happen in post-processing
+            via process_colleague_surplus() after owner's papers are selected.
             
     Returns:
         DeliveryDecisionResult with researcher_actions, colleague_actions,
@@ -1513,7 +1559,16 @@ def decide_delivery_action(
     # Colleague Actions
     # =================================
     
-    if (policy.get("allow_colleague_sharing", False) and 
+    # IMPORTANT: ResearchPulse works for the OWNER first.
+    # Colleague sharing is deferred to post-processing to ensure:
+    # 1. Owner gets their requested top X papers
+    # 2. Only SURPLUS papers (not selected for owner) go to colleagues
+    # 3. Owner's experience is never degraded
+    if skip_colleague_sharing:
+        # Colleague sharing will happen in process_colleague_surplus() 
+        # after owner's papers are finalized
+        pass
+    elif (policy.get("allow_colleague_sharing", False) and 
         colleague_sharing_settings.get("enabled", True)):
         
         # Extract paper topics from title and abstract for matching
@@ -1603,7 +1658,7 @@ def decide_delivery_action(
             # Generate share file for immediate shares
             if (action_type == "share_immediate" and 
                 colleague_sharing_settings.get("simulate_output", True)):
-                share_content = _generate_share_content(paper, colleague, relevance_reason)
+                share_content = _generate_share_content(paper, colleague, relevance_reason, owner_name=researcher_name)
                 colleague_slug = colleague.id.replace("_", "-")
                 file_path = f"shares/share_{colleague_slug}_{paper.arxiv_id.replace('.', '_')}_{timestamp}.txt"
                 files_to_write.append(FileToWrite(
@@ -1691,6 +1746,237 @@ def decide_delivery_action_json(
         researcher_email=researcher_email,
     )
     return result.model_dump()
+
+
+# =============================================================================
+# Colleague Sharing Processing (Post-Owner Selection)
+# =============================================================================
+
+def process_colleague_surplus(
+    all_scored_papers: List[Dict[str, Any]],
+    owner_paper_ids: List[str],
+    colleagues: List[Dict[str, Any]],
+    delivery_policy: Dict[str, Any],
+    researcher_name: str = "Researcher",
+    artifacts_dir: str = "artifacts",
+) -> Dict[str, Any]:
+    """
+    Process papers for colleague sharing AFTER owner selection is finalized.
+    
+    CRITICAL PRINCIPLE:
+    ResearchPulse is the OWNER's research agent first. This function is
+    called AFTER the owner's papers are selected via enforce_output().
+    
+    KEY BEHAVIOR:
+    - A paper CAN appear in both owner's results AND be sent to colleagues
+    - Sharing with colleagues is NOT mutually exclusive with owner delivery
+    - Owner's selection is NEVER affected - this runs AFTER owner selection
+    - ALL papers (including owner's top X) can be shared with relevant colleagues
+    
+    Operational rules:
+    1. Owner's paper selection is already finalized before this runs
+    2. ALL scored papers are considered for colleague matching
+    3. If a paper matches colleague interests, it's shared regardless of
+       whether it was also selected for the owner
+    4. This is opportunistic - no separate searches are done for colleagues
+    
+    Args:
+        all_scored_papers: All papers that were scored during the run
+        owner_paper_ids: List of arxiv_ids selected for the owner (for reference only)
+        colleagues: List of colleague dictionaries with interests
+        delivery_policy: Policy configuration with sharing settings
+        researcher_name: Owner's name for email personalization
+        artifacts_dir: Base directory for simulated outputs
+        
+    Returns:
+        Dictionary with colleague_actions and files_to_write
+    """
+    # Process ALL papers for colleague matching (including owner's papers)
+    # Owner sharing is NOT mutually exclusive with colleague sharing
+    papers_to_check = all_scored_papers
+    owner_ids_set = set(owner_paper_ids)
+    
+    if not papers_to_check:
+        return {
+            "success": True,
+            "message": "No papers available for colleague sharing",
+            "paper_count": 0,
+            "colleague_actions": [],
+            "files_to_write": [],
+        }
+    
+    # Get colleague sharing settings
+    colleague_sharing_settings = delivery_policy.get("colleague_sharing_settings", {})
+    if not colleague_sharing_settings.get("enabled", True):
+        return {
+            "success": True,
+            "message": "Colleague sharing is disabled in policy",
+            "paper_count": len(papers_to_check),
+            "colleague_actions": [],
+            "files_to_write": [],
+        }
+    
+    # Parse colleagues
+    colleague_objs = [ColleagueInfo(**c) for c in colleagues]
+    if not colleague_objs:
+        return {
+            "success": True,
+            "message": "No colleagues configured",
+            "paper_count": len(papers_to_check),
+            "colleague_actions": [],
+            "files_to_write": [],
+        }
+    
+    # Filter to only auto-send enabled colleagues
+    auto_send_colleagues = [
+        c for c in colleague_objs 
+        if getattr(c, 'auto_send_emails', True)
+    ]
+    
+    if not auto_send_colleagues:
+        return {
+            "success": True,
+            "message": "No colleagues have auto-send enabled",
+            "paper_count": len(papers_to_check),
+            "colleague_actions": [],
+            "files_to_write": [],
+        }
+    
+    all_colleague_actions: List[ColleagueAction] = []
+    all_files_to_write: List[FileToWrite] = []
+    timestamp = _get_file_timestamp()
+    
+    # Process ALL papers for colleague matching (including owner's papers)
+    # A paper can be sent to BOTH owner AND colleagues - not mutually exclusive
+    for paper_dict in papers_to_check:
+        paper = ScoredPaper(**paper_dict)
+        also_for_owner = paper.arxiv_id in owner_ids_set  # Track if also in owner's results
+        
+        # Extract paper topics from title and abstract for matching
+        paper_text = f"{paper.title} {paper.abstract}".lower()
+        paper_topics = []
+        for word in paper_text.split():
+            word = word.strip(".,!?;:()[]{}\"'")
+            if len(word) > 4:
+                paper_topics.append(word)
+        
+        for colleague in auto_send_colleagues:
+            # Skip on_request colleagues unless explicitly requested
+            if (colleague.sharing_preference == "on_request" and 
+                colleague_sharing_settings.get("respect_sharing_preferences", True)):
+                all_colleague_actions.append(ColleagueAction(
+                    action_type="skip",
+                    colleague_id=colleague.id,
+                    colleague_name=colleague.name,
+                    colleague_email=colleague.email,
+                    paper_id=paper.arxiv_id,
+                    paper_title=paper.title,
+                    relevance_reason="Colleague prefers on-request sharing only",
+                ))
+                continue
+            
+            # Check topic overlap
+            has_topic_match, matching_topics = _topics_overlap(
+                paper_topics, colleague.topics
+            )
+            
+            # Check category overlap
+            has_category_match = _categories_overlap(
+                paper.categories, colleague.arxiv_categories_interest
+            )
+            
+            # Decide if we should share this paper with colleagues
+            should_share = has_topic_match or has_category_match
+            
+            # For high importance papers, share even with weak matches
+            if paper.importance == "high" and colleague.topics:
+                should_share = True
+            
+            if not should_share:
+                all_colleague_actions.append(ColleagueAction(
+                    action_type="skip",
+                    colleague_id=colleague.id,
+                    colleague_name=colleague.name,
+                    colleague_email=colleague.email,
+                    paper_id=paper.arxiv_id,
+                    paper_title=paper.title,
+                    relevance_reason="No significant topic or category overlap",
+                ))
+                continue
+            
+            # Map sharing preference to action type
+            action_map = {
+                "immediate": "share_immediate",
+                "daily_digest": "share_daily",
+                "weekly_digest": "share_weekly",
+                "daily": "share_daily",
+                "weekly": "share_weekly",
+                "monthly": "share_weekly",
+                "never": "skip",
+            }
+            action_type = action_map.get(colleague.sharing_preference, "share_daily")
+            
+            # Generate relevance reason
+            relevance_reason = _get_colleague_relevance_reason(
+                paper, colleague, matching_topics, has_category_match
+            )
+            
+            # Add marker if paper is also in owner's selection
+            if also_for_owner:
+                tagged_reason = f"[ALSO FOR OWNER] {relevance_reason}"
+            else:
+                tagged_reason = relevance_reason
+            
+            all_colleague_actions.append(ColleagueAction(
+                action_type=action_type,
+                colleague_id=colleague.id,
+                colleague_name=colleague.name,
+                colleague_email=colleague.email,
+                paper_id=paper.arxiv_id,
+                paper_title=paper.title,
+                relevance_reason=tagged_reason,
+                details={
+                    "matching_topics": matching_topics,
+                    "has_category_match": has_category_match,
+                    "also_for_owner": also_for_owner,  # Track if sent to owner too
+                }
+            ))
+            
+            # Generate share file for immediate shares
+            if (action_type == "share_immediate" and 
+                colleague_sharing_settings.get("simulate_output", True)):
+                share_content = _generate_share_content(
+                    paper, colleague, relevance_reason, owner_name=researcher_name
+                )
+                colleague_slug = colleague.id.replace("_", "-")
+                file_path = f"shares/colleague_share_{colleague_slug}_{paper.arxiv_id.replace('.', '_')}_{timestamp}.txt"
+                all_files_to_write.append(FileToWrite(
+                    file_type="share",
+                    file_path=file_path,
+                    content=share_content,
+                    description=f"Paper share to {colleague.name} for {paper.arxiv_id}",
+                ))
+    
+    # Generate summary
+    share_counts = {
+        "immediate": sum(1 for a in all_colleague_actions if a.action_type == "share_immediate"),
+        "daily": sum(1 for a in all_colleague_actions if a.action_type == "share_daily"),
+        "weekly": sum(1 for a in all_colleague_actions if a.action_type == "share_weekly"),
+        "skipped": sum(1 for a in all_colleague_actions if a.action_type == "skip"),
+    }
+    
+    total_shared = share_counts["immediate"] + share_counts["daily"] + share_counts["weekly"]
+    
+    return {
+        "success": True,
+        "message": f"Processed {len(papers_to_check)} papers for {len(auto_send_colleagues)} colleagues",
+        "paper_count": len(papers_to_check),
+        "owner_paper_count": len(owner_paper_ids),
+        "share_counts": share_counts,
+        "total_shares": total_shared,
+        "colleague_actions": [a.model_dump() for a in all_colleague_actions],
+        "files_to_write": [f.model_dump() for f in all_files_to_write],
+    }
 
 
 # =============================================================================

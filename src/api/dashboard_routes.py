@@ -48,6 +48,91 @@ router = APIRouter(prefix="/api", tags=["dashboard"])
 
 
 # =============================================================================
+# LLM Inference Helper for Colleague Research Interests
+# =============================================================================
+
+async def infer_research_keywords_categories(research_interests: str) -> Dict[str, Any]:
+    """
+    Use LLM to infer keywords and arXiv categories from research interests text.
+    
+    Returns:
+        dict with 'keywords' (list of strings) and 'categories' (list of arXiv category codes)
+    """
+    if not research_interests or not research_interests.strip():
+        return {"keywords": [], "categories": []}
+    
+    try:
+        import openai
+        
+        # Use project's LLM configuration
+        api_key = os.getenv("LLM_API_KEY", "")
+        api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+        model_name = os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
+        
+        if not api_key:
+            # Return empty if no API key configured
+            return {"keywords": [], "categories": []}
+        
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=api_base)
+        
+        prompt = f"""Analyze the following research interests and extract:
+1. Keywords: A list of 5-10 specific research keywords/terms that best describe these interests
+2. Categories: A list of arXiv category codes that match these interests
+
+Research Interests:
+---
+{research_interests}
+---
+
+Common arXiv category codes include:
+- cs.AI (Artificial Intelligence), cs.LG (Machine Learning), cs.CL (Computation and Language)
+- cs.CV (Computer Vision), cs.NE (Neural and Evolutionary Computing), cs.RO (Robotics)
+- stat.ML (Statistics - Machine Learning), math.OC (Optimization and Control)
+- q-bio.QM (Quantitative Methods), q-bio.NC (Neurons and Cognition)
+- eess.SP (Signal Processing), eess.SY (Systems and Control)
+- physics.* (Various physics categories), math.* (Various math categories)
+
+Response format (JSON only - no other text):
+{{
+    "keywords": ["keyword1", "keyword2", ...],
+    "categories": ["cs.AI", "cs.LG", ...]
+}}
+
+Be specific and relevant. Focus on academic/research terminology. Return ONLY valid JSON."""
+
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000,  # Reasoning models need more tokens for thinking + output
+        )
+        
+        content = response.choices[0].message.content or ""
+        
+        if not content.strip():
+            return {"keywords": [], "categories": []}
+        
+        # Try to extract JSON from the response
+        import re
+        # Look for JSON object in the response (handle nested arrays)
+        json_match = re.search(r'\{[\s\S]*"keywords"[\s\S]*"categories"[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0)
+        
+        result = json.loads(content)
+        
+        return {
+            "keywords": result.get("keywords", []),
+            "categories": result.get("categories", [])
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Return empty on error - don't block colleague creation
+        return {"keywords": [], "categories": []}
+
+
+# =============================================================================
 # ArXiv Categories Endpoint  
 # =============================================================================
 
@@ -246,11 +331,13 @@ class ColleagueCreate(BaseModel):
     name: str
     email: str
     affiliation: Optional[str] = None
+    research_interests: Optional[str] = None
     keywords: List[str] = Field(default_factory=list)
     categories: List[str] = Field(default_factory=list)
     topics: List[str] = Field(default_factory=list)
     sharing_preference: str = "weekly"
     enabled: bool = True
+    auto_send_emails: bool = True
     notes: Optional[str] = None
 
 
@@ -258,11 +345,13 @@ class ColleagueUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     affiliation: Optional[str] = None
+    research_interests: Optional[str] = None
     keywords: Optional[List[str]] = None
     categories: Optional[List[str]] = None
     topics: Optional[List[str]] = None
     sharing_preference: Optional[str] = None
     enabled: Optional[bool] = None
+    auto_send_emails: Optional[bool] = None
     notes: Optional[str] = None
 
 
@@ -1495,6 +1584,41 @@ async def poll_inbox_for_replies():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/colleagues/poll-signups")
+async def poll_colleague_signups():
+    """
+    Poll the email inbox for colleague signup requests.
+    
+    This endpoint scans recent emails for messages where someone is requesting
+    to receive research paper updates from ResearchPulse. When found, it:
+    1. Extracts sender info (name, email)
+    2. Uses LLM to extract research interests from email body
+    3. Infers keywords and arXiv categories from interests
+    4. Creates a new colleague with added_by='email'
+    
+    Keywords to detect signup intent: subscribe, sign me up, add me, 
+    send me papers, interested in receiving, want to receive, etc.
+    """
+    try:
+        from ..tools.email_poller import process_colleague_signups
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = str(user["id"])
+        
+        result = await process_colleague_signups(store, user_id)
+        
+        return {
+            "success": True,
+            **result
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # Share Endpoints
 # =============================================================================
@@ -1525,14 +1649,26 @@ async def list_shares(
 @router.get("/colleagues")
 async def list_colleagues(
     enabled_only: bool = Query(False, description="Only show enabled colleagues"),
+    sort_by: str = Query("name", description="Sort field: name, email, created_at"),
+    sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
 ):
-    """List all colleagues."""
+    """List all colleagues with optional sorting."""
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
         
         colleagues = store.list_colleagues(user_id, enabled_only=enabled_only)
+        
+        # Sort colleagues
+        reverse = sort_dir.lower() == "desc"
+        if sort_by == "name":
+            colleagues.sort(key=lambda c: (c.get("name") or "").lower(), reverse=reverse)
+        elif sort_by == "email":
+            colleagues.sort(key=lambda c: (c.get("email") or "").lower(), reverse=reverse)
+        elif sort_by == "created_at":
+            colleagues.sort(key=lambda c: c.get("created_at") or "", reverse=reverse)
+        
         return {"colleagues": colleagues, "count": len(colleagues)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1565,12 +1701,31 @@ async def create_colleague(data: ColleagueCreate):
         user_id = UUID(user["id"])
         
         colleague_data = data.model_dump()
+        
+        # If research_interests is provided, use LLM to infer keywords and categories
+        research_interests = colleague_data.get("research_interests")
+        if research_interests and research_interests.strip():
+            inferred = await infer_research_keywords_categories(research_interests)
+            
+            # Merge inferred with any user-provided keywords/categories
+            existing_keywords = colleague_data.get("keywords", []) or []
+            existing_categories = colleague_data.get("categories", []) or []
+            
+            # Combine and deduplicate
+            all_keywords = list(dict.fromkeys(existing_keywords + inferred.get("keywords", [])))
+            all_categories = list(dict.fromkeys(existing_categories + inferred.get("categories", [])))
+            
+            colleague_data["keywords"] = all_keywords
+            colleague_data["categories"] = all_categories
+        
         # Ensure proper defaults
         colleague_data.setdefault("keywords", [])
         colleague_data.setdefault("categories", [])
         colleague_data.setdefault("topics", [])
         colleague_data.setdefault("sharing_preference", "weekly")
         colleague_data.setdefault("enabled", True)
+        colleague_data.setdefault("added_by", "manual")
+        colleague_data.setdefault("auto_send_emails", True)
         
         colleague = store.create_colleague(user_id, colleague_data)
         return colleague
@@ -1610,6 +1765,30 @@ async def delete_colleague(colleague_id: str):
         return {"deleted": deleted, "colleague_id": colleague_id}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid colleague ID")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/colleagues/delete")
+async def bulk_delete_colleagues(colleague_ids: List[str] = Body(embed=False)):
+    """Delete multiple colleagues at once."""
+    try:
+        store = get_default_store()
+        
+        deleted_count = 0
+        failed_ids = []
+        for colleague_id in colleague_ids:
+            try:
+                colleague_uuid = UUID(colleague_id)
+                deleted = store.delete_colleague(colleague_uuid)
+                if deleted:
+                    deleted_count += 1
+                else:
+                    failed_ids.append(colleague_id)
+            except Exception as e:
+                failed_ids.append(colleague_id)
+        
+        return {"deleted_count": deleted_count, "failed_ids": failed_ids}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

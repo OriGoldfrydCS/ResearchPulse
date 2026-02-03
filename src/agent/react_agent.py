@@ -60,7 +60,7 @@ from tools.fetch_arxiv import fetch_arxiv_papers, fetch_arxiv_papers_json
 from tools.check_seen import check_seen_papers, check_seen_papers_json
 from tools.retrieve_similar import retrieve_similar_from_pinecone, retrieve_similar_from_pinecone_json
 from tools.score_relevance import score_relevance_and_importance, score_relevance_and_importance_json, score_papers_batch
-from tools.decide_delivery import decide_delivery_action, decide_delivery_action_json, write_artifact_files
+from tools.decide_delivery import decide_delivery_action, decide_delivery_action_json, write_artifact_files, process_colleague_surplus
 from tools.persist_state import persist_paper_decision, persist_paper_decisions_batch, reset_run_tracker
 from tools.generate_report import generate_report, generate_report_json
 from tools.terminate_run import terminate_run, terminate_run_json
@@ -843,6 +843,10 @@ class ResearchReActAgent:
         if self._parsed_prompt:
             self._log("INFO", f"Enforcing output limit: {self._parsed_prompt.output_count} papers requested by user")
             
+            # Save ALL scored papers for colleague surplus processing BEFORE truncation
+            # This is critical: colleagues only get papers NOT selected for owner
+            self._all_scored_papers_for_surplus = list(self._scored_papers)
+            
             # Apply output enforcement - truncate to exactly K papers
             enforced_result = self._prompt_controller.enforce_output(
                 self._scored_papers,
@@ -881,6 +885,54 @@ class ResearchReActAgent:
                 )
                 if compliance_updated:
                     self._log("INFO", f"Prompt compliance status updated in DB")
+        
+        # ==================================================================
+        # COLLEAGUE SURPLUS PROCESSING (CRITICAL - AFTER OWNER SELECTION)
+        # ==================================================================
+        # ResearchPulse is the OWNER's research agent first. Colleagues only
+        # benefit from SURPLUS papers discovered during the owner-focused
+        # workflow. This processing happens AFTER owner's papers are selected.
+        # 
+        # Principle: Owner gets their top K papers. Only remaining papers
+        # that weren't selected for the owner may be forwarded to colleagues.
+        # ==================================================================
+        if self._colleagues and hasattr(self, '_all_scored_papers_for_surplus'):
+            owner_paper_ids = [p.get("arxiv_id") for p in self._scored_papers]
+            self._log("INFO", f"Processing colleague surplus: {len(self._all_scored_papers_for_surplus)} total papers, {len(owner_paper_ids)} for owner")
+            
+            try:
+                surplus_result = process_colleague_surplus(
+                    all_scored_papers=self._all_scored_papers_for_surplus,
+                    owner_paper_ids=owner_paper_ids,
+                    colleagues=self._colleagues,
+                    delivery_policy=self._delivery_policy,
+                    researcher_name=self._research_profile.get("name", "Researcher"),
+                    artifacts_dir="artifacts",
+                )
+                
+                if surplus_result.get("success"):
+                    surplus_count = surplus_result.get("surplus_count", 0)
+                    total_shares = surplus_result.get("total_shares", 0)
+                    self._log("INFO", f"Colleague surplus: {surplus_count} surplus papers, {total_shares} shares queued")
+                    
+                    # Add colleague actions and artifacts
+                    colleague_actions = surplus_result.get("colleague_actions", [])
+                    surplus_files = surplus_result.get("files_to_write", [])
+                    
+                    self._actions.extend(colleague_actions)
+                    self._artifacts.extend(surplus_files)
+                    
+                    # Save surplus artifacts to DB
+                    if surplus_files and is_db_available():
+                        from tools.decide_delivery import FileToWrite
+                        file_objects = [FileToWrite(**f) for f in surplus_files]
+                        db_result = save_artifacts_to_db(surplus_files)
+                        if not db_result.get("success"):
+                            self._log("WARN", f"Some surplus artifacts failed to save: {db_result.get('errors', [])}")
+                else:
+                    self._log("WARN", f"Colleague surplus processing failed: {surplus_result.get('message', 'Unknown error')}")
+            except Exception as e:
+                self._log("ERROR", f"Colleague surplus processing error: {str(e)}")
         
         # Generate report
         report_result, success, error = self._invoke_tool(

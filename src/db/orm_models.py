@@ -207,12 +207,22 @@ class Colleague(Base):
     email = Column(String(255), nullable=False)
     affiliation = Column(String(500))
     
+    # Research interests - raw text input from user or email
+    research_interests = Column(Text)
+    
+    # LLM-inferred fields from research_interests
     keywords = Column(JSON, default=list)
     categories = Column(JSON, default=list)
     topics = Column(JSON, default=list)
     
     sharing_preference = Column(String(50), default="weekly")
     enabled = Column(Boolean, default=True)
+    
+    # How this colleague was added: 'manual' (by owner) or 'email' (via email to ResearchPulse)
+    added_by = Column(String(50), default="manual")
+    
+    # Whether to automatically send research update emails to this colleague
+    auto_send_emails = Column(Boolean, default=True)
     
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -878,11 +888,14 @@ def colleague_to_dict(colleague: Colleague) -> Dict[str, Any]:
         "name": colleague.name,
         "email": colleague.email,
         "affiliation": colleague.affiliation,
+        "research_interests": colleague.research_interests,
         "keywords": colleague.keywords or [],
         "categories": colleague.categories or [],
         "topics": colleague.topics or [],
         "sharing_preference": colleague.sharing_preference,
         "enabled": colleague.enabled,
+        "added_by": colleague.added_by or "manual",
+        "auto_send_emails": colleague.auto_send_emails if colleague.auto_send_emails is not None else True,
         "notes": colleague.notes,
         "created_at": colleague.created_at.isoformat() if colleague.created_at else None,
         "updated_at": colleague.updated_at.isoformat() if colleague.updated_at else None,

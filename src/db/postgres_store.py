@@ -775,11 +775,14 @@ class PostgresStore(Store):
                 name=data["name"],
                 email=data["email"],
                 affiliation=data.get("affiliation"),
+                research_interests=data.get("research_interests"),
                 keywords=data.get("keywords", []),
                 categories=data.get("categories", []),
                 topics=data.get("topics", []),
                 sharing_preference=data.get("sharing_preference", "weekly"),
                 enabled=data.get("enabled", True),
+                added_by=data.get("added_by", "manual"),
+                auto_send_emails=data.get("auto_send_emails", True),
                 notes=data.get("notes"),
             )
             db.add(colleague)
@@ -826,8 +829,8 @@ class PostgresStore(Store):
             
             if colleague:
                 # Update existing
-                for key in ["name", "affiliation", "keywords", "categories", "topics", 
-                           "sharing_preference", "enabled", "notes"]:
+                for key in ["name", "affiliation", "research_interests", "keywords", "categories", "topics", 
+                           "sharing_preference", "enabled", "added_by", "auto_send_emails", "notes"]:
                     if key in data:
                         setattr(colleague, key, data[key])
                 colleague.updated_at = datetime.utcnow()
@@ -838,11 +841,14 @@ class PostgresStore(Store):
                     name=data.get("name", email.split("@")[0]),
                     email=email,
                     affiliation=data.get("affiliation"),
+                    research_interests=data.get("research_interests"),
                     keywords=data.get("keywords", []),
                     categories=data.get("categories", []),
                     topics=data.get("topics", []),
                     sharing_preference=data.get("sharing_preference", "weekly"),
                     enabled=data.get("enabled", True),
+                    added_by=data.get("added_by", "manual"),
+                    auto_send_emails=data.get("auto_send_emails", True),
                     notes=data.get("notes"),
                 )
                 db.add(colleague)
