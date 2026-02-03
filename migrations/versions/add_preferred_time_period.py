@@ -1,7 +1,7 @@
 """Add preferred_time_period column to users table.
 
 Revision ID: 20260203_preferred_time_period
-Revises: add_saved_prompts
+Revises: 20260202_calendar_invites
 Create Date: 2026-02-03
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260203_preferred_time_period'
-down_revision = 'add_saved_prompts'
+down_revision = '20260202_calendar_invites'
 branch_labels = None
 depends_on = None
 
