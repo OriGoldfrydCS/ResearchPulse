@@ -56,6 +56,8 @@ class ScoredPaper(BaseModel):
     authors: List[str] = Field(default_factory=list, description="List of authors")
     categories: List[str] = Field(default_factory=list, description="arXiv categories")
     publication_date: Optional[str] = Field(None, description="Publication date")
+    added_at: Optional[str] = Field(None, description="ISO timestamp when paper was added")
+    pdf_url: Optional[str] = Field(None, description="URL to PDF")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score 0-1")
     novelty_score: float = Field(..., ge=0.0, le=1.0, description="Novelty score 0-1")
     importance: Literal["high", "medium", "low"] = Field(..., description="Importance level")

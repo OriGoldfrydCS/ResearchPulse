@@ -102,6 +102,26 @@ class RunManager:
         self._runs[run_id] = run_state
         return run_state
 
+    def create_run_with_id(self, run_id: str, message: str) -> RunState:
+        """
+        Create a run with a specific ID provided by the client.
+        
+        Args:
+            run_id: The client-provided unique identifier.
+            message: The user's input message that triggered the run.
+            
+        Returns:
+            The newly created RunState.
+        """
+        run_state = RunState(
+            run_id=run_id,
+            start_time=datetime.utcnow(),
+            message=message
+        )
+        run_state.add_log("INFO", f"Run created with provided ID: {run_id}")
+        self._runs[run_id] = run_state
+        return run_state
+
     def get_run(self, run_id: str) -> Optional[RunState]:
         """
         Retrieve a run by its ID.

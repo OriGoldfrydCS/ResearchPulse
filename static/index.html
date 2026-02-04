@@ -1090,18 +1090,26 @@
         }
 
         .send-btn.stop-mode {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.35);
-            min-width: 100px;
+            background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+            box-shadow: 0 4px 16px rgba(107, 114, 128, 0.35);
+            min-width: 48px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .send-btn.stop-mode:hover {
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
+            background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+            box-shadow: 0 6px 20px rgba(107, 114, 128, 0.45);
             transform: translateY(-2px);
         }
 
         .stop-icon {
-            font-size: 14px;
+            display: block;
         }
 
         /* ========== Chat Header ========== */
@@ -3447,6 +3455,7 @@
             pollInterval: null,
             isRunning: false,
             abortController: null,
+            buttonMode: 'send',  // 'send' or 'stop' - tracks button visual state
         };
 
         // =============================================================================
@@ -3494,13 +3503,14 @@
 
         function setInputEnabled(enabled) {
             elements.messageInput.disabled = !enabled;
+            // Update button state tracking
+            state.buttonMode = enabled ? 'send' : 'stop';
 
             if (!enabled) {
-                // Show Stop button when agent is running
-                elements.sendBtn.innerHTML = '<span class="stop-icon">⏹</span><span>Stop</span>';
+                // Show Stop button when agent is running (round with white square SVG)
+                elements.sendBtn.innerHTML = '<svg class="stop-icon" width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
                 elements.sendBtn.classList.add('stop-mode');
                 elements.sendBtn.disabled = false;
-                elements.sendBtn.onclick = cancelRun;
             } else {
                 // Show Send button when ready for input
                 elements.sendBtn.innerHTML = `
@@ -3511,31 +3521,44 @@
                 `;
                 elements.sendBtn.classList.remove('stop-mode');
                 elements.sendBtn.disabled = false;
-                elements.sendBtn.onclick = handleSend;
+            }
+        }
+
+        // Unified button click handler - delegates based on current mode
+        function handleButtonClick() {
+            if (state.buttonMode === 'stop' || state.isRunning) {
+                cancelRun();
+            } else {
+                handleSend();
             }
         }
 
         // Cancel a running agent
         async function cancelRun() {
+            console.log('[DEBUG] cancelRun called, currentRunId:', state.currentRunId);
             if (!state.currentRunId) {
                 // If no run ID, just reset the UI
+                console.log('[DEBUG] No run ID, just resetting UI');
                 state.isRunning = false;
                 removeAgentThinking();
                 setInputEnabled(true);
                 setStatus('cancelled');
-                addMessage('⏹ Run cancelled.', false);
+                addMessage('Run cancelled', false);
                 return;
             }
             try {
+                console.log('[DEBUG] Sending cancel request for run_id:', state.currentRunId);
                 const response = await fetch('/api/cancel', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ run_id: state.currentRunId, reason: 'User cancelled' })
                 });
                 const result = await response.json();
+                console.log('[DEBUG] Cancel response:', result);
                 state.isRunning = false;
+                state.currentRunId = null;
                 removeAgentThinking();
-                addMessage('⏹ Run cancelled by user.', false);
+                addMessage('Run cancelled', false);
                 setInputEnabled(true);
                 setStatus('cancelled');
             } catch (e) {
@@ -3831,13 +3854,24 @@
         // =============================================================================
         // API Calls
         // =============================================================================
-        async function executeAgent(inputMessage) {
+
+        // Generate a UUID for run tracking
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        async function executeAgent(inputMessage, runId) {
             // Use the required /api/execute endpoint (per Course Project requirements)
+            console.log('[DEBUG] executeAgent called with runId:', runId);
             try {
                 const response = await fetch('/api/execute', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: inputMessage }),
+                    body: JSON.stringify({ prompt: inputMessage, run_id: runId }),
                 });
 
                 if (!response.ok) {
@@ -3899,6 +3933,11 @@
             const message = elements.messageInput.value.trim();
             if (!message || state.isRunning) return;
 
+            // Generate run_id upfront so we can cancel it
+            const runId = generateUUID();
+            state.currentRunId = runId;
+            console.log('[DEBUG] handleSend - generated runId:', runId);
+
             // Reset UI
             state.isRunning = true;
             elements.messageInput.value = '';
@@ -3911,9 +3950,16 @@
 
             try {
                 // Use the /api/execute endpoint (per Course Project requirements)
-                const result = await executeAgent(message);
+                const result = await executeAgent(message, runId);
+
+                // Check if cancelled
+                if (result.response && result.response.includes('cancelled')) {
+                    console.log('[DEBUG] Run was cancelled');
+                    return; // UI already reset by cancelRun
+                }
 
                 state.isRunning = false;
+                state.currentRunId = null;
                 removeAgentThinking();
                 setInputEnabled(true);
 
@@ -4004,12 +4050,13 @@
         // =============================================================================
         // Event Listeners
         // =============================================================================
-        elements.sendBtn.addEventListener('click', handleSend);
+        // Use unified click handler to properly handle send/stop modes
+        elements.sendBtn.addEventListener('click', handleButtonClick);
 
         elements.messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleSend();
+                handleButtonClick();
             }
         });
 
@@ -4688,7 +4735,16 @@
                 }
 
                 if (result.success) {
+                    // Show success toast with email status info
                     showToast(`📅 ${result.message}`);
+
+                    // Show additional warning if email was not sent
+                    if (!result.email_sent) {
+                        setTimeout(() => {
+                            showToast('⚠️ Email reminder not sent - configure SMTP in Settings to receive calendar invites by email', 'warning');
+                        }, 1500);
+                    }
+
                     clearSelection();
                     refreshPapers();
                     // Refresh calendar tab to show the new event
@@ -4824,27 +4880,30 @@
         }
 
         // Toast notification helper
-        function showToast(message) {
+        function showToast(message, type = 'info') {
             // Create a simple toast notification
             const toast = document.createElement('div');
+            const bgColor = type === 'warning' ? '#d97706' : type === 'error' ? '#dc2626' : '#1e293b';
             toast.style.cssText = `
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
-                background: #1e293b;
+                background: ${bgColor};
                 color: white;
                 padding: 12px 20px;
                 border-radius: 8px;
                 font-size: 0.9rem;
                 z-index: 10000;
+                max-width: 400px;
                 animation: slideIn 0.3s ease;
             `;
             toast.textContent = message;
             document.body.appendChild(toast);
+            const duration = type === 'warning' ? 5000 : 3000;
             setTimeout(() => {
                 toast.style.animation = 'slideOut 0.3s ease';
                 setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            }, duration);
         }
 
         // Keyboard shortcuts for papers

@@ -363,6 +363,8 @@ def is_colleague_signup_email(subject: str, body: str) -> bool:
         "research papers",
         "share papers with me",
         "recommendation",
+        "colleague list",
+        "add to your",
     ]
     
     researchpulse_keywords = [

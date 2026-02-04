@@ -411,9 +411,35 @@ For demo purposes, actions produce file artifacts instead of actual emails/calen
 
 ### Running Tests
 
+ResearchPulse has a comprehensive test suite with unit tests and integration tests.
+
 ```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all unit tests (fast, no external services required)
+pytest tests/unit/
+
+# Run all tests including integration tests (mocked)
 pytest tests/
+
+# Run with coverage
+pytest tests/ --cov=src --cov-report=html
+
+# Run live integration tests (requires email credentials)
+RUN_LIVE_TESTS=1 pytest tests/integration/
 ```
+
+**Critical Test: Inbox Reading**
+
+A known issue was that ResearchPulse could not read incoming email content. This is now explicitly tested:
+
+```bash
+# Run the inbox reading regression test
+RUN_LIVE_TESTS=1 pytest tests/integration/test_inbox_reading.py -v
+```
+
+For complete testing documentation, see [TESTING.md](TESTING.md).
 
 ### Code Formatting
 

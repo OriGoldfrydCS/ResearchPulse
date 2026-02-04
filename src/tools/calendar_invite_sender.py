@@ -13,8 +13,10 @@ Tracks sent invites in the database for reply processing.
 from __future__ import annotations
 
 import os
+import sys
 import uuid
 import smtplib
+import importlib.util
 from pathlib import Path
 
 # Load environment variables
@@ -30,27 +32,34 @@ from email.utils import formataddr, make_msgid
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
-# Try relative import first, fall back to absolute import for different execution contexts
-try:
-    from .ics_generator import (
-        generate_uid,
-        generate_reading_reminder_ics,
-        generate_reschedule_ics,
-        generate_cancel_ics,
-    )
-except (ImportError, ValueError):
-    # Fallback: add tools path and import directly
-    import sys
-    from pathlib import Path
-    tools_path = str(Path(__file__).parent)
-    if tools_path not in sys.path:
-        sys.path.insert(0, tools_path)
-    from ics_generator import (
-        generate_uid,
-        generate_reading_reminder_ics,
-        generate_reschedule_ics,
-        generate_cancel_ics,
-    )
+# Import ics_generator functions using importlib to avoid relative import issues
+_ics_generator_path = Path(__file__).parent / "ics_generator.py"
+
+def _load_ics_generator():
+    """Load ics_generator module, handling different import contexts."""
+    global generate_uid, generate_reading_reminder_ics, generate_reschedule_ics, generate_cancel_ics
+    
+    try:
+        # First try: direct import if path is in sys.path
+        import sys
+        tools_path = str(Path(__file__).parent)
+        if tools_path not in sys.path:
+            sys.path.insert(0, tools_path)
+        import ics_generator as _ics
+        return _ics.generate_uid, _ics.generate_reading_reminder_ics, _ics.generate_reschedule_ics, _ics.generate_cancel_ics
+    except ImportError:
+        pass
+    
+    # Fallback: use importlib with file location
+    spec = importlib.util.spec_from_file_location("ics_generator", _ics_generator_path)
+    if spec and spec.loader:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.generate_uid, module.generate_reading_reminder_ics, module.generate_reschedule_ics, module.generate_cancel_ics
+    
+    raise ImportError(f"Could not load ics_generator from {_ics_generator_path}")
+
+generate_uid, generate_reading_reminder_ics, generate_reschedule_ics, generate_cancel_ics = _load_ics_generator()
 
 
 def _get_smtp_config() -> Dict[str, Any]:

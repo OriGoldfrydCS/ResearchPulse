@@ -118,6 +118,10 @@ class ExecuteRequest(BaseModel):
         description="The user's prompt to trigger an agent run",
         examples=["Find recent papers on transformer architectures"]
     )
+    run_id: Optional[str] = Field(
+        None,
+        description="Optional run ID for cancellation tracking. If provided, will be used instead of generating a new one."
+    )
 
 
 class ExecuteStepLog(BaseModel):
@@ -194,6 +198,10 @@ def _run_agent_sync(run_id: str, message: str) -> None:
         def log_callback(level: str, msg: str, ts: str):
             run_manager.add_log(run_id, level, msg)
         
+        # Create cancellation check callback that checks RunManager
+        def cancellation_check() -> bool:
+            return run_manager.is_cancelled(run_id)
+        
         # Configure stop policy per SPEC.md Section 2
         stop_policy = StopPolicy(
             max_runtime_minutes=6,
@@ -203,12 +211,13 @@ def _run_agent_sync(run_id: str, message: str) -> None:
             min_importance_to_act="medium",
         )
         
-        # Run the agent episode
+        # Run the agent episode with cancellation support
         episode = run_agent_episode(
             run_id=run_id,
             user_message=message,
             stop_policy=stop_policy,
             log_callback=log_callback,
+            cancellation_check=cancellation_check,
         )
         
         # Build final report for RunManager
@@ -236,7 +245,7 @@ def _run_agent_sync(run_id: str, message: str) -> None:
     except Exception as e:
         error_msg = str(e)
         run_manager.add_log(run_id, "ERROR", f"Agent failed: {error_msg}")
-        run_manager.update_status(run_id, RunStatus.ERROR, error=error_msg)
+        run_manager.set_error(run_id, error_msg)
 
 
 def _run_agent_background(run_id: str, message: str) -> None:
@@ -339,13 +348,20 @@ async def cancel_run(request: CancelRequest) -> CancelResponse:
     Returns:
         Success status and message
     """
+    import logging
+    logging.warning(f"[DEBUG] cancel_run called with run_id: {request.run_id}")
+    
     run_state = run_manager.get_run(request.run_id)
     
     if run_state is None:
+        logging.warning(f"[DEBUG] Run not found: {request.run_id}")
+        logging.warning(f"[DEBUG] Available runs: {run_manager.list_runs()}")
         raise HTTPException(
             status_code=404,
             detail=f"Run not found: {request.run_id}"
         )
+    
+    logging.warning(f"[DEBUG] Run found, status: {run_state.status}")
     
     if run_state.status != RunStatus.RUNNING:
         return CancelResponse(
@@ -355,6 +371,7 @@ async def cancel_run(request: CancelRequest) -> CancelResponse:
         )
     
     success = run_manager.cancel_run(request.run_id, request.reason or "User cancelled")
+    logging.warning(f"[DEBUG] cancel_run result: {success}")
     
     if success:
         return CancelResponse(
@@ -439,9 +456,19 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
     Input: { "prompt": "user prompt string" }
     Output: { "status": "ok", "error": null, "response": "...", "steps": [...] }
     """
-    # Create a new run
-    run_state = run_manager.create_run(request.prompt)
-    run_id = run_state.run_id
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    import logging
+    
+    # Use provided run_id or create a new one
+    if request.run_id:
+        run_id = request.run_id
+        run_state = run_manager.create_run_with_id(run_id, request.prompt)
+        logging.warning(f"[DEBUG] execute_agent using provided run_id: {run_id}")
+    else:
+        run_state = run_manager.create_run(request.prompt)
+        run_id = run_state.run_id
+        logging.warning(f"[DEBUG] execute_agent generated run_id: {run_id}")
     
     # Log initial state
     run_manager.add_log(run_id, "INFO", "Agent execution started")
@@ -450,18 +477,11 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
     # Track execution steps in the required format
     execution_steps: List[Dict[str, Any]] = []
     
-    try:
-        # Create log callback that writes to RunManager and tracks steps
+    def run_agent_in_thread():
+        """Run agent in a separate thread so cancel requests can be processed."""
+        # Create log callback that writes to RunManager
         def log_callback(level: str, msg: str, ts: str):
             run_manager.add_log(run_id, level, msg)
-            # Track tool calls as steps
-            if "Tool:" in msg:
-                # Parse tool execution from log message
-                execution_steps.append({
-                    "module": "LogCapture",
-                    "prompt": {"message": msg},
-                    "response": {"level": level, "timestamp": ts}
-                })
         
         # Configure stop policy
         stop_policy = StopPolicy(
@@ -472,13 +492,32 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             min_importance_to_act="medium",
         )
         
-        # Run the agent episode
-        episode = run_agent_episode(
+        # Create cancellation check callback that checks RunManager
+        def cancellation_check() -> bool:
+            return run_manager.is_cancelled(run_id)
+        
+        # Run the agent episode with cancellation support
+        return run_agent_episode(
             run_id=run_id,
             user_message=request.prompt,
             stop_policy=stop_policy,
             log_callback=log_callback,
+            cancellation_check=cancellation_check,
         )
+    
+    try:
+        # Run agent in thread pool so event loop stays free for cancel requests
+        loop = asyncio.get_event_loop()
+        episode = await loop.run_in_executor(_executor, run_agent_in_thread)
+        
+        # Check if was cancelled
+        if run_manager.is_cancelled(run_id):
+            return ExecuteResponse(
+                status="ok",
+                error=None,
+                response="⏹ Run cancelled by user.",
+                steps=[]
+            )
         
         # Build execution steps from tool_calls
         for i, tool_call in enumerate(episode.tool_calls):

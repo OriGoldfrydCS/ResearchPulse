@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import importlib.util
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -29,6 +30,23 @@ from .json_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_calendar_invite_sender():
+    """Load calendar_invite_sender module using importlib to avoid relative import issues."""
+    import sys
+    # Add tools directory to path first
+    tools_path = str(Path(__file__).parent.parent / "tools")
+    if tools_path not in sys.path:
+        sys.path.insert(0, tools_path)
+    
+    module_path = Path(__file__).parent.parent / "tools" / "calendar_invite_sender.py"
+    spec = importlib.util.spec_from_file_location("calendar_invite_sender", module_path)
+    if spec and spec.loader:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    raise ImportError(f"Could not load calendar_invite_sender from {module_path}")
 
 # =============================================================================
 # Configuration
@@ -1170,7 +1188,8 @@ def save_artifact_to_db(
             # Send calendar invite email if user has an email configured
             if user_email and user_email != "default@researchpulse.local":
                 try:
-                    from ..tools.calendar_invite_sender import send_reading_reminder_invite
+                    calendar_invite_sender = _get_calendar_invite_sender()
+                    send_reading_reminder_invite = calendar_invite_sender.send_reading_reminder_invite
                     
                     papers_for_invite = []
                     if paper_title:

@@ -455,6 +455,7 @@ class ResearchReActAgent:
         run_id: str,
         config: Optional[AgentConfig] = None,
         log_callback: Optional[Callable[[str, str, str], None]] = None,
+        cancellation_check: Optional[Callable[[], bool]] = None,
     ):
         """
         Initialize the ReAct agent.
@@ -463,10 +464,12 @@ class ResearchReActAgent:
             run_id: Unique identifier for this run
             config: Agent configuration (uses defaults if None)
             log_callback: Optional callback for logging (level, message, timestamp)
+            cancellation_check: Optional callback to check if run was cancelled externally
         """
         self.run_id = run_id
         self.config = config or AgentConfig()
         self.log_callback = log_callback
+        self._cancellation_check = cancellation_check
         
         # Load research profile and colleagues
         self._research_profile = get_research_profile()
@@ -481,6 +484,7 @@ class ResearchReActAgent:
         self.episode: Optional[AgentEpisode] = None
         self.current_step = 0
         self._terminated = False
+        self._cancelled = False
         
         # Working state (accumulated during run)
         self._fetched_papers: List[Dict] = []
@@ -527,6 +531,13 @@ class ResearchReActAgent:
         """
         Invoke a tool and return (output, success, error).
         """
+        # Check for cancellation before every tool call
+        if self._cancellation_check and self._cancellation_check():
+            self._terminated = True
+            self._cancelled = True
+            self._log("INFO", "Run cancelled by user before tool execution")
+            return None, False, "cancelled_by_user"
+        
         start_time = datetime.utcnow()
         
         tool_func = self.tool_registry.get_tool(tool_name)
@@ -563,6 +574,13 @@ class ResearchReActAgent:
         """Check if we should stop the agent."""
         if self._terminated:
             return True, self.stop_controller.stop_reason
+        
+        # Check for external cancellation (user clicked Stop button)
+        if self._cancellation_check and self._cancellation_check():
+            self._terminated = True
+            self._cancelled = True
+            self._log("INFO", "Run cancelled by user")
+            return True, "cancelled_by_user"
         
         should_stop, reason = self.stop_controller.should_stop()
         if should_stop:
@@ -1022,6 +1040,7 @@ def create_agent(
     stop_policy: Optional[StopPolicy] = None,
     log_callback: Optional[Callable] = None,
     verbose: bool = True,
+    cancellation_check: Optional[Callable[[], bool]] = None,
 ) -> ResearchReActAgent:
     """
     Create a configured ReAct agent.
@@ -1031,6 +1050,7 @@ def create_agent(
         stop_policy: Optional custom stop policy
         log_callback: Optional logging callback
         verbose: Enable verbose output
+        cancellation_check: Optional callback to check if run was cancelled externally
         
     Returns:
         Configured ResearchReActAgent instance
@@ -1043,6 +1063,7 @@ def create_agent(
         run_id=run_id,
         config=config,
         log_callback=log_callback,
+        cancellation_check=cancellation_check,
     )
 
 
@@ -1051,6 +1072,7 @@ def run_agent_episode(
     user_message: str,
     stop_policy: Optional[StopPolicy] = None,
     log_callback: Optional[Callable] = None,
+    cancellation_check: Optional[Callable[[], bool]] = None,
 ) -> AgentEpisode:
     """
     Run a complete agent episode.
@@ -1062,6 +1084,7 @@ def run_agent_episode(
         user_message: The user's request
         stop_policy: Optional custom stop policy
         log_callback: Optional logging callback
+        cancellation_check: Optional callback to check if run was cancelled externally
         
     Returns:
         AgentEpisode with complete run information
@@ -1070,6 +1093,7 @@ def run_agent_episode(
         run_id=run_id,
         stop_policy=stop_policy,
         log_callback=log_callback,
+        cancellation_check=cancellation_check,
     )
     return agent.run(user_message)
 
