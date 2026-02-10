@@ -153,10 +153,28 @@ async def startup_event():
                 builtin_seeded = seed_builtin_prompt_templates()
                 if builtin_seeded > 0:
                     print(f"Seeded {builtin_seeded} builtin prompt templates")
+                
+                # Start inbox scheduler if enabled
+                try:
+                    from src.tools.inbox_scheduler import startup_inbox_scheduler
+                    await startup_inbox_scheduler()
+                except Exception as e:
+                    print(f"Inbox scheduler startup: {e}")
         else:
             print("Database: not configured (using local files)")
     except Exception as e:
         print(f"Database check error: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    try:
+        from src.tools.inbox_scheduler import shutdown_inbox_scheduler
+        await shutdown_inbox_scheduler()
+        print("Inbox scheduler stopped")
+    except Exception as e:
+        print(f"Shutdown error: {e}")
 
 
 # =============================================================================

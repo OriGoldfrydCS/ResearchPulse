@@ -210,10 +210,17 @@ class Colleague(Base):
     # Research interests - raw text input from user or email
     research_interests = Column(Text)
     
+    # Dedicated interests field (cleaner data model)
+    interests = Column(Text)
+    
     # LLM-inferred fields from research_interests
     keywords = Column(JSON, default=list)
     categories = Column(JSON, default=list)
     topics = Column(JSON, default=list)
+    
+    # Auto-derived arXiv categories from interests
+    # Format: {"primary": ["cs.LG", "cs.AI"], "secondary": ["stat.ML"]}
+    derived_arxiv_categories = Column(JSON, default=dict)
     
     sharing_preference = Column(String(50), default="weekly")
     enabled = Column(Boolean, default=True)
@@ -224,16 +231,87 @@ class Colleague(Base):
     # Whether to automatically send research update emails to this colleague
     auto_send_emails = Column(Boolean, default=True)
     
+    # Onboarding state tracking
+    # Values: 'complete', 'pending', 'needs_interests', 'needs_name'
+    onboarding_status = Column(String(50), default="complete")
+    
+    # Thread ID for ongoing onboarding conversation (to continue in same thread)
+    onboarding_thread_id = Column(String(500))
+    
+    # Whether join code was verified in this thread (don't require again)
+    join_verified = Column(Boolean, default=False)
+    
+    # Cached interest headline for UI display
+    # Generated from interests field by LLM, e.g. "Computer Vision, Medical Imaging, and RAG"
+    # If interests are empty/null, this should be null too
+    interest_headline = Column(String(255))
+    
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     __table_args__ = (
         Index('ix_colleague_user_id', 'user_id'),
+        Index('ix_colleague_onboarding_status', 'onboarding_status'),
     )
     
     user = relationship("User", back_populates="colleagues")
     shares = relationship("Share", back_populates="colleague", cascade="all, delete-orphan")
+    email_logs = relationship("ColleagueEmailLog", back_populates="colleague", cascade="all, delete-orphan")
+
+
+# =============================================================================
+# ColleagueEmailLog Model
+# =============================================================================
+
+class ColleagueEmailLog(Base):
+    """
+    Tracks outbound emails sent to colleagues for activity reporting.
+    
+    This enables showing email stats in the colleague details view:
+    - Last 24 hours, 7 days, 30 days, and total counts
+    - Expandable list of sent emails with subject and date
+    
+    Email types:
+    - 'paper_recommendation': Individual paper recommendation
+    - 'digest': Weekly/daily digest email
+    - 'onboarding': Onboarding/welcome email
+    - 'other': Other communications
+    """
+    __tablename__ = "colleague_email_log"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    colleague_id = Column(UUID(as_uuid=True), ForeignKey("colleagues.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    
+    # Email details
+    message_id = Column(String(255))  # Gmail/SMTP message ID if available
+    subject = Column(String(500), nullable=False)
+    snippet = Column(Text)  # First ~100 chars of body for preview
+    
+    # Email type for filtering and categorization
+    email_type = Column(String(50), nullable=False, default="paper_recommendation")
+    
+    # Paper reference if this email is about a specific paper
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("papers.id", ondelete="SET NULL"))
+    paper_arxiv_id = Column(String(50))
+    
+    # Timestamps
+    sent_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Additional metadata (JSON for flexibility) - renamed to avoid reserved word
+    extra_data = Column(JSON, default=dict)
+    
+    __table_args__ = (
+        Index('ix_colleague_email_log_colleague_id', 'colleague_id'),
+        Index('ix_colleague_email_log_user_id', 'user_id'),
+        Index('ix_colleague_email_log_sent_at', 'sent_at'),
+        Index('ix_colleague_email_log_email_type', 'email_type'),
+    )
+    
+    colleague = relationship("Colleague", back_populates="email_logs")
+    paper = relationship("Paper")
 
 
 # =============================================================================
@@ -422,6 +500,10 @@ class CalendarInviteEmail(Base):
     thread_id = Column(String(255))  # Thread identifier (Gmail style or References header)
     in_reply_to = Column(String(255))  # In-Reply-To header for threading
     
+    # Unique token embedded in email body for robust reply matching
+    # Format: [RP_REMINDER_ID: <uuid>] in plain text footer
+    reminder_token = Column(String(64), nullable=True, unique=True)
+    
     recipient_email = Column(String(255), nullable=False)
     subject = Column(String(500), nullable=False)
     
@@ -446,6 +528,7 @@ class CalendarInviteEmail(Base):
         Index('ix_calendar_invite_email_thread_id', 'thread_id'),
         Index('ix_calendar_invite_email_user_id', 'user_id'),
         Index('ix_calendar_invite_email_ics_uid', 'ics_uid'),
+        Index('ix_calendar_invite_email_reminder_token', 'reminder_token', unique=True),
     )
     
     calendar_event = relationship("CalendarEvent", back_populates="invite_emails")
@@ -794,6 +877,109 @@ class PromptTemplate(Base):
         }
 
 
+# =============================================================================
+# UserSettings Model - Per-user configuration for inbox polling and join codes
+# =============================================================================
+
+class UserSettings(Base):
+    """
+    Per-user settings for inbox polling and colleague join functionality.
+    
+    Stores:
+    - Inbox check frequency (polling interval)
+    - Colleague join code (bcrypt hashed for security)
+    - Processed email message IDs for idempotency
+    """
+    __tablename__ = "user_settings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    
+    # Inbox polling configuration
+    # Frequency in seconds: null=disabled, 10, 30, 60, 300, 900, 3600
+    inbox_check_frequency_seconds = Column(Integer, nullable=True, default=None)
+    last_inbox_check_at = Column(DateTime, nullable=True)
+    inbox_check_enabled = Column(Boolean, default=False)
+    
+    # Colleague join code (bcrypt hashed - never store plaintext)
+    colleague_join_code_hash = Column(String(255), nullable=True)
+    colleague_join_code_updated_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('ix_user_settings_user_id', 'user_id'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API response (without exposing hash)."""
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "inbox_check_frequency_seconds": self.inbox_check_frequency_seconds,
+            "inbox_check_enabled": self.inbox_check_enabled,
+            "last_inbox_check_at": self.last_inbox_check_at.isoformat() if self.last_inbox_check_at else None,
+            "has_join_code": self.colleague_join_code_hash is not None,
+            "colleague_join_code_updated_at": self.colleague_join_code_updated_at.isoformat() if self.colleague_join_code_updated_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# =============================================================================
+# ProcessedInboundEmail Model - Tracks processed email IDs for idempotency
+# =============================================================================
+
+class ProcessedInboundEmail(Base):
+    """
+    Tracks processed inbound email IDs for idempotency.
+    
+    Prevents re-processing the same email multiple times.
+    Stores Gmail message IDs that have been processed.
+    """
+    __tablename__ = "processed_inbound_emails"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    
+    # Gmail message ID (unique per user)
+    gmail_message_id = Column(String(255), nullable=False)
+    
+    # Processing metadata
+    email_type = Column(String(50), nullable=False)  # 'reschedule_reply', 'colleague_join', 'unknown'
+    processed_at = Column(DateTime, default=datetime.utcnow)
+    processing_result = Column(String(50))  # 'success', 'failed', 'ignored'
+    error_message = Column(Text, nullable=True)
+    
+    # Original email metadata for debugging
+    from_email = Column(String(255))
+    subject = Column(String(500))
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'gmail_message_id', name='uq_processed_email_user_message'),
+        Index('ix_processed_email_user_id', 'user_id'),
+        Index('ix_processed_email_gmail_id', 'gmail_message_id'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API response."""
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "gmail_message_id": self.gmail_message_id,
+            "email_type": self.email_type,
+            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            "processing_result": self.processing_result,
+            "error_message": self.error_message,
+            "from_email": self.from_email,
+            "subject": self.subject,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 def arxiv_category_to_dict(cat: ArxivCategoryDB) -> Dict[str, Any]:
     """Convert ArxivCategoryDB model to dictionary."""
     return {
@@ -889,12 +1075,14 @@ def colleague_to_dict(colleague: Colleague) -> Dict[str, Any]:
         "email": colleague.email,
         "affiliation": colleague.affiliation,
         "research_interests": colleague.research_interests,
+        "interests": colleague.interests,  # Dedicated interests field
+        "interest_headline": colleague.interest_headline,  # LLM-generated headline for UI
         "keywords": colleague.keywords or [],
-        "categories": colleague.categories or [],
+        "categories": colleague.categories or [],  # Derived from interests, not editable
         "topics": colleague.topics or [],
         "sharing_preference": colleague.sharing_preference,
         "enabled": colleague.enabled,
-        "added_by": colleague.added_by or "manual",
+        "added_by": colleague.added_by or "manual",  # 'manual' (owner) or 'email' (self-signup)
         "auto_send_emails": colleague.auto_send_emails if colleague.auto_send_emails is not None else True,
         "notes": colleague.notes,
         "created_at": colleague.created_at.isoformat() if colleague.created_at else None,
@@ -978,6 +1166,7 @@ def calendar_invite_email_to_dict(invite: CalendarInviteEmail) -> Dict[str, Any]
         "message_id": invite.message_id,
         "thread_id": invite.thread_id,
         "in_reply_to": invite.in_reply_to,
+        "reminder_token": invite.reminder_token,
         "recipient_email": invite.recipient_email,
         "subject": invite.subject,
         "ics_uid": invite.ics_uid,

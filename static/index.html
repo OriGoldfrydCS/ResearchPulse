@@ -3432,6 +3432,59 @@
                         </div>
                         <button onclick="savePolicy()" class="action-btn primary">💾 Save Policy</button>
                     </div>
+
+                    <!-- Inbox Check Settings -->
+                    <div class="settings-section">
+                        <h3>📬 Inbox Check Settings</h3>
+                        <p class="section-desc">Configure automatic inbox monitoring for email replies and colleague
+                            join requests.</p>
+                        <div class="inbox-settings-form">
+                            <div class="form-row">
+                                <label>Inbox Check Frequency:</label>
+                                <select id="inbox-check-frequency">
+                                    <option value="">Disabled (power saving)</option>
+                                    <option value="10">Every 10 seconds</option>
+                                    <option value="30">Every 30 seconds</option>
+                                    <option value="60">Every 1 minute</option>
+                                    <option value="300">Every 5 minutes</option>
+                                    <option value="900">Every 15 minutes</option>
+                                    <option value="3600">Every 1 hour</option>
+                                </select>
+                            </div>
+                            <div class="form-row" style="margin-top: 8px;">
+                                <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
+                                Settings</button>
+                            <button onclick="checkInboxNow()" class="action-btn" style="margin-left: 8px;">📥 Check
+                                Now</button>
+                        </div>
+                        <span id="inbox-save-status" class="save-status"></span>
+                    </div>
+
+                    <!-- Colleague Join Code -->
+                    <div class="settings-section">
+                        <h3>🔐 Colleague Join Code</h3>
+                        <p class="section-desc">Set a join code that colleagues must provide when requesting to join via
+                            email. Share this code privately with trusted colleagues.</p>
+                        <div class="join-code-form">
+                            <div class="form-row">
+                                <label>Join Code:</label>
+                                <input type="text" id="colleague-join-code"
+                                    placeholder="Enter a secret code (4-32 chars)" maxlength="32" />
+                            </div>
+                            <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;"></div>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Join Code</button>
+                            <button onclick="clearJoinCode()" class="action-btn" style="margin-left: 8px;">🗑️ Clear
+                                Code</button>
+                        </div>
+                        <span id="join-code-save-status" class="save-status"></span>
+                    </div>
+
                     <div class="settings-section">
                         <h3>🔧 Actions</h3>
                         <button onclick="reindexAll()" class="action-btn">📚 Re-index All Papers</button>
@@ -3876,8 +3929,16 @@
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to execute agent');
+                    // Try to parse as JSON, but handle plain text error responses
+                    let errorMsg = `Server error (${response.status})`;
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.detail || error.message || errorMsg;
+                    } catch {
+                        const text = await response.text();
+                        errorMsg = text || errorMsg;
+                    }
+                    throw new Error(errorMsg);
                 }
 
                 return await response.json();
@@ -3897,8 +3958,15 @@
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to start chat');
+                    let errorMsg = `Server error (${response.status})`;
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.detail || error.message || errorMsg;
+                    } catch {
+                        const text = await response.text();
+                        errorMsg = text || errorMsg;
+                    }
+                    throw new Error(errorMsg);
                 }
 
                 return await response.json();
@@ -3916,8 +3984,15 @@
                     if (response.status === 404) {
                         throw new Error('Run not found');
                     }
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to get status');
+                    let errorMsg = `Server error (${response.status})`;
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.detail || error.message || errorMsg;
+                    } catch {
+                        const text = await response.text();
+                        errorMsg = text || errorMsg;
+                    }
+                    throw new Error(errorMsg);
                 }
 
                 return await response.json();
@@ -4097,7 +4172,7 @@
                 else if (tabId === 'shares') refreshShares();
                 else if (tabId === 'colleagues') refreshColleagues();
                 else if (tabId === 'runs') refreshRuns();
-                else if (tabId === 'settings') { checkHealth(); loadProfile(); }
+                else if (tabId === 'settings') { checkHealth(); loadProfile(); loadInboxSettings(); }
                 else if (tabId === 'chat') { populatePromptBuilder(); }
             });
         });
@@ -4105,6 +4180,7 @@
         // Load profile and saved prompts on page load
         loadProfile();
         loadSavedPrompts();
+        loadInboxSettings();
 
         // =============================================================================
         // Dashboard Data Functions
@@ -6050,34 +6126,50 @@
 
                 list.innerHTML = allColleaguesData.map(c => {
                     const isSelected = selectedColleagueIds.has(c.id);
+                    // Show badge based on how colleague was added
                     const addedByBadge = c.added_by === 'email'
                         ? '<span class="importance-badge importance-medium" title="This colleague signed up via email">🤖 Added by ResearchPulse</span>'
-                        : '<span class="importance-badge importance-low" title="You added this colleague manually">👤 Added by me</span>';
+                        : '<span class="importance-badge importance-low" title="You added this colleague manually">👤 Added by You</span>';
+
+                    // Auto-send badge - show enabled/disabled state (consistent naming)
                     const autoSendBadge = c.auto_send_emails !== false
-                        ? '<span class="importance-badge importance-high" title="Auto-sending research emails">📬 Auto-send</span>'
-                        : '<span class="importance-badge importance-low" title="Not auto-sending">📭 No auto-send</span>';
+                        ? '<span class="importance-badge importance-high" title="Auto-sending research emails enabled">📬 Auto-send Enabled</span>'
+                        : '<span class="importance-badge importance-low" title="Auto-sending disabled">📭 Auto-send Disabled</span>';
+
+                    // Generate interest headline for display
+                    // Uses interest_headline if available, or falls back to a computed summary
+                    let interestDisplay;
+                    if (c.interest_headline) {
+                        interestDisplay = `<span class="paper-meta-item">🔬 ${escapeHtml(c.interest_headline)}</span>`;
+                    } else if (c.interests || c.research_interests) {
+                        // Fallback: Show truncated interests
+                        const interests = c.interests || c.research_interests;
+                        const shortInterests = interests.length > 60 ? interests.slice(0, 60) + '...' : interests;
+                        interestDisplay = `<span class="paper-meta-item">🔬 ${escapeHtml(shortInterests)}</span>`;
+                    } else {
+                        interestDisplay = '<span class="paper-meta-item" style="color: var(--text-muted);">🔬 Interests not provided yet</span>';
+                    }
 
                     return `
                     <div class="paper-row ${isSelected ? 'selected' : ''}" id="colleague-row-${c.id}">
                         <input type="checkbox" class="paper-checkbox" id="colleague-cb-${c.id}" 
                             ${isSelected ? 'checked' : ''} 
                             onchange="toggleColleagueSelection('${c.id}')" />
-                        <div class="paper-content">
+                        <div class="paper-content" onclick="showColleagueDetails('${c.id}')" style="cursor: pointer;">
                             <div class="paper-title-row">
-                                <span class="paper-title-link" style="cursor: default;">${escapeHtml(c.name)}</span>
+                                <span class="paper-title-link">${escapeHtml(c.name)}</span>
                             </div>
                             <div class="paper-meta-row">
                                 <span class="paper-meta-item">📧 ${escapeHtml(c.email)}</span>
-                                <span class="paper-meta-item">🏷️ ${(c.categories || []).slice(0, 3).join(', ') || 'No categories'}</span>
-                                <span class="paper-meta-item">🔑 ${(c.keywords || []).slice(0, 3).join(', ') || 'No keywords'}</span>
+                                ${interestDisplay}
                             </div>
                             <div class="paper-agent-decisions" style="margin-top: 4px;">
                                 ${addedByBadge}
                                 ${autoSendBadge}
-                                <span class="importance-badge importance-${c.enabled ? 'high' : 'low'}">${c.enabled ? 'Active' : 'Disabled'}</span>
                             </div>
                         </div>
                         <div class="data-actions">
+                            <button class="data-btn" onclick="showColleagueDetails('${c.id}')">👁️ View</button>
                             <button class="data-btn" onclick="editColleague('${c.id}')">✏️ Edit</button>
                             <button class="data-btn danger" onclick="deleteColleague('${c.id}')">🗑️ Delete</button>
                         </div>
@@ -6096,108 +6188,39 @@
             const existing = document.getElementById('colleague-modal');
             if (existing) existing.remove();
 
-            // Fetch categories first
-            fetch('/api/arxiv-categories')
-                .then(r => r.json())
-                .then(data => {
-                    const categories = data.categories || [];
-                    const categoryCheckboxes = categories.map(c => `
-                        <label class="category-checkbox">
-                            <input type="checkbox" value="${c.code}" />
-                            <span>${c.code} - ${c.name}</span>
-                        </label>
-                    `).join('');
-
-                    const modal = document.createElement('div');
-                    modal.id = 'colleague-modal';
-                    modal.className = 'modal-overlay active';
-                    modal.innerHTML = `
-                        <div class="modal" style="max-width: 600px;">
-                            <h3>Add Colleague</h3>
-                            <div class="form-group">
-                                <label>Name *</label>
-                                <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
-                            </div>
-                            <div class="form-group">
-                                <label>Email *</label>
-                                <input type="email" id="colleague-email" placeholder="jane@university.edu" />
-                            </div>
-                            <div class="form-group">
-                                <label>Research Interests</label>
-                                <textarea id="colleague-research-interests" rows="3" placeholder="e.g., I'm interested in machine learning, particularly deep learning for natural language processing and transformer architectures..."></textarea>
-                                <small style="color: #666; display: block; margin-top: 4px;">Describe research interests in free text. Keywords and categories will be automatically inferred.</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Keywords (comma-separated, optional)</label>
-                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
-                                <small style="color: #666; display: block; margin-top: 4px;">Leave empty to auto-generate from research interests.</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Categories (select all that apply, optional)</label>
-                                <div id="colleague-categories" class="category-grid">
-                                    ${categoryCheckboxes}
-                                </div>
-                                <small style="color: #666; display: block; margin-top: 4px;">Leave empty to auto-generate from research interests.</small>
-                            </div>
-                            <div class="form-group">
-                                <label><input type="checkbox" id="colleague-auto-send" checked /> Enable automatic research emails</label>
-                                <small style="color: #666; display: block; margin-top: 4px;">Automatically send research paper recommendations.</small>
-                            </div>
-                            <div class="form-group">
-                                <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
-                            </div>
-                            <div class="form-actions">
-                                <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
-                                <button class="action-btn primary" onclick="saveColleague()">Save</button>
-                            </div>
-                        </div>
-                    `;
-                    document.body.appendChild(modal);
-                })
-                .catch(err => {
-                    console.error('Error loading categories:', err);
-                    // Fallback without categories API
-                    const modal = document.createElement('div');
-                    modal.id = 'colleague-modal';
-                    modal.className = 'modal-overlay active';
-                    modal.innerHTML = `
-                        <div class="modal">
-                            <h3>Add Colleague</h3>
-                            <div class="form-group">
-                                <label>Name *</label>
-                                <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
-                            </div>
-                            <div class="form-group">
-                                <label>Email *</label>
-                                <input type="email" id="colleague-email" placeholder="jane@university.edu" />
-                            </div>
-                            <div class="form-group">
-                                <label>Research Interests</label>
-                                <textarea id="colleague-research-interests" rows="3" placeholder="e.g., I'm interested in machine learning, particularly deep learning for natural language processing..."></textarea>
-                                <small style="color: #666; display: block; margin-top: 4px;">Describe research interests in free text. Keywords and categories will be automatically inferred.</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Keywords (comma-separated, optional)</label>
-                                <input type="text" id="colleague-keywords" placeholder="machine learning, NLP, transformers" />
-                            </div>
-                            <div class="form-group">
-                                <label>Categories (comma-separated, e.g. cs.AI, cs.LG, optional)</label>
-                                <input type="text" id="colleague-categories-text" placeholder="cs.AI, cs.LG" />
-                            </div>
-                            <div class="form-group">
-                                <label><input type="checkbox" id="colleague-auto-send" checked /> Enable automatic research emails</label>
-                            </div>
-                            <div class="form-group">
-                                <label><input type="checkbox" id="colleague-enabled" checked /> Enabled</label>
-                            </div>
-                            <div class="form-actions">
-                                <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
-                                <button class="action-btn primary" onclick="saveColleague()">Save</button>
-                            </div>
-                        </div>
-                    `;
-                    document.body.appendChild(modal);
-                });
+            // Simplified modal - categories are derived from interests, not manually set
+            const modal = document.createElement('div');
+            modal.id = 'colleague-modal';
+            modal.className = 'modal-overlay active';
+            modal.innerHTML = `
+                <div class="modal" style="max-width: 500px;">
+                    <h3>Add Colleague</h3>
+                    <div class="form-group">
+                        <label>Name *</label>
+                        <input type="text" id="colleague-name" placeholder="Dr. Jane Smith" />
+                    </div>
+                    <div class="form-group">
+                        <label>Email *</label>
+                        <input type="email" id="colleague-email" placeholder="jane@university.edu" />
+                    </div>
+                    <div class="form-group">
+                        <label>Research Interests</label>
+                        <textarea id="colleague-research-interests" rows="4" placeholder="e.g., I'm interested in machine learning, particularly deep learning for natural language processing and transformer architectures..."></textarea>
+                        <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                            Describe their research interests. ResearchPulse will automatically derive relevant categories and keywords.
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="colleague-auto-send" checked /> Enable automatic research emails</label>
+                        <small style="color: var(--text-muted); display: block; margin-top: 4px;">When enabled, ResearchPulse sends paper recommendations automatically.</small>
+                    </div>
+                    <div class="form-actions">
+                        <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
+                        <button class="action-btn primary" onclick="saveColleague()">Save</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
         }
 
         function closeColleagueModal() {
@@ -6209,23 +6232,7 @@
             const name = document.getElementById('colleague-name').value.trim();
             const email = document.getElementById('colleague-email').value.trim();
             const researchInterests = document.getElementById('colleague-research-interests')?.value.trim() || '';
-            const keywords = document.getElementById('colleague-keywords').value.split(',').map(s => s.trim()).filter(Boolean);
-            const enabled = document.getElementById('colleague-enabled').checked;
             const autoSendEmails = document.getElementById('colleague-auto-send')?.checked ?? true;
-
-            // Get categories from checkboxes or text input
-            let categories = [];
-            const categoryGrid = document.getElementById('colleague-categories');
-            const categoryText = document.getElementById('colleague-categories-text');
-
-            if (categoryGrid) {
-                // Get from checkboxes
-                const checkboxes = categoryGrid.querySelectorAll('input[type="checkbox"]:checked');
-                categories = Array.from(checkboxes).map(cb => cb.value);
-            } else if (categoryText) {
-                // Fallback to text input
-                categories = categoryText.value.split(',').map(s => s.trim()).filter(Boolean);
-            }
 
             if (!name || !email) {
                 alert('Name and email are required');
@@ -6233,6 +6240,7 @@
             }
 
             try {
+                // Categories are derived from interests on the server - don't send them
                 const response = await fetch('/api/colleagues', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -6240,9 +6248,6 @@
                         name,
                         email,
                         research_interests: researchInterests,
-                        keywords,
-                        categories,
-                        enabled,
                         auto_send_emails: autoSendEmails
                     })
                 });
@@ -6253,6 +6258,7 @@
                 }
 
                 closeColleagueModal();
+                showToast('Colleague added successfully');
                 refreshColleagues();
             } catch (err) {
                 console.error('Error saving colleague:', err);
@@ -6265,6 +6271,7 @@
             try {
                 const response = await fetch('/api/colleagues/' + colleagueId, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to delete colleague');
+                showToast('Colleague deleted');
                 refreshColleagues();
             } catch (err) {
                 console.error('Error deleting colleague:', err);
@@ -6272,9 +6279,189 @@
             }
         }
 
-        function editColleague(colleagueId) {
-            // For simplicity, just show add modal - full implementation would pre-fill
-            showAddColleagueModal();
+        async function editColleague(colleagueId) {
+            // Fetch colleague data and show edit modal
+            try {
+                const response = await fetch('/api/colleagues/' + colleagueId);
+                if (!response.ok) throw new Error('Failed to fetch colleague');
+                const colleague = await response.json();
+
+                showEditColleagueModal(colleague);
+            } catch (err) {
+                console.error('Error fetching colleague:', err);
+                alert('Failed to load colleague: ' + err.message);
+            }
+        }
+
+        function showEditColleagueModal(colleague) {
+            const existing = document.getElementById('colleague-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'colleague-modal';
+            modal.className = 'modal-overlay active';
+            modal.innerHTML = `
+                <div class="modal" style="max-width: 500px;">
+                    <h3>Edit Colleague</h3>
+                    <div class="form-group">
+                        <label>Name *</label>
+                        <input type="text" id="colleague-name" value="${escapeHtml(colleague.name || '')}" />
+                    </div>
+                    <div class="form-group">
+                        <label>Email (read-only)</label>
+                        <input type="email" id="colleague-email" value="${escapeHtml(colleague.email || '')}" readonly style="background: var(--surface); color: var(--text-muted);" />
+                    </div>
+                    <div class="form-group">
+                        <label>Research Interests</label>
+                        <textarea id="colleague-research-interests" rows="4">${escapeHtml(colleague.interests || colleague.research_interests || '')}</textarea>
+                        <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                            Update interests to regenerate derived categories automatically.
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="colleague-auto-send" ${colleague.auto_send_emails !== false ? 'checked' : ''} /> Enable automatic research emails</label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="action-btn" onclick="closeColleagueModal()">Cancel</button>
+                        <button class="action-btn primary" onclick="updateColleague('${colleague.id}')">Save Changes</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        async function updateColleague(colleagueId) {
+            const name = document.getElementById('colleague-name').value.trim();
+            const researchInterests = document.getElementById('colleague-research-interests')?.value.trim() || '';
+            const autoSendEmails = document.getElementById('colleague-auto-send')?.checked ?? true;
+
+            if (!name) {
+                alert('Name is required');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/colleagues/' + colleagueId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name,
+                        research_interests: researchInterests,
+                        auto_send_emails: autoSendEmails
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to update colleague');
+                }
+
+                closeColleagueModal();
+                showToast('Colleague updated');
+                refreshColleagues();
+            } catch (err) {
+                console.error('Error updating colleague:', err);
+                alert('Failed to update colleague: ' + err.message);
+            }
+        }
+
+        async function showColleagueDetails(colleagueId) {
+            // Fetch colleague data and email stats
+            try {
+                const [colleagueRes, statsRes] = await Promise.all([
+                    fetch('/api/colleagues/' + colleagueId),
+                    fetch('/api/colleagues/' + colleagueId + '/email-stats')
+                ]);
+
+                if (!colleagueRes.ok) throw new Error('Failed to fetch colleague');
+                const colleague = await colleagueRes.json();
+                const stats = statsRes.ok ? await statsRes.json() : { stats: { last_24h: 0, last_7d: 0, last_30d: 0, total: 0 } };
+
+                showColleagueDetailsModal(colleague, stats.stats);
+            } catch (err) {
+                console.error('Error fetching colleague details:', err);
+                alert('Failed to load colleague details: ' + err.message);
+            }
+        }
+
+        function showColleagueDetailsModal(colleague, stats) {
+            const existing = document.getElementById('colleague-details-modal');
+            if (existing) existing.remove();
+
+            // Format categories display (read-only)
+            const categoriesDisplay = (colleague.categories || []).length > 0
+                ? colleague.categories.join(', ')
+                : '<em style="color: var(--text-muted);">No categories derived yet</em>';
+
+            // Format added by display
+            const addedByDisplay = colleague.added_by === 'email'
+                ? '🤖 Added by ResearchPulse (via email signup)'
+                : '👤 Added by You';
+
+            // Format auto-send status
+            const autoSendDisplay = colleague.auto_send_emails !== false
+                ? '📬 Auto-send Enabled'
+                : '📭 Auto-send Disabled';
+
+            const modal = document.createElement('div');
+            modal.id = 'colleague-details-modal';
+            modal.className = 'modal-overlay active';
+            modal.innerHTML = `
+                <div class="modal" style="max-width: 600px;">
+                    <h3 style="margin-bottom: 16px;">👤 ${escapeHtml(colleague.name)}</h3>
+                    
+                    <div style="display: grid; gap: 16px;">
+                        <!-- Basic Info -->
+                        <div class="glass-panel" style="padding: 16px; border-radius: 8px;">
+                            <div style="display: grid; gap: 8px;">
+                                <div><strong>Email:</strong> ${escapeHtml(colleague.email)}</div>
+                                <div><strong>Status:</strong> ${addedByDisplay} &bull; ${autoSendDisplay}</div>
+                            </div>
+                        </div>
+
+                        <!-- Interests Section -->
+                        <div class="glass-panel" style="padding: 16px; border-radius: 8px;">
+                            <h4 style="margin: 0 0 8px 0; font-size: 14px;">🔬 Research Interests</h4>
+                            <p style="margin: 0; white-space: pre-wrap;">${escapeHtml(colleague.interests || colleague.research_interests || 'Not provided yet')}</p>
+                        </div>
+
+                        <!-- Derived Categories (Read-only) -->
+                        <div class="glass-panel" style="padding: 16px; border-radius: 8px;">
+                            <h4 style="margin: 0 0 8px 0; font-size: 14px;">🏷️ Derived Categories <small style="font-weight: normal; color: var(--text-muted);">(auto-generated from interests)</small></h4>
+                            <p style="margin: 0;">${categoriesDisplay}</p>
+                        </div>
+
+                        <!-- Email Activity Stats -->
+                        <div class="glass-panel" style="padding: 16px; border-radius: 8px;">
+                            <h4 style="margin: 0 0 12px 0; font-size: 14px;">📧 Email Activity</h4>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
+                                <div>
+                                    <div style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.last_24h || 0}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">Last 24h</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.last_7d || 0}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">Last 7 days</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.last_30d || 0}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">Last 30 days</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.total || 0}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">Total Ever</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions" style="margin-top: 20px;">
+                        <button class="action-btn" onclick="document.getElementById('colleague-details-modal').remove()">Close</button>
+                        <button class="action-btn primary" onclick="document.getElementById('colleague-details-modal').remove(); editColleague('${colleague.id}');">Edit</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
         }
 
         async function refreshRuns() {
@@ -6743,6 +6930,222 @@
             } catch (err) {
                 console.error('Error saving policy:', err);
                 alert('Failed to save policy: ' + err.message);
+            }
+        }
+
+        // =============================================================================
+        // Inbox Settings Functions
+        // =============================================================================
+
+        async function loadInboxSettings() {
+            try {
+                const response = await fetch('/api/settings/inbox');
+                if (!response.ok) return;
+                const data = await response.json();
+
+                if (data.settings) {
+                    const settings = data.settings;
+                    const frequencySelect = document.getElementById('inbox-check-frequency');
+                    const lastCheckSpan = document.getElementById('inbox-last-check');
+                    const joinCodeStatus = document.getElementById('join-code-status');
+
+                    if (frequencySelect) {
+                        const freq = settings.inbox_check_enabled && settings.inbox_check_frequency_seconds
+                            ? settings.inbox_check_frequency_seconds.toString()
+                            : '';
+                        frequencySelect.value = freq;
+                    }
+
+                    if (lastCheckSpan) {
+                        if (settings.last_inbox_check_at) {
+                            const date = new Date(settings.last_inbox_check_at);
+                            lastCheckSpan.textContent = `Last checked: ${date.toLocaleString()}`;
+                        } else {
+                            lastCheckSpan.textContent = 'No inbox check yet';
+                        }
+                    }
+
+                    if (joinCodeStatus) {
+                        if (settings.has_join_code) {
+                            const updatedAt = settings.colleague_join_code_updated_at
+                                ? new Date(settings.colleague_join_code_updated_at).toLocaleDateString()
+                                : 'unknown';
+                            joinCodeStatus.innerHTML = `<span style="color: green;">✅ Join code is set (last updated: ${updatedAt})</span>`;
+                        } else {
+                            joinCodeStatus.innerHTML = `<span style="color: #888;">ℹ️ No join code set - email signups disabled</span>`;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading inbox settings:', err);
+            }
+        }
+
+        async function saveInboxSettings() {
+            const frequencySelect = document.getElementById('inbox-check-frequency');
+            const statusSpan = document.getElementById('inbox-save-status');
+
+            const frequencyValue = frequencySelect?.value;
+            const enabled = !!frequencyValue;
+            const frequencySeconds = frequencyValue ? parseInt(frequencyValue) : null;
+
+            try {
+                statusSpan.textContent = 'Saving...';
+                statusSpan.style.color = '#666';
+
+                const response = await fetch('/api/settings/inbox', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        enabled: enabled,
+                        frequency_seconds: frequencySeconds
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const data = await response.json();
+                statusSpan.textContent = '✅ ' + (data.message || 'Saved');
+                statusSpan.style.color = 'green';
+
+                setTimeout(() => { statusSpan.textContent = ''; }, 3000);
+
+                // Reload settings to update timestamps
+                loadInboxSettings();
+
+            } catch (err) {
+                console.error('Error saving inbox settings:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        async function checkInboxNow() {
+            const statusSpan = document.getElementById('inbox-save-status');
+
+            try {
+                statusSpan.textContent = '📥 Checking inbox...';
+                statusSpan.style.color = '#666';
+
+                const response = await fetch('/api/settings/inbox/check-now', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Check failed');
+                }
+
+                const data = await response.json();
+                const results = data.results || {};
+
+                const rescheduleProcessed = results.reschedule_replies?.processed || 0;
+                const rescheduleSucceeded = results.reschedule_replies?.succeeded || 0;
+                const joinProcessed = results.colleague_joins?.processed || 0;
+                const joinSucceeded = results.colleague_joins?.succeeded || 0;
+
+                let message = '✅ Inbox checked: ';
+                if (rescheduleProcessed > 0 || joinProcessed > 0) {
+                    message += `${rescheduleSucceeded}/${rescheduleProcessed} reschedules, ${joinSucceeded}/${joinProcessed} joins`;
+                } else {
+                    message += 'No new emails';
+                }
+
+                statusSpan.textContent = message;
+                statusSpan.style.color = 'green';
+
+                setTimeout(() => { statusSpan.textContent = ''; }, 5000);
+
+                // Reload settings to update last check time
+                loadInboxSettings();
+
+            } catch (err) {
+                console.error('Error checking inbox:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        async function setJoinCode() {
+            const codeInput = document.getElementById('colleague-join-code');
+            const statusSpan = document.getElementById('join-code-save-status');
+
+            const code = codeInput?.value?.trim();
+
+            if (!code) {
+                alert('Please enter a join code');
+                return;
+            }
+
+            if (code.length < 4) {
+                alert('Join code must be at least 4 characters');
+                return;
+            }
+
+            try {
+                statusSpan.textContent = 'Setting...';
+                statusSpan.style.color = '#666';
+
+                const response = await fetch('/api/settings/colleague-join-code', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: code })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to set code');
+                }
+
+                codeInput.value = '';  // Clear for security
+                statusSpan.textContent = '✅ Join code set successfully';
+                statusSpan.style.color = 'green';
+
+                setTimeout(() => { statusSpan.textContent = ''; }, 3000);
+
+                // Reload settings to update status
+                loadInboxSettings();
+
+            } catch (err) {
+                console.error('Error setting join code:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        async function clearJoinCode() {
+            if (!confirm('Clear the join code? This will disable email signups for colleagues.')) return;
+
+            const statusSpan = document.getElementById('join-code-save-status');
+
+            try {
+                statusSpan.textContent = 'Clearing...';
+                statusSpan.style.color = '#666';
+
+                const response = await fetch('/api/settings/colleague-join-code', {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to clear code');
+                }
+
+                statusSpan.textContent = '✅ Join code cleared';
+                statusSpan.style.color = 'green';
+
+                setTimeout(() => { statusSpan.textContent = ''; }, 3000);
+
+                // Reload settings to update status
+                loadInboxSettings();
+
+            } catch (err) {
+                console.error('Error clearing join code:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
             }
         }
 

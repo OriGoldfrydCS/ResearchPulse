@@ -20,7 +20,7 @@ from .store import Store
 from .database import get_db_session, check_connection, is_database_configured
 from .orm_models import (
     User, Paper, PaperView, Colleague, Run, Action, Email, CalendarEvent, Share, DeliveryPolicy,
-    PaperFeedbackHistory, CalendarInviteEmail, InboundEmailReply,
+    PaperFeedbackHistory, CalendarInviteEmail, InboundEmailReply, UserSettings, ProcessedInboundEmail,
     user_to_dict, paper_to_dict, paper_view_to_dict, colleague_to_dict,
     run_to_dict, email_to_dict, calendar_event_to_dict, share_to_dict, policy_to_dict,
     feedback_history_to_dict, calendar_invite_email_to_dict, inbound_email_reply_to_dict,
@@ -816,6 +816,51 @@ class PostgresStore(Store):
                 return True
             return False
     
+    def log_colleague_email(
+        self,
+        colleague_id: UUID,
+        user_id: UUID,
+        subject: str,
+        email_type: str = "paper_recommendation",
+        snippet: Optional[str] = None,
+        paper_id: Optional[UUID] = None,
+        paper_arxiv_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Log an outbound email sent to a colleague.
+        
+        This enables tracking email activity in the colleague details view.
+        """
+        from .orm_models import ColleagueEmailLog
+        
+        with get_db_session() as db:
+            log_entry = ColleagueEmailLog(
+                colleague_id=colleague_id,
+                user_id=user_id,
+                subject=subject,
+                email_type=email_type,
+                snippet=snippet[:500] if snippet else None,  # Limit snippet length
+                paper_id=paper_id,
+                paper_arxiv_id=paper_arxiv_id,
+                message_id=message_id,
+                sent_at=datetime.utcnow(),
+                extra_data=metadata or {}  # Store extra metadata
+            )
+            db.add(log_entry)
+            db.commit()
+            db.refresh(log_entry)
+            
+            return {
+                "id": str(log_entry.id),
+                "colleague_id": str(log_entry.colleague_id),
+                "user_id": str(log_entry.user_id),
+                "subject": log_entry.subject,
+                "email_type": log_entry.email_type,
+                "sent_at": log_entry.sent_at.isoformat() if log_entry.sent_at else None,
+            }
+
     def upsert_colleague(self, user_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create or update colleague by email."""
         email = data.get("email")
@@ -1263,6 +1308,7 @@ class PostgresStore(Store):
         ics_uid: str,
         email_id: Optional[UUID] = None,
         thread_id: Optional[str] = None,
+        reminder_token: Optional[str] = None,
         ics_sequence: int = 0,
         ics_method: str = "REQUEST",
         triggered_by: str = "agent",
@@ -1271,6 +1317,20 @@ class PostgresStore(Store):
         Create a calendar invite email record.
         
         Tracks sent calendar invitations for reply processing.
+        
+        Args:
+            calendar_event_id: Associated calendar event
+            user_id: Owner user ID  
+            message_id: RFC 2822 Message-ID for email threading
+            recipient_email: Email address of recipient
+            subject: Email subject
+            ics_uid: ICS calendar UID
+            email_id: Optional link to Email record
+            thread_id: Optional Gmail thread ID
+            reminder_token: Unique token embedded in email body for reply matching
+            ics_sequence: Sequence number for calendar updates
+            ics_method: ICS method (REQUEST, CANCEL, etc.)
+            triggered_by: 'user' or 'agent'
         """
         with get_db_session() as db:
             invite_email = CalendarInviteEmail(
@@ -1279,6 +1339,7 @@ class PostgresStore(Store):
                 user_id=user_id,
                 message_id=message_id,
                 thread_id=thread_id,
+                reminder_token=reminder_token,
                 recipient_email=recipient_email,
                 subject=subject,
                 ics_uid=ics_uid,
@@ -1340,6 +1401,63 @@ class PostgresStore(Store):
             
             return [calendar_invite_email_to_dict(e) for e in q.all()]
     
+    def get_calendar_invite_by_token(self, reminder_token: str) -> Optional[Dict[str, Any]]:
+        """Get calendar invite email by embedded reminder token.
+        
+        This is the primary matching method for reschedule replies.
+        Token format: [RP_REMINDER_ID: <uuid>]
+        """
+        with get_db_session() as db:
+            invite = db.query(CalendarInviteEmail).filter(
+                CalendarInviteEmail.reminder_token == reminder_token
+            ).first()
+            return calendar_invite_email_to_dict(invite) if invite else None
+    
+    def get_calendar_invite_by_thread_id(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Get calendar invite email by Gmail thread_id.
+        
+        Fallback method for matching reschedule replies when token not found.
+        """
+        with get_db_session() as db:
+            invite = db.query(CalendarInviteEmail).filter(
+                CalendarInviteEmail.thread_id == thread_id
+            ).first()
+            return calendar_invite_email_to_dict(invite) if invite else None
+    
+    def get_recent_calendar_invites(
+        self,
+        user_id: UUID,
+        days: int = 7,
+        subject_contains: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get recent calendar invites for fuzzy matching fallback.
+        
+        Args:
+            user_id: Owner user ID
+            days: Number of days to look back
+            subject_contains: Optional subject filter (case-insensitive)
+            
+        Returns:
+            List of recent invite records, newest first
+        """
+        with get_db_session() as db:
+            since = datetime.utcnow() - timedelta(days=days)
+            q = db.query(CalendarInviteEmail).filter(
+                and_(
+                    CalendarInviteEmail.user_id == user_id,
+                    CalendarInviteEmail.created_at >= since,
+                    CalendarInviteEmail.is_latest == True,
+                )
+            )
+            
+            if subject_contains:
+                q = q.filter(
+                    CalendarInviteEmail.subject.ilike(f"%{subject_contains}%")
+                )
+            
+            q = q.order_by(CalendarInviteEmail.created_at.desc())
+            return [calendar_invite_email_to_dict(e) for e in q.all()]
+
     # =========================================================================
     # Inbound Email Reply Operations
     # =========================================================================
@@ -1594,3 +1712,172 @@ class PostgresStore(Store):
     def health_check(self) -> tuple[bool, str]:
         """Check store health. Returns (healthy, message)."""
         return check_connection()
+    
+    # =========================================================================
+    # User Settings Operations
+    # =========================================================================
+    
+    def get_user_settings(self, user_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get user settings by user ID."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            return settings.to_dict() if settings else None
+    
+    def get_or_create_user_settings(self, user_id: UUID) -> Dict[str, Any]:
+        """Get or create user settings."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                settings = UserSettings(
+                    user_id=user_id,
+                    inbox_check_enabled=False,
+                    inbox_check_frequency_seconds=None,
+                )
+                db.add(settings)
+                db.commit()
+                db.refresh(settings)
+            return settings.to_dict()
+    
+    def update_inbox_settings(
+        self,
+        user_id: UUID,
+        enabled: bool,
+        frequency_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update inbox polling settings."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                db.add(settings)
+            
+            settings.inbox_check_enabled = enabled
+            settings.inbox_check_frequency_seconds = frequency_seconds
+            settings.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(settings)
+            return settings.to_dict()
+    
+    def update_last_inbox_check(self, user_id: UUID) -> None:
+        """Update the last inbox check timestamp."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if settings:
+                settings.last_inbox_check_at = datetime.utcnow()
+                db.commit()
+    
+    def set_colleague_join_code(self, user_id: UUID, code_hash: str) -> Dict[str, Any]:
+        """Set or update the colleague join code hash."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                db.add(settings)
+            
+            settings.colleague_join_code_hash = code_hash
+            settings.colleague_join_code_updated_at = datetime.utcnow()
+            settings.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(settings)
+            return settings.to_dict()
+    
+    def get_colleague_join_code_hash(self, user_id: UUID) -> Optional[str]:
+        """Get the colleague join code hash (for validation)."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            return settings.colleague_join_code_hash if settings else None
+    
+    def clear_colleague_join_code(self, user_id: UUID) -> Dict[str, Any]:
+        """Clear the colleague join code."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if settings:
+                settings.colleague_join_code_hash = None
+                settings.colleague_join_code_updated_at = datetime.utcnow()
+                settings.updated_at = datetime.utcnow()
+                db.commit()
+                db.refresh(settings)
+                return settings.to_dict()
+            return self.get_or_create_user_settings(user_id)
+    
+    # =========================================================================
+    # Processed Inbound Email Operations (Idempotency)
+    # =========================================================================
+    
+    def is_email_processed(self, user_id: UUID, gmail_message_id: str) -> bool:
+        """Check if an email has already been processed."""
+        with get_db_session() as db:
+            result = db.query(ProcessedInboundEmail).filter(
+                and_(
+                    ProcessedInboundEmail.user_id == user_id,
+                    ProcessedInboundEmail.gmail_message_id == gmail_message_id
+                )
+            ).first()
+            return result is not None
+    
+    def get_processed_email_info(self, user_id: UUID, gmail_message_id: str) -> Optional[Dict[str, Any]]:
+        """Get processing info for a specific email, or None if not processed."""
+        with get_db_session() as db:
+            result = db.query(ProcessedInboundEmail).filter(
+                and_(
+                    ProcessedInboundEmail.user_id == user_id,
+                    ProcessedInboundEmail.gmail_message_id == gmail_message_id
+                )
+            ).first()
+            return result.to_dict() if result else None
+    
+    def mark_email_processed(
+        self,
+        user_id: UUID,
+        gmail_message_id: str,
+        email_type: str,
+        processing_result: str,
+        from_email: Optional[str] = None,
+        subject: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Mark an email as processed for idempotency."""
+        with get_db_session() as db:
+            # Check if already exists
+            existing = db.query(ProcessedInboundEmail).filter(
+                and_(
+                    ProcessedInboundEmail.user_id == user_id,
+                    ProcessedInboundEmail.gmail_message_id == gmail_message_id
+                )
+            ).first()
+            
+            if existing:
+                return existing.to_dict()
+            
+            processed = ProcessedInboundEmail(
+                user_id=user_id,
+                gmail_message_id=gmail_message_id,
+                email_type=email_type,
+                processing_result=processing_result,
+                from_email=from_email,
+                subject=subject,
+                error_message=error_message,
+            )
+            db.add(processed)
+            db.commit()
+            db.refresh(processed)
+            return processed.to_dict()
+    
+    def list_processed_emails(
+        self,
+        user_id: UUID,
+        limit: int = 100,
+        email_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List processed emails for a user."""
+        with get_db_session() as db:
+            q = db.query(ProcessedInboundEmail).filter(ProcessedInboundEmail.user_id == user_id)
+            
+            if email_type:
+                q = q.filter(ProcessedInboundEmail.email_type == email_type)
+            
+            q = q.order_by(ProcessedInboundEmail.processed_at.desc()).limit(limit)
+            return [p.to_dict() for p in q.all()]
+

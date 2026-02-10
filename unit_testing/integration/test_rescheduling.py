@@ -377,6 +377,213 @@ class TestRescheduleAuditTrail:
         assert result["message_id"]
 
 
+class TestTokenBasedMatching:
+    """Test the new RP_REMINDER_ID token-based matching."""
+    
+    def test_extract_token_from_body(self):
+        """Test token extraction from email body."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        # Create a mock processor
+        mock_store = MagicMock()
+        processor = InboundEmailProcessor(mock_store, str(uuid.uuid4()))
+        
+        # Test with valid token
+        body = """
+        Please reschedule to tomorrow.
+        
+        --
+        This reminder was created by ResearchPulse.
+        
+        [RP_REMINDER_ID: a1b2c3d4-e5f6-7890-abcd-ef123456]
+        """
+        
+        token = processor._extract_reminder_token(body)
+        assert token == "a1b2c3d4-e5f6-7890-abcd-ef123456"
+    
+    def test_extract_token_case_insensitive(self):
+        """Test token extraction is case insensitive."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        processor = InboundEmailProcessor(mock_store, str(uuid.uuid4()))
+        
+        body = "[rp_reminder_id: abc123def456]"
+        token = processor._extract_reminder_token(body)
+        assert token == "abc123def456"
+    
+    def test_extract_token_missing(self):
+        """Test token extraction when token is missing."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        processor = InboundEmailProcessor(mock_store, str(uuid.uuid4()))
+        
+        body = "Please reschedule to tomorrow at 2pm."
+        token = processor._extract_reminder_token(body)
+        assert token is None
+    
+    def test_fallback_matching_chain(self):
+        """Test the full matching fallback chain."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        user_id = str(uuid.uuid4())
+        processor = InboundEmailProcessor(mock_store, user_id)
+        
+        mock_invite = {
+            "id": str(uuid.uuid4()),
+            "calendar_event_id": str(uuid.uuid4()),
+            "message_id": "invite-123@researchpulse.app",
+            "reminder_token": "test-token-abc",
+        }
+        
+        # Set up mock to return invite by token, and None for other methods
+        mock_store.get_calendar_invite_by_token.return_value = mock_invite
+        mock_store.get_calendar_invite_by_thread_id.return_value = None
+        mock_store.get_calendar_invite_by_message_id.return_value = None
+        mock_store.get_user.return_value = {"email": "test@example.com"}
+        
+        reply = {
+            "body_text": "Reschedule [RP_REMINDER_ID: test-token-abc]",
+            "in_reply_to": "",  # Empty so it won't try In-Reply-To
+            "thread_id": "",
+            "subject": "Re: Reading Reminder",
+        }
+        
+        # Should match by token
+        invite, method = processor._find_invite_with_fallback(reply)
+        
+        assert invite is not None
+        assert method == "token"
+        mock_store.get_calendar_invite_by_token.assert_called_once_with("test-token-abc")
+    
+    def test_fallback_to_thread_id(self):
+        """Test fallback to thread_id when token not found."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        user_id = str(uuid.uuid4())
+        processor = InboundEmailProcessor(mock_store, user_id)
+        
+        mock_invite = {
+            "id": str(uuid.uuid4()),
+            "calendar_event_id": str(uuid.uuid4()),
+        }
+        
+        # No token match, but thread_id matches
+        mock_store.get_calendar_invite_by_token.return_value = None
+        mock_store.get_calendar_invite_by_thread_id.return_value = mock_invite
+        mock_store.get_user.return_value = {"email": "test@example.com"}
+        
+        reply = {
+            "body_text": "Please reschedule to tomorrow",
+            "in_reply_to": "invalid",
+            "thread_id": "thread-abc123",
+            "subject": "Re: Reading Reminder",
+        }
+        
+        invite, method = processor._find_invite_with_fallback(reply)
+        
+        assert invite is not None
+        assert method == "thread_id"
+    
+    def test_fallback_to_in_reply_to(self):
+        """Test fallback to In-Reply-To when token and thread_id fail."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        user_id = str(uuid.uuid4())
+        processor = InboundEmailProcessor(mock_store, user_id)
+        
+        mock_invite = {
+            "id": str(uuid.uuid4()),
+            "calendar_event_id": str(uuid.uuid4()),
+        }
+        
+        # No token, no thread_id match, but In-Reply-To matches
+        mock_store.get_calendar_invite_by_token.return_value = None
+        mock_store.get_calendar_invite_by_thread_id.return_value = None
+        mock_store.get_calendar_invite_by_message_id.return_value = mock_invite
+        mock_store.get_user.return_value = {"email": "test@example.com"}
+        
+        reply = {
+            "body_text": "Please reschedule",
+            "in_reply_to": "original@researchpulse.app",
+            "thread_id": "",
+            "subject": "Re: Reading Reminder",
+        }
+        
+        invite, method = processor._find_invite_with_fallback(reply)
+        
+        assert invite is not None
+        assert method == "in_reply_to"
+    
+    def test_fuzzy_match_single_candidate(self):
+        """Test fuzzy matching when only one recent invite exists."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        user_id = str(uuid.uuid4())
+        processor = InboundEmailProcessor(mock_store, user_id)
+        
+        mock_invite = {
+            "id": str(uuid.uuid4()),
+            "calendar_event_id": str(uuid.uuid4()),
+        }
+        
+        # All other methods fail
+        mock_store.get_calendar_invite_by_token.return_value = None
+        mock_store.get_calendar_invite_by_thread_id.return_value = None
+        mock_store.get_calendar_invite_by_message_id.return_value = None
+        # But there's exactly one recent invite
+        mock_store.get_recent_calendar_invites.return_value = [mock_invite]
+        mock_store.get_user.return_value = {"email": "test@example.com"}
+        
+        reply = {
+            "body_text": "Please reschedule",
+            "in_reply_to": "",
+            "thread_id": "",
+            "subject": "Re: [ResearchPulse] Reading Reminder",
+        }
+        
+        invite, method = processor._find_invite_with_fallback(reply)
+        
+        assert invite is not None
+        assert method == "fuzzy_single"
+    
+    def test_fuzzy_match_multiple_candidates_fails(self):
+        """Test that fuzzy matching fails when multiple candidates exist."""
+        from src.tools.inbound_processor import InboundEmailProcessor
+        
+        mock_store = MagicMock()
+        user_id = str(uuid.uuid4())
+        processor = InboundEmailProcessor(mock_store, user_id)
+        
+        # All methods fail, multiple recent invites exist
+        mock_store.get_calendar_invite_by_token.return_value = None
+        mock_store.get_calendar_invite_by_thread_id.return_value = None
+        mock_store.get_calendar_invite_by_message_id.return_value = None
+        mock_store.get_recent_calendar_invites.return_value = [
+            {"id": str(uuid.uuid4())},
+            {"id": str(uuid.uuid4())},  # Multiple candidates
+        ]
+        mock_store.get_user.return_value = {"email": "test@example.com"}
+        
+        reply = {
+            "body_text": "Please reschedule",
+            "in_reply_to": "",
+            "thread_id": "",
+            "subject": "Re: Reading Reminder",
+        }
+        
+        invite, method = processor._find_invite_with_fallback(reply)
+        
+        # Should not auto-match when ambiguous
+        assert invite is None
+        assert method == "none"
+
+
 @pytest.mark.skipif(
     not is_live_tests_enabled(),
     reason="Live tests disabled. Set RUN_LIVE_TESTS=1 to enable."

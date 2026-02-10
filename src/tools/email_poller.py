@@ -8,6 +8,7 @@ import os
 import imaplib
 import email
 from email.header import decode_header
+from email.message import Message
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
@@ -41,7 +42,7 @@ def decode_email_subject(subject: str) -> str:
     return ''.join(result)
 
 
-def get_email_body(msg: email.message.Message) -> str:
+def get_email_body(msg: Message) -> str:
     """Extract plain text body from email message."""
     body = ""
     
@@ -73,7 +74,7 @@ def get_email_body(msg: email.message.Message) -> str:
     return body
 
 
-def extract_original_message_id(msg: email.message.Message) -> Optional[str]:
+def extract_original_message_id(msg: Message) -> Optional[str]:
     """Extract the In-Reply-To or References header to find original message."""
     in_reply_to = msg.get("In-Reply-To", "").strip()
     if in_reply_to:
@@ -119,33 +120,58 @@ def fetch_recent_replies(since_hours: int = 24) -> List[Dict[str, Any]]:
     Returns:
         List of parsed email reply data
     """
+    import socket
+    import time
+    import traceback
+    
+    IMAP_SOCKET_TIMEOUT = 20  # seconds
+    
     config = get_imap_config()
+    cycle_start = time.time()
+    
+    logger.info(f"[EMAIL_POLLER] ===== START fetch_recent_replies (since_hours={since_hours}) =====")
+    logger.debug(f"[EMAIL_POLLER] IMAP host={config['host']}, port={config['port']}, user={'configured' if config['user'] else 'NOT SET'}")
     
     if not config["user"] or not config["password"]:
-        logger.warning("IMAP credentials not configured, skipping email polling")
+        logger.warning("[EMAIL_POLLER] IMAP credentials not configured - SMTP_USER and SMTP_PASSWORD required")
         return []
     
     replies = []
+    mail = None
     
     try:
+        # Set socket timeout for all IMAP operations
+        socket.setdefaulttimeout(IMAP_SOCKET_TIMEOUT)
+        
         # Connect to IMAP server
+        step_start = time.time()
+        logger.debug(f"[EMAIL_POLLER] CONNECT start - host={config['host']}, port={config['port']}")
         mail = imaplib.IMAP4_SSL(config["host"], config["port"])
+        logger.debug(f"[EMAIL_POLLER] CONNECT ok - elapsed={time.time() - step_start:.2f}s")
+        
+        # Login
+        step_start = time.time()
+        logger.debug("[EMAIL_POLLER] LOGIN start")
         mail.login(config["user"], config["password"])
+        logger.info(f"[EMAIL_POLLER] IMAP login successful - elapsed={time.time() - step_start:.2f}s")
         
         # Select inbox
+        step_start = time.time()
         mail.select("INBOX")
+        logger.debug(f"[EMAIL_POLLER] INBOX selected - elapsed={time.time() - step_start:.2f}s")
         
         # Search for recent emails
         since_date = (datetime.now() - timedelta(hours=since_hours)).strftime("%d-%b-%Y")
         search_criteria = f'(SINCE "{since_date}")'
+        logger.debug(f"[EMAIL_POLLER] Searching with criteria: {search_criteria}")
         
         result, data = mail.search(None, search_criteria)
         
         if result != "OK":
-            logger.error(f"IMAP search failed: {result}")
+            logger.error(f"[EMAIL_POLLER] IMAP search failed: {result}")
             return []
         
-        email_ids = data[0].split()
+        email_ids = data[0].split() if data[0] else []
         logger.info(f"Found {len(email_ids)} emails in last {since_hours} hours")
         
         for email_id in email_ids:
@@ -192,16 +218,43 @@ def fetch_recent_replies(since_hours: int = 24) -> List[Dict[str, Any]]:
                 replies.append(reply_data)
                 logger.info(f"Found calendar invite reply: {subject[:50]}...")
                 
+            except socket.timeout:
+                logger.error(f"[EMAIL_POLLER] Fetch timeout for email {email_id}")
+                continue
             except Exception as e:
                 logger.error(f"Error processing email {email_id}: {e}")
                 continue
         
         mail.logout()
+        total_elapsed = time.time() - cycle_start
+        logger.info(f"[EMAIL_POLLER] ===== END SUCCESS: found={len(replies)} replies, total_time={total_elapsed:.2f}s =====")
         
+    except socket.timeout as e:
+        logger.error(f"[EMAIL_POLLER] Socket timeout: {e}")
+        logger.error(f"[EMAIL_POLLER] Stack trace:\n{traceback.format_exc()}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
     except imaplib.IMAP4.error as e:
         logger.error(f"IMAP error: {e}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
     except Exception as e:
         logger.error(f"Error fetching emails: {e}")
+        logger.error(f"[EMAIL_POLLER] Stack trace:\n{traceback.format_exc()}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
+    finally:
+        # Reset socket timeout to default
+        socket.setdefaulttimeout(None)
     
     return replies
 
@@ -342,12 +395,42 @@ def get_inbound_reply_by_message_id_wrapper(store, message_id: str):
 # Colleague Signup via Email
 # =============================================================================
 
+def has_join_code_pattern(text: str) -> bool:
+    """Check if text contains a join code pattern.
+    
+    Patterns matched:
+    - "code: 123456" or "code:123456"
+    - "code=123456"
+    - "join code 123456" or "join code: 123456"
+    - "#123456"
+    """
+    import re
+    patterns = [
+        r'(?:join\s*)?code[:\s=]+[A-Za-z0-9-_]{4,32}',
+        r'#[A-Za-z0-9-_]{4,32}',
+        r'(?:my|the)\s+code\s+(?:is\s+)?[A-Za-z0-9-_]{4,32}',
+        r'use\s+code[:\s]+[A-Za-z0-9-_]{4,32}',
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
 def is_colleague_signup_email(subject: str, body: str) -> bool:
     """Check if this email is a request to sign up for research updates.
     
     Look for keywords indicating the sender wants to receive research paper updates.
+    An email is considered a signup if:
+    - It contains a join code pattern (primary indicator), OR
+    - It mentions ResearchPulse AND has signup intent keywords
     """
     text = (subject + " " + body).lower()
+    
+    # PRIORITY 1: If email contains a join code pattern, it's a signup attempt
+    if has_join_code_pattern(text):
+        logger.info("[EMAIL_POLLER] Detected join code pattern in email - treating as signup")
+        return True
     
     signup_keywords = [
         "subscribe",
@@ -365,6 +448,7 @@ def is_colleague_signup_email(subject: str, body: str) -> bool:
         "recommendation",
         "colleague list",
         "add to your",
+        "colleagues list",  # Added common variant
     ]
     
     researchpulse_keywords = [
@@ -376,7 +460,13 @@ def is_colleague_signup_email(subject: str, body: str) -> bool:
     mentions_rp = any(kw in text for kw in researchpulse_keywords)
     has_signup_intent = any(kw in text for kw in signup_keywords)
     
-    return mentions_rp and has_signup_intent
+    # Log classification decision
+    if mentions_rp and has_signup_intent:
+        logger.info("[EMAIL_POLLER] Email matches ResearchPulse + signup intent")
+        return True
+    
+    logger.debug(f"[EMAIL_POLLER] Email not classified as signup (mentions_rp={mentions_rp}, has_intent={has_signup_intent})")
+    return False
 
 
 def extract_name_from_email_header(from_header: str) -> str:
@@ -438,93 +528,285 @@ Response: Just the research interests summary, nothing else."""
         return body[:500] if body else ""
 
 
-def fetch_colleague_signup_emails(since_hours: int = 48) -> List[Dict[str, Any]]:
+def fetch_colleague_signup_emails(since_hours: int = 48, diagnostic_mode: bool = False) -> List[Dict[str, Any]]:
     """Fetch recent emails that appear to be colleague signup requests.
     
     Args:
         since_hours: Look for emails from the last N hours
+        diagnostic_mode: If True, print the 10 newest messages in INBOX for debugging
         
     Returns:
         List of parsed signup email data
     """
+    import socket
+    import time
+    import traceback
+    from threading import Timer
+    
+    IMAP_SOCKET_TIMEOUT = 20  # seconds - per-operation timeout
+    CYCLE_TIMEOUT = 30  # seconds - overall timeout for entire fetch
+    
     config = get_imap_config()
+    cycle_start = time.time()
+    
+    logger.info(f"[GMAIL_FETCH] ===== START fetch_colleague_signup_emails (since_hours={since_hours}, diagnostic={diagnostic_mode}) =====")
+    logger.info(f"[GMAIL_FETCH] IMAP config: host={config['host']}, port={config['port']}, user={'***' + config['user'][-10:] if config['user'] else 'NOT SET'}")
     
     if not config["user"] or not config["password"]:
-        logger.warning("IMAP credentials not configured, skipping signup email polling")
+        logger.warning("[GMAIL_FETCH] IMAP credentials not configured - SMTP_USER and SMTP_PASSWORD required")
+        logger.info("[GMAIL_FETCH] ===== END (no credentials) =====")
         return []
     
     signups = []
+    total_scanned = 0
+    filtered_out = 0
+    mail = None
+    
+    def check_cycle_timeout():
+        elapsed = time.time() - cycle_start
+        if elapsed > CYCLE_TIMEOUT:
+            raise TimeoutError(f"Cycle timeout exceeded: {elapsed:.1f}s > {CYCLE_TIMEOUT}s")
+        return elapsed
     
     try:
-        # Connect to IMAP server
-        mail = imaplib.IMAP4_SSL(config["host"], config["port"])
-        mail.login(config["user"], config["password"])
+        # Step 1: Connect to IMAP server
+        step_start = time.time()
+        logger.info(f"[GMAIL_FETCH] [STEP 1/6] CONNECT start - host={config['host']}, port={config['port']}")
         
-        # Select inbox
-        mail.select("INBOX")
+        # Set default socket timeout for all IMAP operations
+        socket.setdefaulttimeout(IMAP_SOCKET_TIMEOUT)
         
-        # Search for recent emails
+        try:
+            mail = imaplib.IMAP4_SSL(config["host"], config["port"])
+            logger.info(f"[GMAIL_FETCH] [STEP 1/6] CONNECT ok - elapsed={time.time() - step_start:.2f}s")
+        except socket.timeout:
+            logger.error(f"[GMAIL_FETCH] [STEP 1/6] CONNECT TIMEOUT after {IMAP_SOCKET_TIMEOUT}s")
+            raise
+        except Exception as e:
+            logger.error(f"[GMAIL_FETCH] [STEP 1/6] CONNECT FAILED: {e}")
+            raise
+        
+        check_cycle_timeout()
+        
+        # Step 2: Login
+        step_start = time.time()
+        logger.info(f"[GMAIL_FETCH] [STEP 2/6] LOGIN start")
+        try:
+            mail.login(config["user"], config["password"])
+            logger.info(f"[GMAIL_FETCH] [STEP 2/6] LOGIN ok - elapsed={time.time() - step_start:.2f}s")
+        except socket.timeout:
+            logger.error(f"[GMAIL_FETCH] [STEP 2/6] LOGIN TIMEOUT after {IMAP_SOCKET_TIMEOUT}s")
+            raise
+        except imaplib.IMAP4.error as e:
+            logger.error(f"[GMAIL_FETCH] [STEP 2/6] LOGIN FAILED: {e}")
+            raise
+        
+        check_cycle_timeout()
+        
+        # Step 3: Select INBOX explicitly (critical - must select INBOX for colleague joins)
+        step_start = time.time()
+        logger.info(f"[GMAIL_FETCH] [STEP 3/6] SELECT mailbox='INBOX' start")
+        try:
+            result, data = mail.select("INBOX")
+            if result != "OK":
+                logger.error(f"[GMAIL_FETCH] [STEP 3/6] SELECT INBOX FAILED: result={result}")
+                raise Exception(f"IMAP SELECT failed: {result}")
+            message_count = data[0].decode() if data and data[0] else "unknown"
+            logger.info(f"[GMAIL_FETCH] [STEP 3/6] SELECT ok - mailbox=INBOX, total_messages={message_count}, elapsed={time.time() - step_start:.2f}s")
+        except socket.timeout:
+            logger.error(f"[GMAIL_FETCH] [STEP 3/6] SELECT TIMEOUT after {IMAP_SOCKET_TIMEOUT}s")
+            raise
+        
+        check_cycle_timeout()
+        
+        # Step 4: Search for recent emails (NOT just UNSEEN - include all for complete search)
+        step_start = time.time()
         since_date = (datetime.now() - timedelta(hours=since_hours)).strftime("%d-%b-%Y")
+        # Use broad search criteria - DO NOT filter by UNSEEN or specific TO address
+        # This ensures we see all emails in the timeframe
         search_criteria = f'(SINCE "{since_date}")'
         
-        result, data = mail.search(None, search_criteria)
+        logger.info(f"[GMAIL_FETCH] [STEP 4/6] SEARCH start - criteria={search_criteria}")
+        try:
+            result, data = mail.search(None, search_criteria)
+            if result != "OK":
+                logger.error(f"[GMAIL_FETCH] [STEP 4/6] SEARCH FAILED: result={result}")
+                raise Exception(f"IMAP SEARCH failed: {result}")
+            
+            email_ids = data[0].split() if data[0] else []
+            logger.info(f"[GMAIL_FETCH] [STEP 4/6] SEARCH ok - hits={len(email_ids)}, elapsed={time.time() - step_start:.2f}s")
+        except socket.timeout:
+            logger.error(f"[GMAIL_FETCH] [STEP 4/6] SEARCH TIMEOUT after {IMAP_SOCKET_TIMEOUT}s")
+            raise
         
-        if result != "OK":
-            logger.error(f"IMAP search failed: {result}")
-            return []
+        check_cycle_timeout()
         
-        email_ids = data[0].split()
-        logger.info(f"Scanning {len(email_ids)} emails for colleague signups")
+        # Diagnostic mode: print the 10 newest messages
+        if diagnostic_mode and email_ids:
+            logger.info(f"[GMAIL_FETCH] [DIAGNOSTIC] Printing newest 10 messages...")
+            newest_ids = email_ids[-10:]  # Get last 10 (newest)
+            for eid in reversed(newest_ids):
+                try:
+                    # Fetch headers only for diagnostic (faster)
+                    result, msg_data = mail.fetch(eid, "(UID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])")
+                    if result == "OK" and msg_data and msg_data[0]:
+                        uid_match = re.search(rb'UID\s+(\d+)', msg_data[0][0] if isinstance(msg_data[0], tuple) else msg_data[0])
+                        uid = uid_match.group(1).decode() if uid_match else "?"
+                        flags_match = re.search(rb'FLAGS\s+\(([^)]*)\)', msg_data[0][0] if isinstance(msg_data[0], tuple) else msg_data[0])
+                        flags = flags_match.group(1).decode() if flags_match else "?"
+                        
+                        header_data = msg_data[0][1] if isinstance(msg_data[0], tuple) else b""
+                        header_msg = email.message_from_bytes(header_data)
+                        
+                        logger.info(f"[GMAIL_FETCH] [DIAGNOSTIC] UID={uid}, FLAGS=({flags}), FROM={header_msg.get('From', '?')[:40]}, TO={header_msg.get('To', '?')[:40]}, SUBJECT={header_msg.get('Subject', '?')[:50]}, DATE={header_msg.get('Date', '?')}")
+                except Exception as diag_e:
+                    logger.warning(f"[GMAIL_FETCH] [DIAGNOSTIC] Error reading email {eid}: {diag_e}")
         
-        for email_id in email_ids:
+        # Step 5: Fetch and parse each email
+        logger.info(f"[GMAIL_FETCH] [STEP 5/6] FETCH/PARSE start - processing {len(email_ids)} emails")
+        
+        for i, email_id in enumerate(email_ids):
+            # Check cycle timeout periodically
+            if i % 10 == 0:
+                elapsed = check_cycle_timeout()
+                if elapsed > CYCLE_TIMEOUT * 0.8:  # Warn if approaching timeout
+                    logger.warning(f"[GMAIL_FETCH] Approaching cycle timeout ({elapsed:.1f}s), {len(email_ids) - i} emails remaining")
+            
+            total_scanned += 1
+            eid_str = email_id.decode() if isinstance(email_id, bytes) else str(email_id)
+            
             try:
-                result, msg_data = mail.fetch(email_id, "(RFC822)")
+                # Fetch with BODY.PEEK to avoid marking as seen
+                fetch_start = time.time()
+                result, msg_data = mail.fetch(email_id, "(UID BODY.PEEK[])")
+                fetch_elapsed = time.time() - fetch_start
+                
                 if result != "OK":
+                    logger.warning(f"[GMAIL_FETCH] FETCH failed for idx={eid_str}: result={result}")
                     continue
                 
-                raw_email = msg_data[0][1]
+                if fetch_elapsed > 5:
+                    logger.warning(f"[GMAIL_FETCH] Slow fetch for idx={eid_str}: {fetch_elapsed:.1f}s")
+                
+                # Extract UID from response
+                uid = "?"
+                if msg_data and msg_data[0]:
+                    uid_match = re.search(rb'UID\s+(\d+)', msg_data[0][0] if isinstance(msg_data[0], tuple) else msg_data[0])
+                    if uid_match:
+                        uid = uid_match.group(1).decode()
+                
+                raw_email = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
                 msg = email.message_from_bytes(raw_email)
                 
                 # Get headers
                 message_id = msg.get("Message-ID", "").strip("<>")
+                thread_id = msg.get("Thread-Id", message_id[:20] if message_id else "unknown")
                 subject = decode_email_subject(msg.get("Subject", ""))
                 from_addr = msg.get("From", "")
+                to_addr = msg.get("To", "")
                 date_str = msg.get("Date", "")
                 
+                # Parse from address early for logging
+                from_match = re.search(r'[\w\.-]+@[\w\.-]+', from_addr)
+                from_email = from_match.group(0) if from_match else from_addr
+                
+                # Create correlation ID for this message
+                corr_id = f"UID{uid}|{message_id[:12]}" if message_id else f"UID{uid}|idx{eid_str}"
+                
+                logger.debug(f"[MSG_READ][{corr_id}] from={from_email}, to={to_addr[:30]}, subject={subject[:50]}, date={date_str}")
+                
                 # Get body
+                parse_start = time.time()
                 body = get_email_body(msg)
+                body_preview = body[:100].replace('\n', ' ') if body else "(empty)"
+                logger.debug(f"[MSG_READ][{corr_id}] body_preview={body_preview}, parse_time={time.time() - parse_start:.2f}s")
                 
                 # Check if this is a signup email
                 if not is_colleague_signup_email(subject, body):
+                    filtered_out += 1
+                    logger.debug(f"[MSG_ROUTE][{corr_id}] intent=NOT_SIGNUP (filtered out)")
                     continue
                 
-                # Parse from address
-                from_match = re.search(r'[\w\.-]+@[\w\.-]+', from_addr)
-                from_email = from_match.group(0) if from_match else from_addr
+                logger.info(f"[MSG_ROUTE][{corr_id}] intent=JOIN_REQUEST from={from_email}")
+                
                 from_name = extract_name_from_email_header(from_addr)
                 
                 signup_data = {
                     "message_id": message_id or str(uuid4()),
+                    "thread_id": thread_id,
                     "from_email": from_email,
                     "from_name": from_name,
                     "subject": subject,
                     "body_text": body,
                     "received_at": date_str,
+                    "correlation_id": corr_id,
+                    "uid": uid,
                 }
                 
                 signups.append(signup_data)
-                logger.info(f"Found colleague signup email from: {from_email}")
+                logger.info(f"[GMAIL_FETCH][{corr_id}] Queued colleague signup email from: {from_email}")
                 
+            except socket.timeout:
+                logger.error(f"[GMAIL_FETCH] FETCH TIMEOUT for idx={eid_str} after {IMAP_SOCKET_TIMEOUT}s - skipping")
+                continue
             except Exception as e:
-                logger.error(f"Error processing email {email_id}: {e}")
+                logger.error(f"[GMAIL_FETCH] Error processing email idx={eid_str}: {e}")
                 continue
         
-        mail.logout()
+        # Step 6: Logout
+        step_start = time.time()
+        logger.info(f"[GMAIL_FETCH] [STEP 6/6] LOGOUT start")
+        try:
+            mail.logout()
+            logger.info(f"[GMAIL_FETCH] [STEP 6/6] LOGOUT ok - elapsed={time.time() - step_start:.2f}s")
+        except Exception as e:
+            logger.warning(f"[GMAIL_FETCH] [STEP 6/6] LOGOUT warning: {e}")
+        
+        total_elapsed = time.time() - cycle_start
+        logger.info(f"[GMAIL_FETCH] ===== END SUCCESS: scanned={total_scanned}, filtered_out={filtered_out}, signups_found={len(signups)}, total_time={total_elapsed:.2f}s =====")
+        
+    except socket.timeout as e:
+        logger.error(f"[GMAIL_FETCH] Socket timeout: {e}")
+        logger.error(f"[GMAIL_FETCH] Stack trace:\n{traceback.format_exc()}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
+        logger.info(f"[GMAIL_FETCH] ===== END (socket timeout) =====")
+        
+    except TimeoutError as e:
+        logger.error(f"[GMAIL_FETCH] Cycle timeout: {e}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
+        logger.info(f"[GMAIL_FETCH] ===== END (cycle timeout) =====")
         
     except imaplib.IMAP4.error as e:
-        logger.error(f"IMAP error: {e}")
+        logger.error(f"[GMAIL_FETCH] IMAP protocol error: {e}")
+        logger.error(f"[GMAIL_FETCH] Stack trace:\n{traceback.format_exc()}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
+        logger.info(f"[GMAIL_FETCH] ===== END (IMAP error) =====")
+        
     except Exception as e:
-        logger.error(f"Error fetching signup emails: {e}")
+        logger.error(f"[GMAIL_FETCH] Unexpected error: {e}")
+        logger.error(f"[GMAIL_FETCH] Stack trace:\n{traceback.format_exc()}")
+        if mail:
+            try:
+                mail.logout()
+            except:
+                pass
+        logger.info(f"[GMAIL_FETCH] ===== END (unexpected error) =====")
+    
+    finally:
+        # Reset socket timeout to default
+        socket.setdefaulttimeout(None)
     
     return signups
 

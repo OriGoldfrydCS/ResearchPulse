@@ -133,7 +133,7 @@ class EmailSettings(BaseModel):
     include_abstract: bool = Field(True, description="Include paper abstract")
     include_relevance_explanation: bool = Field(True, description="Include relevance explanation")
     max_papers_per_email: int = Field(10, description="Max papers per email")
-    subject_template: str = Field("[ResearchPulse] {priority}: {count} new papers found")
+    subject_template: str = Field("ResearchPulse: {count} new papers found")
     from_address: str = Field("researchpulse@localhost", description="Sender address")
 
 

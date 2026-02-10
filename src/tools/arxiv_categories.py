@@ -1062,6 +1062,165 @@ def get_category_groups() -> List[str]:
 
 
 # =============================================================================
+# Derive arXiv Categories from Research Interests
+# =============================================================================
+
+def derive_arxiv_categories_from_interests(interests_text: str) -> Dict[str, List[str]]:
+    """
+    Automatically derive arXiv categories from free-text research interests.
+    
+    This function maps natural language research interests to appropriate
+    arXiv categories for filtering papers.
+    
+    Args:
+        interests_text: Free-text description of research interests
+                       e.g., "I'm interested in machine learning, NLP, and transformers"
+    
+    Returns:
+        Dict with 'primary' and 'secondary' category lists:
+        {
+            "primary": ["cs.LG", "cs.CL"],     # High-confidence matches
+            "secondary": ["stat.ML", "cs.AI"]  # Lower-confidence matches
+        }
+    
+    Example:
+        >>> derive_arxiv_categories_from_interests("deep learning and NLP for healthcare")
+        {"primary": ["cs.LG", "cs.CL"], "secondary": ["cs.AI", "q-bio.QM"]}
+    """
+    if not interests_text or not interests_text.strip():
+        logger.debug("[ARXIV_CATS] Empty interests text, returning empty categories")
+        return {"primary": [], "secondary": []}
+    
+    interests_lower = interests_text.lower()
+    primary_codes: Set[str] = set()
+    secondary_codes: Set[str] = set()
+    
+    # Track matched keywords for logging
+    matched_keywords = []
+    
+    # Phase 1: Direct keyword matching from BASE_TOPIC_MAPPINGS (high precision)
+    for topic, codes in BASE_TOPIC_MAPPINGS.items():
+        # Match full topic phrase
+        if topic in interests_lower:
+            primary_codes.update(codes)
+            matched_keywords.append(topic)
+            continue
+        
+        # Also match individual words from multi-word topics
+        topic_words = topic.split()
+        if len(topic_words) > 1:
+            # If all words of a multi-word topic appear separately, it's a match
+            if all(word in interests_lower for word in topic_words):
+                primary_codes.update(codes)
+                matched_keywords.append(topic)
+    
+    # Phase 2: Tokenize interests and match individual significant words
+    # Extract words, filtering out common stopwords
+    stopwords = {
+        'i', 'me', 'my', 'we', 'our', 'you', 'your', 'the', 'a', 'an', 'and', 'or',
+        'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'am',
+        'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does',
+        'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must',
+        'interested', 'interest', 'research', 'work', 'working', 'field', 'fields',
+        'area', 'areas', 'topic', 'topics', 'especially', 'particularly', 'like',
+        'really', 'very', 'also', 'including', 'such', 'as', 'well', 'about', 'into',
+    }
+    
+    # Extract meaningful words (letters only, length > 2)
+    words = [w.strip('.,;:!?()[]{}"\'-') for w in interests_lower.split()]
+    meaningful_words = [w for w in words if len(w) > 2 and w not in stopwords and w.isalpha()]
+    
+    # Check each word against topic mappings
+    for word in meaningful_words:
+        if word in BASE_TOPIC_MAPPINGS:
+            codes = BASE_TOPIC_MAPPINGS[word]
+            # Single-word matches go to secondary (lower confidence)
+            secondary_codes.update(codes)
+            if word not in matched_keywords:
+                matched_keywords.append(word)
+    
+    # Phase 3: Semantic hints - detect domain indicators
+    domain_hints = {
+        # Healthcare / Biology indicators
+        ('healthcare', 'medical', 'health', 'clinical', 'patient', 'disease', 'drug'):
+            ['q-bio.QM', 'cs.CL'],  # Computational methods, NLP for medical
+        # Finance indicators
+        ('finance', 'financial', 'trading', 'stock', 'market', 'investment', 'portfolio'):
+            ['q-fin.CP', 'q-fin.ST', 'stat.AP'],
+        # Physics indicators
+        ('physics', 'quantum', 'particles', 'energy', 'photon', 'laser'):
+            ['quant-ph', 'physics.gen-ph'],
+        # Robotics / Automation
+        ('robot', 'robotics', 'autonomous', 'drone', 'vehicle', 'navigation'):
+            ['cs.RO', 'cs.SY'],
+        # Security
+        ('security', 'privacy', 'encryption', 'attack', 'malware', 'intrusion'):
+            ['cs.CR'],
+        # Social / Network
+        ('social', 'twitter', 'facebook', 'network', 'community', 'viral', 'misinformation'):
+            ['cs.SI', 'cs.CY'],
+    }
+    
+    for hint_words, hint_codes in domain_hints.items():
+        if any(hw in interests_lower for hw in hint_words):
+            secondary_codes.update(hint_codes)
+    
+    # Remove overlaps: if a code is in primary, don't also list in secondary
+    secondary_codes = secondary_codes - primary_codes
+    
+    # Sort for consistency
+    result = {
+        "primary": sorted(list(primary_codes)),
+        "secondary": sorted(list(secondary_codes)),
+    }
+    
+    logger.info(f"[ARXIV_CATS] Derived categories from interests: "
+                f"matched_keywords={matched_keywords}, "
+                f"primary={result['primary']}, secondary={result['secondary']}")
+    
+    return result
+
+
+def derive_categories_for_colleague(interests: str, existing_categories: List[str] = None) -> Dict[str, Any]:
+    """
+    Derive and merge arXiv categories for a colleague.
+    
+    This is a convenience wrapper that:
+    1. Derives categories from interests
+    2. Optionally merges with existing manually-set categories
+    3. Returns a structure ready for DB storage
+    
+    Args:
+        interests: Free-text research interests
+        existing_categories: List of manually-set category codes (optional)
+    
+    Returns:
+        Dict with derived categories and metadata:
+        {
+            "primary": [...],
+            "secondary": [...],
+            "manual": [...],          # Categories set manually by owner
+            "all_categories": [...],  # Combined unique list
+            "derived_from": "...",    # Source interests text (truncated)
+        }
+    """
+    derived = derive_arxiv_categories_from_interests(interests)
+    
+    manual_cats = existing_categories or []
+    
+    # Combine all categories (unique)
+    all_cats = set(derived["primary"]) | set(derived["secondary"]) | set(manual_cats)
+    
+    return {
+        "primary": derived["primary"],
+        "secondary": derived["secondary"],
+        "manual": manual_cats,
+        "all_categories": sorted(list(all_cats)),
+        "derived_from": interests[:200] if interests else "",
+    }
+
+
+# =============================================================================
 # JSON API (for tools)
 # =============================================================================
 

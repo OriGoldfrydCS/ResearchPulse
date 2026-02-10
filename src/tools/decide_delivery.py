@@ -287,8 +287,13 @@ def _generate_email_content(
     researcher_name: str = "Researcher",
 ) -> str:
     """Generate email content for a paper notification."""
+    # Format subject: include priority only if not NORMAL
+    if priority.upper() == "NORMAL":
+        subject_line = f"Subject: ResearchPulse: New paper - {paper.title}"
+    else:
+        subject_line = f"Subject: ResearchPulse: {priority.upper()} - New paper - {paper.title}"
     lines = [
-        f"Subject: [ResearchPulse] {priority.upper()}: New paper - {paper.title}",
+        subject_line,
         f"From: researchpulse@localhost",
         f"Date: {_get_timestamp()}",
         "",
@@ -1480,9 +1485,14 @@ def decide_delivery_action(
                         researcher_name=researcher_name,
                     )
                     print(f"[DEBUG] Generated HTML email: {len(html_content)} chars, starts with: {html_content[:100]}")
+                    # Format subject: include priority only if not NORMAL
+                    if priority_label.upper() == "NORMAL":
+                        email_subject = f"ResearchPulse: New paper - {paper.title}"
+                    else:
+                        email_subject = f"ResearchPulse: {priority_label.upper()} - New paper - {paper.title}"
                     _send_email_smtp(
                         to_email=researcher_email,
-                        subject=f"[ResearchPulse] {priority_label.upper()}: New paper - {paper.title}",
+                        subject=email_subject,
                         body=email_content,
                         html_body=html_content,
                     )

@@ -132,6 +132,79 @@ Be specific and relevant. Focus on academic/research terminology. Return ONLY va
         return {"keywords": [], "categories": []}
 
 
+async def generate_interest_headline(research_interests: str) -> str:
+    """
+    Generate a concise interest headline from research interests text.
+    
+    This creates a short, readable summary like "Computer Vision, Medical Imaging, and RAG"
+    for display in the colleague list UI.
+    
+    Args:
+        research_interests: Raw research interests text from user
+        
+    Returns:
+        Short headline string (max ~60 chars) or empty string if generation fails
+    """
+    if not research_interests or not research_interests.strip():
+        return ""
+    
+    try:
+        import openai
+        
+        api_key = os.getenv("LLM_API_KEY", "")
+        api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+        model_name = os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
+        
+        if not api_key:
+            # Fallback: extract first few words from the interests
+            words = research_interests.split()[:8]
+            return " ".join(words)[:60] + ("..." if len(research_interests) > 60 else "")
+        
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=api_base)
+        
+        prompt = f"""Create a very short headline (max 60 characters) summarizing these research interests.
+Use format like: "Topic1, Topic2, and Topic3" or "Topic1 & Topic2"
+
+Research interests:
+---
+{research_interests}
+---
+
+Rules:
+- Maximum 60 characters
+- 2-4 key topics only
+- Use common abbreviations for brevity (ML, NLP, CV, etc.)
+- No periods or quotes in output
+- Be concise and professional
+
+Output ONLY the headline text, nothing else:"""
+
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+        )
+        
+        headline = (response.choices[0].message.content or "").strip()
+        
+        # Clean up: remove quotes, periods, etc.
+        headline = headline.strip('"\'.')
+        
+        # Ensure max length
+        if len(headline) > 80:
+            headline = headline[:77] + "..."
+            
+        return headline
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Fallback: extract first few words
+        words = research_interests.split()[:6]
+        fallback = " ".join(words)
+        return fallback[:60] + ("..." if len(fallback) > 60 else "")
+
+
 # =============================================================================
 # ArXiv Categories Endpoint  
 # =============================================================================
@@ -328,12 +401,25 @@ async def delete_local_data():
 # =============================================================================
 
 class ColleagueCreate(BaseModel):
+    """
+    Model for creating a colleague.
+    
+    State model:
+    - name, email, interests: User-provided, editable
+    - categories, keywords: DERIVED from interests (not directly editable)
+    - enabled: Whether colleague is active
+    - auto_send_emails: Whether to auto-send research emails
+    - added_by: 'manual' (owner) or 'email' (self-signup)
+    """
     name: str
     email: str
     affiliation: Optional[str] = None
+    # Interests text - categories and keywords are derived from this
     research_interests: Optional[str] = None
-    keywords: List[str] = Field(default_factory=list)
-    categories: List[str] = Field(default_factory=list)
+    interests: Optional[str] = None  # Alias for research_interests
+    # These are deprecated in UI - derived automatically from interests
+    keywords: List[str] = Field(default_factory=list, deprecated=True)
+    categories: List[str] = Field(default_factory=list, deprecated=True)
     topics: List[str] = Field(default_factory=list)
     sharing_preference: str = "weekly"
     enabled: bool = True
@@ -342,10 +428,18 @@ class ColleagueCreate(BaseModel):
 
 
 class ColleagueUpdate(BaseModel):
+    """
+    Model for updating a colleague.
+    
+    When interests are updated, categories and keywords are re-derived.
+    Categories cannot be directly edited.
+    """
     name: Optional[str] = None
-    email: Optional[str] = None
+    # Email is read-only - cannot be changed after creation
     affiliation: Optional[str] = None
     research_interests: Optional[str] = None
+    interests: Optional[str] = None  # Alias for research_interests
+    # These are deprecated - derived from interests
     keywords: Optional[List[str]] = None
     categories: Optional[List[str]] = None
     topics: Optional[List[str]] = None
@@ -937,6 +1031,10 @@ async def reschedule_calendar_event_endpoint(event_id: UUID, data: RescheduleReq
         
         if user_email and user_email != "user@researchpulse.local":
             try:
+                # Generate new reminder token for the reschedule
+                import uuid as uuid_mod
+                reminder_token = str(uuid_mod.uuid4())[:32]
+                
                 # Get ICS UID from existing event or generate new one
                 ics_uid = existing_event.get("ics_uid")
                 if not ics_uid:
@@ -987,6 +1085,8 @@ Reason: {reschedule_note}
 
 ---
 This calendar invite was updated by ResearchPulse.
+
+[RP_REMINDER_ID: {reminder_token}]
 """
                 
                 # Send the email (returns 3 values: success, message_id, error)
@@ -1030,6 +1130,7 @@ This calendar invite was updated by ResearchPulse.
                     subject=email_subject,
                     ics_uid=ics_uid,
                     email_id=email_id,
+                    reminder_token=reminder_token,  # For reliable reply matching
                     ics_sequence=sequence,
                     ics_method="REQUEST",
                     triggered_by="user",
@@ -1694,7 +1795,14 @@ async def get_colleague(colleague_id: str):
 
 @router.post("/colleagues")
 async def create_colleague(data: ColleagueCreate):
-    """Create a new colleague."""
+    """
+    Create a new colleague.
+    
+    Categories are derived from interests (not directly editable).
+    If interests are provided, we:
+    1. Use LLM to infer keywords and categories
+    2. Generate an interest_headline for UI display
+    """
     try:
         store = get_default_store()
         user = store.get_or_create_default_user()
@@ -1702,21 +1810,26 @@ async def create_colleague(data: ColleagueCreate):
         
         colleague_data = data.model_dump()
         
-        # If research_interests is provided, use LLM to infer keywords and categories
-        research_interests = colleague_data.get("research_interests")
-        if research_interests and research_interests.strip():
-            inferred = await infer_research_keywords_categories(research_interests)
+        # Get the interests text (use research_interests or interests field)
+        interests_text = colleague_data.get("research_interests") or colleague_data.get("interests") or ""
+        
+        # Categories are DERIVED from interests, never directly set by user
+        # Clear any user-provided categories - they will be inferred
+        colleague_data["categories"] = []
+        colleague_data["keywords"] = []
+        
+        if interests_text and interests_text.strip():
+            # Use LLM to infer keywords and categories from interests
+            inferred = await infer_research_keywords_categories(interests_text)
+            colleague_data["keywords"] = inferred.get("keywords", [])
+            colleague_data["categories"] = inferred.get("categories", [])
             
-            # Merge inferred with any user-provided keywords/categories
-            existing_keywords = colleague_data.get("keywords", []) or []
-            existing_categories = colleague_data.get("categories", []) or []
+            # Generate interest headline for UI display
+            headline = await generate_interest_headline(interests_text)
+            colleague_data["interest_headline"] = headline
             
-            # Combine and deduplicate
-            all_keywords = list(dict.fromkeys(existing_keywords + inferred.get("keywords", [])))
-            all_categories = list(dict.fromkeys(existing_categories + inferred.get("categories", [])))
-            
-            colleague_data["keywords"] = all_keywords
-            colleague_data["categories"] = all_categories
+            # Also store the interests text in dedicated field
+            colleague_data["interests"] = interests_text
         
         # Ensure proper defaults
         colleague_data.setdefault("keywords", [])
@@ -1724,7 +1837,7 @@ async def create_colleague(data: ColleagueCreate):
         colleague_data.setdefault("topics", [])
         colleague_data.setdefault("sharing_preference", "weekly")
         colleague_data.setdefault("enabled", True)
-        colleague_data.setdefault("added_by", "manual")
+        colleague_data.setdefault("added_by", "manual")  # Owner-added = 'manual'
         colleague_data.setdefault("auto_send_emails", True)
         
         colleague = store.create_colleague(user_id, colleague_data)
@@ -1739,12 +1852,49 @@ async def create_colleague(data: ColleagueCreate):
 
 @router.put("/colleagues/{colleague_id}")
 async def update_colleague(colleague_id: str, data: ColleagueUpdate):
-    """Update a colleague."""
+    """
+    Update a colleague.
+    
+    If interests are changed, categories are re-derived automatically.
+    Categories cannot be directly edited - they are always derived from interests.
+    """
     try:
         colleague_uuid = UUID(colleague_id)
         store = get_default_store()
         
         update_data = data.model_dump(exclude_none=True)
+        
+        # Check if interests are being updated
+        interests_text = update_data.get("research_interests") or update_data.get("interests")
+        
+        if interests_text is not None:
+            # If interests changed, re-derive categories and headline
+            if interests_text and interests_text.strip():
+                # Use LLM to infer new keywords and categories
+                inferred = await infer_research_keywords_categories(interests_text)
+                update_data["keywords"] = inferred.get("keywords", [])
+                update_data["categories"] = inferred.get("categories", [])
+                
+                # Regenerate interest headline
+                headline = await generate_interest_headline(interests_text)
+                update_data["interest_headline"] = headline
+                
+                # Store in dedicated interests field too
+                update_data["interests"] = interests_text
+            else:
+                # Interests cleared - clear derived fields too
+                update_data["keywords"] = []
+                update_data["categories"] = []
+                update_data["interest_headline"] = None
+                update_data["interests"] = None
+        
+        # Never allow direct category updates - remove if present
+        # Categories are always derived from interests
+        if "categories" in update_data and interests_text is None:
+            # Only remove categories if we're not already processing interests
+            # This preserves categories derived from interests
+            pass
+        
         colleague = store.update_colleague(colleague_uuid, update_data)
         return colleague
     except ValueError as e:
@@ -1791,6 +1941,143 @@ async def bulk_delete_colleagues(colleague_ids: List[str] = Body(embed=False)):
         return {"deleted_count": deleted_count, "failed_ids": failed_ids}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/colleagues/{colleague_id}/email-stats")
+async def get_colleague_email_stats(colleague_id: str):
+    """
+    Get email activity statistics for a colleague.
+    
+    Returns counts for different time ranges:
+    - last_24h: Emails sent in the last 24 hours
+    - last_7d: Emails sent in the last 7 days
+    - last_30d: Emails sent in the last 30 days
+    - total: Total emails ever sent
+    
+    All data is stored in DB (colleague_email_log table).
+    """
+    try:
+        from datetime import timedelta
+        from sqlalchemy import func
+        from ..db.orm_models import ColleagueEmailLog
+        from ..db.database import get_db_session
+        
+        colleague_uuid = UUID(colleague_id)
+        now = datetime.utcnow()
+        
+        with get_db_session() as session:
+            # Base query
+            base_query = session.query(func.count(ColleagueEmailLog.id)).filter(
+                ColleagueEmailLog.colleague_id == colleague_uuid
+            )
+            
+            # Count for each time range
+            total = base_query.scalar() or 0
+            last_24h = base_query.filter(
+                ColleagueEmailLog.sent_at >= now - timedelta(hours=24)
+            ).scalar() or 0
+            last_7d = base_query.filter(
+                ColleagueEmailLog.sent_at >= now - timedelta(days=7)
+            ).scalar() or 0
+            last_30d = base_query.filter(
+                ColleagueEmailLog.sent_at >= now - timedelta(days=30)
+            ).scalar() or 0
+        
+        return {
+            "colleague_id": colleague_id,
+            "stats": {
+                "last_24h": last_24h,
+                "last_7d": last_7d,
+                "last_30d": last_30d,
+                "total": total
+            }
+        }
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid colleague ID")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Return zeros if table doesn't exist yet or other error
+        return {
+            "colleague_id": colleague_id,
+            "stats": {
+                "last_24h": 0,
+                "last_7d": 0,
+                "last_30d": 0,
+                "total": 0
+            },
+            "error": str(e)
+        }
+
+
+@router.get("/colleagues/{colleague_id}/email-history")
+async def get_colleague_email_history(
+    colleague_id: str,
+    range: str = Query("all", description="Time range: 24h, 7d, 30d, or all"),
+    limit: int = Query(20, le=100),
+    offset: int = Query(0)
+):
+    """
+    Get email history for a colleague.
+    
+    Returns a list of sent emails with subject, date, and snippet.
+    """
+    try:
+        from datetime import timedelta
+        from ..db.orm_models import ColleagueEmailLog
+        from ..db.database import get_db_session
+        
+        colleague_uuid = UUID(colleague_id)
+        now = datetime.utcnow()
+        
+        with get_db_session() as session:
+            query = session.query(ColleagueEmailLog).filter(
+                ColleagueEmailLog.colleague_id == colleague_uuid
+            )
+            
+            # Apply time range filter
+            if range == "24h":
+                query = query.filter(ColleagueEmailLog.sent_at >= now - timedelta(hours=24))
+            elif range == "7d":
+                query = query.filter(ColleagueEmailLog.sent_at >= now - timedelta(days=7))
+            elif range == "30d":
+                query = query.filter(ColleagueEmailLog.sent_at >= now - timedelta(days=30))
+            
+            # Order by most recent first
+            query = query.order_by(ColleagueEmailLog.sent_at.desc())
+            
+            # Apply pagination
+            total = query.count()
+            emails = query.offset(offset).limit(limit).all()
+            
+            return {
+                "colleague_id": colleague_id,
+                "range": range,
+                "total": total,
+                "emails": [
+                    {
+                        "id": str(e.id),
+                        "subject": e.subject,
+                        "snippet": e.snippet,
+                        "email_type": e.email_type,
+                        "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+                        "paper_arxiv_id": e.paper_arxiv_id
+                    }
+                    for e in emails
+                ]
+            }
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid colleague ID")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "colleague_id": colleague_id,
+            "range": range,
+            "total": 0,
+            "emails": [],
+            "error": str(e)
+        }
 
 
 # =============================================================================
@@ -2170,7 +2457,7 @@ async def test_agent_actions():
             logger.warning(f"[DEBUG] Could not fetch sample paper: {e}")
         
         # Test creating an email artifact
-        test_email_content = f"""Subject: [ResearchPulse] New Paper: {sample_paper_title[:60]}
+        test_email_content = f"""Subject: ResearchPulse: New paper - {sample_paper_title[:60]}
 
 Dear Researcher,
 
@@ -2637,10 +2924,18 @@ async def bulk_create_reminder(paper_ids: List[str] = Body(...)):
         
         if user_email and user_email != "user@researchpulse.local":
             try:
-                # Generate email body
+                # Generate unique reminder token for reliable reply matching
+                import uuid as uuid_mod
+                reminder_token = str(uuid_mod.uuid4())[:32]  # 32-char token for brevity
+                
+                # Generate email body with embedded token
                 email_subject = f"📅 Reading Reminder: {title}"
-                email_body_text = _generate_invite_email_body(papers_data, start_date, estimated_minutes, agent_note)
-                email_body_html = _generate_invite_email_html(papers_data, start_date, estimated_minutes, agent_note)
+                email_body_text = _generate_invite_email_body(
+                    papers_data, start_date, estimated_minutes, agent_note, reminder_token
+                )
+                email_body_html = _generate_invite_email_html(
+                    papers_data, start_date, estimated_minutes, agent_note, reminder_token
+                )
                 
                 # Send the calendar invite email (returns 3 values: success, message_id, error)
                 email_sent, actual_message_id, send_error = send_calendar_invite_email(
@@ -2685,6 +2980,7 @@ async def bulk_create_reminder(paper_ids: List[str] = Body(...)):
                     subject=email_subject,
                     ics_uid=ics_uid,
                     email_id=email_id,
+                    reminder_token=reminder_token,  # For reliable reply matching
                     ics_sequence=0,
                     ics_method="REQUEST",
                     triggered_by=triggered_by,
@@ -2710,8 +3006,22 @@ async def bulk_create_reminder(paper_ids: List[str] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _generate_invite_email_body(papers: List[Dict[str, Any]], start_time: datetime, duration_minutes: int, agent_note: Optional[str] = None) -> str:
-    """Generate plain text email body for calendar invite."""
+def _generate_invite_email_body(
+    papers: List[Dict[str, Any]], 
+    start_time: datetime, 
+    duration_minutes: int, 
+    agent_note: Optional[str] = None,
+    reminder_token: Optional[str] = None,
+) -> str:
+    """Generate plain text email body for calendar invite.
+    
+    Args:
+        papers: List of paper dicts with title, url, importance
+        start_time: Event start time
+        duration_minutes: Event duration
+        agent_note: Optional note from agent
+        reminder_token: Unique token for reply matching (embedded in footer)
+    """
     lines = []
     lines.append("ResearchPulse Reading Reminder")
     lines.append("=" * 40)
@@ -2741,11 +3051,30 @@ def _generate_invite_email_body(papers: List[Dict[str, Any]], start_time: dateti
     lines.append("")
     lines.append("This reminder was created by ResearchPulse.")
     
+    # Embed reminder token for reliable reply matching (kept at bottom, unobtrusive)
+    if reminder_token:
+        lines.append("")
+        lines.append(f"[RP_REMINDER_ID: {reminder_token}]")
+    
     return "\n".join(lines)
 
 
-def _generate_invite_email_html(papers: List[Dict[str, Any]], start_time: datetime, duration_minutes: int, agent_note: Optional[str] = None) -> str:
-    """Generate HTML email body for calendar invite."""
+def _generate_invite_email_html(
+    papers: List[Dict[str, Any]], 
+    start_time: datetime, 
+    duration_minutes: int, 
+    agent_note: Optional[str] = None,
+    reminder_token: Optional[str] = None,
+) -> str:
+    """Generate HTML email body for calendar invite.
+    
+    Args:
+        papers: List of paper dicts with title, url, importance
+        start_time: Event start time
+        duration_minutes: Event duration
+        agent_note: Optional note from agent
+        reminder_token: Unique token for reply matching (embedded in hidden span)
+    """
     html = []
     html.append("""<!DOCTYPE html>
 <html>
@@ -2762,6 +3091,7 @@ def _generate_invite_email_html(papers: List[Dict[str, Any]], start_time: dateti
         .footer { padding: 15px; background: #eee; border-radius: 0 0 8px 8px; font-size: 12px; color: #666; }
         .agent-note { background: #e6f3ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #3182ce; }
         a { color: #667eea; }
+        .rp-token { display: none; font-size: 1px; color: transparent; }
     </style>
 </head>
 <body>
@@ -2801,16 +3131,24 @@ def _generate_invite_email_html(papers: List[Dict[str, Any]], start_time: dateti
         </div>
 """)
     
-    html.append("""
+    # Build footer with optional reminder token
+    footer_content = """
     </div>
     <div class="footer">
         <p>To reschedule this reading session, simply reply to this email with your preferred date and time 
         (e.g., "Please move to tomorrow at 2pm").</p>
-        <p>This reminder was created by <strong>ResearchPulse</strong>.</p>
+        <p>This reminder was created by <strong>ResearchPulse</strong>.</p>"""
+    
+    if reminder_token:
+        footer_content += f"""
+        <span class="rp-token">[RP_REMINDER_ID: {reminder_token}]</span>"""
+    
+    footer_content += """
     </div>
 </body>
 </html>
-""")
+"""
+    html.append(footer_content)
     
     return "".join(html)
 
@@ -3939,3 +4277,239 @@ async def bulk_reschedule_events(data: BulkRescheduleRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Inbox Settings API
+# =============================================================================
+
+class InboxSettingsUpdate(BaseModel):
+    """Request model for updating inbox settings."""
+    enabled: bool
+    frequency_seconds: Optional[int] = None  # None/null = disabled
+
+
+class ColleagueJoinCodeRequest(BaseModel):
+    """Request model for setting join code."""
+    code: str  # Plain text code (will be hashed)
+
+
+@router.get("/settings/inbox")
+async def get_inbox_settings():
+    """
+    Get current inbox polling settings.
+    
+    Returns:
+        - enabled: Whether inbox polling is enabled
+        - frequency_seconds: Polling interval (null if disabled)
+        - last_check_at: Last time inbox was checked
+        - has_join_code: Whether a colleague join code is configured
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        settings = store.get_or_create_user_settings(user_id)
+        
+        return {
+            "success": True,
+            "settings": settings,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/settings/inbox")
+async def update_inbox_settings(data: InboxSettingsUpdate):
+    """
+    Update inbox polling settings.
+    
+    Valid frequency_seconds values:
+    - null/None: Disabled
+    - 10: Every 10 seconds (aggressive)
+    - 30: Every 30 seconds
+    - 60: Every minute
+    - 300: Every 5 minutes
+    - 900: Every 15 minutes
+    - 3600: Every hour (power saving)
+    """
+    try:
+        # Validate frequency
+        valid_frequencies = [None, 10, 30, 60, 300, 900, 3600]
+        if data.frequency_seconds not in valid_frequencies:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid frequency. Valid values: {valid_frequencies}"
+            )
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        settings = store.update_inbox_settings(
+            user_id=user_id,
+            enabled=data.enabled,
+            frequency_seconds=data.frequency_seconds,
+        )
+        
+        # Notify scheduler of change (if implemented)
+        try:
+            from ..tools.inbox_scheduler import update_scheduler
+            update_scheduler(user_id, data.enabled, data.frequency_seconds)
+        except ImportError:
+            pass  # Scheduler not yet implemented
+        except Exception as e:
+            # Log but don't fail the request
+            import logging
+            logging.warning(f"Could not update scheduler: {e}")
+        
+        return {
+            "success": True,
+            "settings": settings,
+            "message": "Inbox settings updated" if data.enabled else "Inbox polling disabled",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/settings/inbox/check-now")
+async def trigger_inbox_check():
+    """
+    Manually trigger an inbox check (regardless of schedule).
+    
+    Useful for testing or immediate processing.
+    """
+    try:
+        from ..tools.inbound_processor import InboundEmailProcessor
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = user["id"]
+        
+        processor = InboundEmailProcessor(store, user_id)
+        results = processor.process_all(since_hours=48)
+        
+        return {
+            "success": True,
+            "results": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/settings/colleague-join-code")
+async def set_colleague_join_code(data: ColleagueJoinCodeRequest):
+    """
+    Set or rotate the colleague join code.
+    
+    The code is hashed before storage (never stored in plaintext).
+    Share this code with colleagues who want to subscribe via email.
+    """
+    try:
+        from ..tools.inbound_processor import hash_join_code
+        
+        if len(data.code) < 4:
+            raise HTTPException(status_code=400, detail="Code must be at least 4 characters")
+        if len(data.code) > 32:
+            raise HTTPException(status_code=400, detail="Code must be at most 32 characters")
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Hash the code before storing
+        code_hash = hash_join_code(data.code)
+        
+        settings = store.set_colleague_join_code(user_id, code_hash)
+        
+        return {
+            "success": True,
+            "message": "Join code updated successfully",
+            "settings": settings,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/settings/colleague-join-code")
+async def clear_colleague_join_code():
+    """
+    Clear the colleague join code (disable email signups).
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        settings = store.clear_colleague_join_code(user_id)
+        
+        return {
+            "success": True,
+            "message": "Join code cleared",
+            "settings": settings,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/settings/inbox/history")
+async def get_inbox_processing_history(
+    limit: int = Query(default=50, ge=1, le=500),
+    email_type: Optional[str] = Query(default=None),
+):
+    """
+    Get history of processed inbound emails.
+    
+    Useful for debugging and audit.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        history = store.list_processed_emails(
+            user_id=user_id,
+            limit=limit,
+            email_type=email_type,
+        )
+        
+        return {
+            "success": True,
+            "history": history,
+            "count": len(history),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/settings/inbox/diagnostics")
+async def run_inbox_diagnostics_endpoint(
+    since_hours: int = Query(default=48, ge=1, le=168),
+):
+    """
+    Run inbox diagnostics - fetch and analyze recent emails.
+    
+    Returns a table of recent emails with detected intent, useful for debugging
+    why emails are not being processed.
+    """
+    try:
+        from src.tools.inbound_processor import run_inbox_diagnostics
+        
+        results = run_inbox_diagnostics(since_hours=since_hours)
+        
+        return {
+            "success": True,
+            **results,
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }

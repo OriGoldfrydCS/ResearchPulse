@@ -133,6 +133,42 @@ class Store(ABC):
         pass
     
     # =========================================================================
+    # Colleague Email Log Operations (for tracking sent emails)
+    # =========================================================================
+    
+    @abstractmethod
+    def log_colleague_email(
+        self,
+        colleague_id: UUID,
+        user_id: UUID,
+        subject: str,
+        email_type: str = "paper_recommendation",
+        snippet: Optional[str] = None,
+        paper_id: Optional[UUID] = None,
+        paper_arxiv_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Log an outbound email sent to a colleague.
+        
+        Args:
+            colleague_id: ID of the colleague
+            user_id: ID of the owner user
+            subject: Email subject
+            email_type: Type of email (paper_recommendation, digest, onboarding, other)
+            snippet: First ~100 chars of body for preview
+            paper_id: Related paper ID if applicable
+            paper_arxiv_id: Related paper arXiv ID if applicable
+            message_id: SMTP/Gmail message ID
+            metadata: Additional metadata
+            
+        Returns:
+            Dictionary with the created log entry
+        """
+        pass
+    
+    # =========================================================================
     # Run Operations
     # =========================================================================
     
