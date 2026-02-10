@@ -11,11 +11,16 @@ Returns papers with: title, abstract, authors, categories, published date, links
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.error import HTTPError
+
+logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
@@ -251,24 +256,51 @@ def fetch_arxiv_papers(
             query_info,
         )
     
-    # Real arXiv API fetch
-    try:
-        return _fetch_real_papers(
-            categories_include,
-            categories_exclude,
-            max_results,
-            query,
-            days_back,
-            query_info,
-        )
-    except Exception as e:
-        return FetchArxivResult(
-            success=False,
-            papers=[],
-            total_found=0,
-            query_info=query_info,
-            error=f"arXiv API error: {str(e)}",
-        )
+    # Real arXiv API fetch with retry on rate-limit (HTTP 429)
+    max_retries = 4
+    base_delay = 5  # seconds
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return _fetch_real_papers(
+                categories_include,
+                categories_exclude,
+                max_results,
+                query,
+                days_back,
+                query_info,
+            )
+        except Exception as e:
+            err_msg = str(e)
+            is_rate_limit = "429" in err_msg or "Too Many Requests" in err_msg
+
+            if is_rate_limit and attempt < max_retries:
+                delay = base_delay * (2 ** (attempt - 1))  # 5, 10, 20, 40 …
+                logger.warning(
+                    "[FETCH_ARXIV] HTTP 429 rate-limited by arXiv. "
+                    "Retry %d/%d in %ds…", attempt, max_retries, delay,
+                )
+                time.sleep(delay)
+                continue
+
+            # Non-retryable error or final attempt exhausted
+            logger.error("[FETCH_ARXIV] Failed after %d attempt(s): %s", attempt, err_msg)
+            return FetchArxivResult(
+                success=False,
+                papers=[],
+                total_found=0,
+                query_info=query_info,
+                error=f"arXiv API error: {err_msg}",
+            )
+
+    # Should never reach here, but just in case
+    return FetchArxivResult(
+        success=False,
+        papers=[],
+        total_found=0,
+        query_info=query_info,
+        error="arXiv API error: retries exhausted",
+    )
 
 
 def _fetch_mock_papers(
@@ -349,18 +381,27 @@ def _fetch_real_papers(
     
     search_query = " AND ".join(query_parts) if query_parts else "cat:cs.CL"
     
-    # Perform search
+    # Perform search — request modest overhead for post-filters
+    fetch_count = min(max_results + 20, max_results * 2, 100)
     search = arxiv.Search(
         query=search_query,
-        max_results=max_results * 2,  # Fetch extra for filtering
+        max_results=fetch_count,
         sort_by=arxiv.SortCriterion.SubmittedDate,
         sort_order=arxiv.SortOrder.Descending,
+    )
+    
+    # Use the built-in Client with a 3-second page delay to respect
+    # arXiv's rate-limit policy (max 1 request per 3 seconds).
+    client = arxiv.Client(
+        page_size=50,
+        delay_seconds=3.0,
+        num_retries=3,
     )
     
     papers = []
     cutoff_date = datetime.utcnow() - timedelta(days=days_back)
     
-    for result in search.results():
+    for result in client.results(search):
         # Date filter
         if result.published.replace(tzinfo=None) < cutoff_date:
             continue

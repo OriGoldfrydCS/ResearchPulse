@@ -1171,6 +1171,8 @@ def save_artifact_to_db(
             
             logger.info(f"[ARTIFACT] Creating calendar event: '{title}' at {start_time} (triggered_by={triggered_by})")
             
+            # Store the DB UUID in paper_ids (not arXiv external ID)
+            db_paper_id_str = str(db_paper_id) if db_paper_id else None
             result = store.create_calendar_event(
                 user_id=uuid.UUID(user_id),
                 paper_id=db_paper_id,
@@ -1179,7 +1181,7 @@ def save_artifact_to_db(
                 duration_minutes=30,
                 ics_text=content,
                 triggered_by=triggered_by,
-                paper_ids=[paper_id] if paper_id else None,
+                paper_ids=[db_paper_id_str] if db_paper_id_str else None,
             )
             
             event_id = result.get("id")
@@ -1215,6 +1217,18 @@ def save_artifact_to_db(
                     if invite_result.get("success"):
                         logger.info(f"[ARTIFACT] Sent calendar invite email to {user_email}")
                         
+                        # Backfill ics_uid to CalendarEvent so reschedule can find it
+                        invite_ics_uid = invite_result.get("ics_uid", "")
+                        if event_id and invite_ics_uid:
+                            try:
+                                store.update_calendar_event(
+                                    uuid.UUID(event_id),
+                                    {"ics_uid": invite_ics_uid, "sequence_number": 0},
+                                )
+                                logger.info(f"[ARTIFACT] Saved ics_uid to calendar event {event_id}")
+                            except Exception as uid_err:
+                                logger.warning(f"[ARTIFACT] Could not backfill ics_uid: {uid_err}")
+                        
                         # Store the invite email record
                         if event_id:
                             store.create_calendar_invite_email(
@@ -1223,7 +1237,7 @@ def save_artifact_to_db(
                                 message_id=invite_result.get("message_id", ""),
                                 recipient_email=user_email,
                                 subject=invite_result.get("subject", title),
-                                ics_uid=invite_result.get("ics_uid", ""),
+                                ics_uid=invite_ics_uid,
                                 triggered_by=triggered_by,
                             )
                     else:

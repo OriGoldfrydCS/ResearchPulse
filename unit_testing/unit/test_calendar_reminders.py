@@ -293,7 +293,8 @@ class TestCalendarInviteEmail:
                 )
                 
                 assert success is True
-                mock_server.sendmail.assert_called_once()
+                # Unified outbound email module uses send_message instead of sendmail
+                mock_server.send_message.assert_called_once()
 
 
 class TestCalendarEventDuration:

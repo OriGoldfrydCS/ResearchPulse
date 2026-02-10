@@ -30,6 +30,7 @@ from .run_manager import RunManager, RunStatus, run_manager
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from agent.stop_controller import StopController, StopPolicy, RunMetrics
 from agent.react_agent import ResearchReActAgent, AgentConfig, run_agent_episode
+from agent.scope_gate import classify_user_request, ScopeClass
 
 router = APIRouter()
 
@@ -272,6 +273,28 @@ async def start_chat(request: ChatRequest) -> ChatResponse:
     
     Returns the run_id which can be used to poll for status.
     """
+    # --- Scope Gate: classify before running the heavy agent pipeline ---
+    scope_result = classify_user_request(request.message)
+
+    if scope_result.scope != ScopeClass.IN_SCOPE:
+        # Return the predefined response without invoking the agent
+        import uuid as _uuid
+        return ChatResponse(
+            run_id=str(_uuid.uuid4()),
+            status="done",
+            message=scope_result.response or "",
+        )
+
+    # If in-scope but has an early response (e.g. missing topic), still
+    # create a run but surface the follow-up immediately
+    if scope_result.response:
+        import uuid as _uuid
+        return ChatResponse(
+            run_id=str(_uuid.uuid4()),
+            status="done",
+            message=scope_result.response,
+        )
+
     # Create a new run
     run_state = run_manager.create_run(request.message)
     run_id = run_state.run_id
@@ -459,7 +482,27 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
     import logging
-    
+
+    # --- Scope Gate: classify before running the heavy agent pipeline ---
+    scope_result = classify_user_request(request.prompt)
+
+    if scope_result.scope != ScopeClass.IN_SCOPE:
+        return ExecuteResponse(
+            status="ok",
+            error=None,
+            response=scope_result.response or "",
+            steps=[],
+        )
+
+    # If in-scope but has an early response (e.g. missing topic / need arXiv link)
+    if scope_result.response:
+        return ExecuteResponse(
+            status="ok",
+            error=None,
+            response=scope_result.response,
+            steps=[],
+        )
+
     # Use provided run_id or create a new one
     if request.run_id:
         run_id = request.run_id

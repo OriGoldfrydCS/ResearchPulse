@@ -32,6 +32,18 @@ from .email_poller import (
     is_calendar_invite_reply,
 )
 
+# Import unified outbound email module for consistent sender name
+try:
+    from .outbound_email import (
+        send_outbound_email,
+        EmailType,
+    )
+except ImportError:
+    from outbound_email import (
+        send_outbound_email,
+        EmailType,
+    )
+
 logger = logging.getLogger(__name__)
 
 # Configure structured logging for inbound email pipeline
@@ -160,18 +172,37 @@ def extract_reschedule_datetime(body: str) -> Tuple[Optional[datetime], Optional
     """
     Extract a requested datetime from reschedule email body.
     
-    Uses the reply_parser module if available, otherwise basic patterns.
+    Strips quoted content first, then uses the reply_parser module.
     """
     try:
-        from ..agent.reply_parser import parse_reply
-        result = parse_reply(body, use_llm=False)
+        from ..agent.reply_parser import parse_reply, strip_email_quotes
+        cleaned_body = strip_email_quotes(body)
+        logger.debug(f"[RESCHEDULE_PARSE] cleaned_body_length={len(cleaned_body)} (original={len(body)})")
+
+        result = parse_reply(cleaned_body, use_llm=False)
+
         if result.extracted_datetime:
-            return result.extracted_datetime, result.raw_datetime_text
+            logger.info(
+                f"[RESCHEDULE_PARSE] extracted_text=\"{result.extracted_datetime_text}\" "
+                f"parsed_dt={result.extracted_datetime.isoformat()}"
+            )
+            return result.extracted_datetime, result.extracted_datetime_text
+
+        # If cleaned body failed, try the full body (sometimes context matters)
+        if cleaned_body != body:
+            result = parse_reply(body, use_llm=False)
+            if result.extracted_datetime:
+                logger.info(
+                    f"[RESCHEDULE_PARSE] extracted_text=\"{result.extracted_datetime_text}\" "
+                    f"parsed_dt={result.extracted_datetime.isoformat()} (full body fallback)"
+                )
+                return result.extracted_datetime, result.extracted_datetime_text
+
+        logger.warning(f"[RESCHEDULE_PARSE] No datetime found in body (intent={result.intent.value})")
     except ImportError:
-        pass
+        logger.warning("[RESCHEDULE_PARSE] reply_parser import failed, falling back to basic patterns")
     
     # Fallback: Basic pattern matching
-    # This is a simplified version - the full reply_parser handles more cases
     return None, None
 
 
@@ -333,8 +364,7 @@ class InboundEmailProcessor:
                     )
                 else:
                     results["failed"] += 1
-                    # Mark as match_failed - could potentially be retried if matching logic improves
-                    # or if the original invite record gets the token backfilled
+                    # Mark as match_failed so we don't keep retrying indefinitely
                     self.store.mark_email_processed(
                         user_id=self.user_id,
                         gmail_message_id=message_id,
@@ -344,17 +374,9 @@ class InboundEmailProcessor:
                         subject=subject,
                     )
             except Exception as e:
-                logger.error(f"[INBOUND] Error handling reschedule reply: {e}")
+                logger.error(f"[INBOUND] Error handling reschedule reply: {e}", exc_info=True)
                 results["failed"] += 1
-                self.store.mark_email_processed(
-                    user_id=self.user_id,
-                    gmail_message_id=message_id,
-                    email_type="reschedule_reply",
-                    processing_result="error",
-                    from_email=from_email,
-                    subject=subject,
-                    error_message=str(e),
-                )
+                # Do NOT mark as processed — allows retry on next poll cycle
         
         return results
     
@@ -506,8 +528,8 @@ class InboundEmailProcessor:
         new_datetime, datetime_text = extract_reschedule_datetime(body)
         
         if not new_datetime:
-            logger.info(f"[INBOUND] No datetime found in reschedule request")
-            # Still record the reply for manual review
+            logger.warning(f"[RESCHEDULE_PARSE] No datetime found in reschedule request body")
+            # Record the reply for manual review
             try:
                 self.store.create_inbound_email_reply(
                     user_id=self.user_id,
@@ -520,7 +542,24 @@ class InboundEmailProcessor:
                 )
             except Exception as e:
                 logger.error(f"[INBOUND] Error storing reply: {e}")
+            # Send clarification email (once per thread)
+            self._send_reschedule_clarification(from_email, subject, message_id)
             return False
+        
+        # Validate parsed datetime is in the future
+        now = datetime.utcnow()
+        if new_datetime < now:
+            logger.warning(
+                f"[RESCHEDULE_PARSE] Parsed datetime is in the past: "
+                f"{new_datetime.isoformat()} < {now.isoformat()}"
+            )
+            self._send_reschedule_clarification(from_email, subject, message_id)
+            return False
+        
+        logger.info(
+            f"[RESCHEDULE_PARSE] extracted_text=\"{datetime_text}\" "
+            f"parsed_dt={new_datetime.isoformat()}"
+        )
         
         # Get the calendar event
         event = self.store.get_calendar_event(UUID(invite["calendar_event_id"]))
@@ -529,73 +568,193 @@ class InboundEmailProcessor:
             return False
         
         old_time = event.get("start_time")
+        logger.info(
+            f"[RESCHEDULE_UPDATE] reminder_id={invite['id']} "
+            f"old_dt={old_time} new_dt={new_datetime.isoformat()}"
+        )
         
         # Reschedule the event
-        try:
-            self.store.reschedule_calendar_event(
-                event_id=UUID(event["id"]),
-                new_start_time=new_datetime,
-                reschedule_note=f"Rescheduled via email reply: {datetime_text or 'user request'}",
-            )
-            
-            # Record the reply
-            self.store.create_inbound_email_reply(
-                user_id=self.user_id,
-                original_invite_id=UUID(invite["id"]),
-                message_id=message_id,
-                from_email=from_email,
-                subject=reply.get("subject"),
-                body_text=body,
-                in_reply_to=in_reply_to,
-            )
-            
-            # Log success with details
-            logger.info(
-                f"[RESCHEDULE_SUCCESS] reminder_id={invite['id']}, "
-                f"old_time={old_time}, new_time={new_datetime}, "
-                f"match_method={match_method}"
-            )
-            
-            # Send updated calendar invite
-            self._send_reschedule_confirmation(event, new_datetime)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"[INBOUND] Error rescheduling event: {e}")
-            return False
+        self.store.reschedule_calendar_event(
+            event_id=UUID(event["id"]),
+            new_start_time=new_datetime,
+            reschedule_note=f"Rescheduled via email reply: {datetime_text or 'user request'}",
+        )
+        
+        # Record the reply
+        self.store.create_inbound_email_reply(
+            user_id=self.user_id,
+            original_invite_id=UUID(invite["id"]),
+            message_id=message_id,
+            from_email=from_email,
+            subject=reply.get("subject"),
+            body_text=body,
+            in_reply_to=in_reply_to,
+        )
+        
+        # Log success with details
+        logger.info(
+            f"[RESCHEDULE_SUCCESS] reminder_id={invite['id']}, "
+            f"old_time={old_time}, new_time={new_datetime.isoformat()}, "
+            f"match_method={match_method}"
+        )
+        
+        # Send updated calendar invite (pass invite for ics_uid fallback)
+        sent_ok = self._send_reschedule_confirmation(event, new_datetime, invite)
+        logger.info(
+            f"[RESCHEDULE_EMAIL] sent_update_invite={sent_ok} "
+            f"reminder_id={invite['id']}"
+        )
+        
+        return True
     
-    def _send_reschedule_confirmation(self, event: Dict[str, Any], new_time: datetime):
-        """Send a confirmation calendar invite for the reschedule."""
+    def _send_reschedule_confirmation(
+        self,
+        event: Dict[str, Any],
+        new_time: datetime,
+        invite: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Send a confirmation calendar invite for the reschedule.
+        
+        Looks up ics_uid from event, then invite record, then CalendarInviteEmail table.
+        Returns True if the email was sent successfully.
+        """
         try:
             from .calendar_invite_sender import send_reschedule_invite
             
             user = self.store.get_user(self.user_id)
             if user and user.get("email"):
-                # Get papers for the event
+                # Get papers for the event (handles both UUID and arXiv-ID formats)
                 papers = []
                 paper_ids = event.get("paper_ids") or []
                 if event.get("paper_id"):
                     paper_ids.append(str(event["paper_id"]))
                 
                 for pid in paper_ids:
+                    paper = None
+                    # Try UUID lookup first
                     try:
                         paper = self.store.get_paper(UUID(pid))
-                        if paper:
-                            papers.append(paper)
+                    except (ValueError, AttributeError):
+                        pass
+                    # Fall back to arXiv external_id lookup
+                    if not paper:
+                        try:
+                            paper = self.store.get_paper_by_external_id("arxiv", pid)
+                        except Exception:
+                            pass
+                    if paper:
+                        papers.append(paper)
+                
+                if not papers:
+                    logger.warning(
+                        f"[RESCHEDULE_EMAIL] No papers resolved from paper_ids={paper_ids}, "
+                        f"paper_id={event.get('paper_id')}"
+                    )
+                
+                # Resolve ics_uid: event → invite record → DB lookup
+                ics_uid = event.get("ics_uid")
+                if not ics_uid and invite:
+                    ics_uid = invite.get("ics_uid")
+                    if ics_uid:
+                        logger.info("[RESCHEDULE_EMAIL] ics_uid resolved from invite record")
+                if not ics_uid:
+                    # Last resort: look up from CalendarInviteEmail table
+                    try:
+                        invite_emails = self.store.list_calendar_invite_emails(
+                            user_id=self.user_id,
+                            calendar_event_id=UUID(event["id"]),
+                            limit=1,
+                        )
+                        if invite_emails:
+                            ics_uid = invite_emails[0].get("ics_uid")
+                            if ics_uid:
+                                logger.info("[RESCHEDULE_EMAIL] ics_uid resolved from invite email table")
+                    except Exception as lookup_err:
+                        logger.debug(f"[RESCHEDULE_EMAIL] ics_uid DB lookup failed: {lookup_err}")
+                
+                if not ics_uid:
+                    logger.warning("[RESCHEDULE_EMAIL] Event missing ics_uid, cannot send update invite")
+                    return False
+                
+                # Backfill ics_uid to event for future reschedules
+                if not event.get("ics_uid") and ics_uid:
+                    try:
+                        self.store.update_calendar_event(UUID(event["id"]), {"ics_uid": ics_uid})
+                        logger.info(f"[RESCHEDULE_EMAIL] Backfilled ics_uid to event {event['id']}")
                     except Exception:
                         pass
-                
-                send_reschedule_invite(
-                    event=event,
-                    recipient_email=user["email"],
+
+                old_sequence = event.get("sequence_number") or 0
+                duration = event.get("duration_minutes") or 30
+
+                result = send_reschedule_invite(
+                    user_email=user["email"],
+                    user_name=user.get("name", user["email"]),
                     papers=papers,
-                    old_start_time=event.get("start_time"),
-                    triggered_by="user_email",
+                    new_start_time=new_time,
+                    duration_minutes=duration,
+                    ics_uid=ics_uid,
+                    sequence=old_sequence + 1,
+                    reschedule_reason="Rescheduled via email reply",
                 )
-                logger.info(f"[INBOUND] Sent reschedule confirmation to {user['email']}")
+                if result.get("success"):
+                    logger.info(f"[RESCHEDULE_EMAIL] Sent reschedule confirmation to {user['email']}")
+                    return True
+                else:
+                    logger.error(f"[RESCHEDULE_EMAIL] Send failed: {result.get('error')}")
         except Exception as e:
-            logger.error(f"[INBOUND] Error sending reschedule confirmation: {e}")
+            logger.error(f"[RESCHEDULE_EMAIL] Error sending reschedule confirmation: {e}")
+        return False
+    
+    def _send_reschedule_clarification(
+        self, to_email: str, original_subject: str, in_reply_to_id: str
+    ) -> None:
+        """Send a clarification email when we can't parse the requested datetime.
+        
+        Only sends one clarification per thread (checks DB before sending).
+        """
+        try:
+            # Anti-spam: check if we already sent a clarification for this thread
+            if self.store.is_email_processed(
+                self.user_id, f"clarification_{in_reply_to_id}"
+            ):
+                logger.debug(
+                    f"[RESCHEDULE_CLARIFY] Skipping duplicate clarification for {in_reply_to_id[:30]}"
+                )
+                return
+
+            body = (
+                "Hi,\n\n"
+                "I understood you'd like to reschedule, but I couldn't figure out "
+                "the new date and time from your reply.\n\n"
+                "Could you reply again with a clear date and time? For example:\n\n"
+                '  "Reschedule to February 15, 2026 at 3:00 PM"\n\n'
+                "Thanks!\n"
+                "— ResearchPulse"
+            )
+
+            success, msg_id, error = send_outbound_email(
+                to_email=to_email,
+                subject=f"Re: {original_subject}" if original_subject else "Reschedule clarification",
+                body=body,
+                email_type=EmailType.RESCHEDULE,
+                skip_tag=True,
+            )
+            if success:
+                # Mark so we don't send again for this thread
+                self.store.mark_email_processed(
+                    user_id=self.user_id,
+                    gmail_message_id=f"clarification_{in_reply_to_id}",
+                    email_type="reschedule_clarification",
+                    processing_result="clarification_sent",
+                    from_email="system",
+                    subject=original_subject or "",
+                )
+                logger.info(f"[RESCHEDULE_CLARIFY] Sent clarification to {to_email}")
+            else:
+                logger.error(f"[RESCHEDULE_CLARIFY] Failed to send clarification: {error}")
+        except Exception as e:
+            logger.error(f"[RESCHEDULE_CLARIFY] Error sending clarification email: {e}")
     
     def _process_colleague_joins(self, since_hours: int) -> Dict[str, Any]:
         """Process colleague join request emails."""
@@ -1872,6 +2031,7 @@ If you don't have a join code, please contact the owner directly.
 Best regards,
 ResearchPulse
 """,
+            email_type=EmailType.COLLEAGUE_JOIN,
         )
     
     def _send_invalid_code_reply(self, to_email: str, name: str):
@@ -1890,6 +2050,7 @@ Please double-check your code and try again, or contact the ResearchPulse owner 
 Best regards,
 ResearchPulse
 """,
+            email_type=EmailType.COLLEAGUE_JOIN,
         )
     
     def _send_join_success_reply(self, to_email: str, name: str):
@@ -1908,6 +2069,7 @@ To update your preferences or unsubscribe, please contact the ResearchPulse owne
 Best regards,
 ResearchPulse
 """,
+            email_type=EmailType.WELCOME,
         )
     
     def _send_clarify_intent_reply(self, to_email: str, name: str, custom_message: str = None, thread_id: str = ""):
@@ -1945,6 +2107,7 @@ Just reply with your research interests and I'll start sending you relevant pape
 Best regards,
 ResearchPulse
 """,
+            email_type=EmailType.COLLEAGUE_JOIN,
         )
     
     def _send_onboarding_questions_reply(self, to_email: str, name: str, thread_id: str = ""):
@@ -2018,35 +2181,21 @@ ResearchPulse
 """,
         )
     
-    def _send_join_reply(self, to_email: str, subject: str, body: str):
-        """Send an email reply for join flow."""
+    def _send_join_reply(self, to_email: str, subject: str, body: str, email_type: EmailType = EmailType.ONBOARDING):
+        """Send an email reply for join flow using unified outbound module."""
         try:
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
+            # Use unified outbound email module for consistent sender name and tagging
+            success, message_id, error = send_outbound_email(
+                to_email=to_email,
+                subject=subject,
+                body=body,
+                email_type=email_type,
+            )
             
-            smtp_user = os.getenv("SMTP_USER", "")
-            smtp_password = os.getenv("SMTP_PASSWORD", "")
-            smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-            smtp_port = int(os.getenv("SMTP_PORT", "587"))
-            
-            if not smtp_user or not smtp_password:
-                logger.warning("[INBOUND] SMTP not configured, skipping reply email")
-                return
-            
-            msg = MIMEMultipart()
-            msg["From"] = smtp_user
-            msg["To"] = to_email
-            msg["Subject"] = subject
-            
-            msg.attach(MIMEText(body, "plain"))
-            
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.send_message(msg)
-            
-            logger.info(f"[INBOUND] Sent reply email to {to_email}")
+            if success:
+                logger.info(f"[INBOUND] Sent reply email to {to_email} (message_id={message_id})")
+            else:
+                logger.warning(f"[INBOUND] Failed to send reply email to {to_email}: {error}")
             
         except Exception as e:
             logger.error(f"[INBOUND] Error sending reply email: {e}")

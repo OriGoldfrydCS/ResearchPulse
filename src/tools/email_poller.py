@@ -321,7 +321,7 @@ async def poll_and_process_replies(store, user_id: str) -> Dict[str, Any]:
                 reply_id=inbound_reply["id"],
                 intent=parse_result.intent.value,
                 extracted_datetime=parse_result.extracted_datetime,
-                extracted_datetime_text=parse_result.raw_datetime_text,
+                extracted_datetime_text=parse_result.extracted_datetime_text,
                 confidence=parse_result.confidence,
             )
             
@@ -348,20 +348,36 @@ async def poll_and_process_replies(store, user_id: str) -> Dict[str, Any]:
                         try:
                             user = store.get_user(UUID(user_id))
                             if user and user.get("email"):
-                                # Get papers for description
+                                # Get papers for description (handles UUID and arXiv-ID formats)
                                 papers = []
                                 for pid in (new_event.get("paper_ids") or []):
-                                    paper = store.get_paper(UUID(pid))
+                                    paper = None
+                                    try:
+                                        paper = store.get_paper(UUID(pid))
+                                    except (ValueError, AttributeError):
+                                        pass
+                                    if not paper:
+                                        try:
+                                            paper = store.get_paper_by_external_id("arxiv", pid)
+                                        except Exception:
+                                            pass
                                     if paper:
                                         papers.append(paper)
                                 
-                                send_reschedule_invite(
-                                    event=new_event,
-                                    recipient_email=user["email"],
-                                    papers=papers,
-                                    old_start_time=event["start_time"],
-                                    triggered_by="user"
-                                )
+                                ics_uid = new_event.get("ics_uid")
+                                if ics_uid:
+                                    send_reschedule_invite(
+                                        user_email=user["email"],
+                                        user_name=user.get("name", user["email"]),
+                                        papers=papers,
+                                        new_start_time=parse_result.extracted_datetime,
+                                        duration_minutes=new_event.get("duration_minutes") or 30,
+                                        ics_uid=ics_uid,
+                                        sequence=(new_event.get("sequence_number") or 0) + 1,
+                                        reschedule_reason="Rescheduled after user email reply",
+                                    )
+                                else:
+                                    logger.warning("Event missing ics_uid, cannot send reschedule invite")
                         except Exception as e:
                             logger.error(f"Error sending reschedule invite: {e}")
                         

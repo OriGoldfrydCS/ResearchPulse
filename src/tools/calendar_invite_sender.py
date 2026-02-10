@@ -61,6 +61,22 @@ def _load_ics_generator():
 
 generate_uid, generate_reading_reminder_ics, generate_reschedule_ics, generate_cancel_ics = _load_ics_generator()
 
+# Import unified outbound email module for consistent sender and tagging
+try:
+    from .outbound_email import (
+        send_outbound_email,
+        EmailType,
+        apply_subject_tag,
+        SENDER_DISPLAY_NAME,
+    )
+except ImportError:
+    from outbound_email import (
+        send_outbound_email,
+        EmailType,
+        apply_subject_tag,
+        SENDER_DISPLAY_NAME,
+    )
+
 
 def _get_smtp_config() -> Dict[str, Any]:
     """Get SMTP configuration from environment variables."""
@@ -70,7 +86,7 @@ def _get_smtp_config() -> Dict[str, Any]:
         "user": os.getenv("SMTP_USER", ""),
         "password": os.getenv("SMTP_PASSWORD", ""),
         "from_email": os.getenv("SMTP_FROM_EMAIL", os.getenv("SMTP_USER", "noreply@researchpulse.app")),
-        "from_name": os.getenv("SMTP_FROM_NAME", "ResearchPulse"),
+        "from_name": os.getenv("SMTP_FROM_NAME", SENDER_DISPLAY_NAME),
         "use_tls": os.getenv("SMTP_USE_TLS", "true").lower() == "true",
     }
 
@@ -90,9 +106,12 @@ def send_calendar_invite_email(
     ics_content: Optional[str] = None,
     ics_method: Optional[str] = "REQUEST",
     ics_filename: str = "invite.ics",
+    email_type: EmailType = EmailType.REMINDER,
 ) -> Tuple[bool, str, str]:
     """
     Send a calendar invitation email with ICS attachment.
+    
+    Uses the unified outbound email module for consistent sender name and subject tagging.
     
     Args:
         to_email: Recipient email address
@@ -103,87 +122,23 @@ def send_calendar_invite_email(
         ics_content: ICS calendar content
         ics_method: ICS method (REQUEST, CANCEL)
         ics_filename: Filename for the ICS attachment
+        email_type: Email type for subject tagging (default: REMINDER)
         
     Returns:
         Tuple of (success: bool, message_id: str, error: str)
     """
-    config = _get_smtp_config()
-    
-    if not _is_email_configured():
-        # Return simulated success for development
-        fake_message_id = f"<{uuid.uuid4()}@researchpulse.local>"
-        print(f"[DEV MODE] Would send calendar invite to {to_email}")
-        print(f"[DEV MODE] Subject: {subject}")
-        print(f"[DEV MODE] ICS Method: {ics_method}")
-        return True, fake_message_id, ""
-    
-    try:
-        # Generate unique message ID for threading
-        message_id = make_msgid(domain="researchpulse.app")
-        
-        # Create multipart message
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = subject
-        msg["From"] = formataddr((config["from_name"], config["from_email"]))
-        msg["To"] = formataddr((to_name, to_email))
-        msg["Message-ID"] = message_id
-        
-        # Add calendar-specific headers for email clients
-        msg["X-Mailer"] = "ResearchPulse Calendar"
-        
-        # Create alternative part for text/html
-        msg_alt = MIMEMultipart("alternative")
-        
-        # Plain text part
-        part_text = MIMEText(body_text, "plain", "utf-8")
-        msg_alt.attach(part_text)
-        
-        # HTML part (if provided)
-        if body_html:
-            part_html = MIMEText(body_html, "html", "utf-8")
-            msg_alt.attach(part_html)
-        
-        # Calendar part (inline for Outlook/Apple Mail compatibility) - only if ICS content provided
-        if ics_content:
-            part_calendar = MIMEText(ics_content, "calendar", "utf-8")
-            part_calendar.add_header("Content-Disposition", "inline")
-            if ics_method:
-                part_calendar.set_param("method", ics_method)
-            msg_alt.attach(part_calendar)
-        
-        msg.attach(msg_alt)
-        
-        # ICS file attachment (for email clients that prefer attachments) - only if ICS content provided
-        if ics_content:
-            part_ics = MIMEBase("application", "ics")
-            part_ics.set_payload(ics_content.encode("utf-8"))
-            encoders.encode_base64(part_ics)
-            part_ics.add_header(
-                "Content-Disposition",
-                f'attachment; filename="{ics_filename}"'
-            )
-            part_ics.add_header("Content-class", "urn:content-classes:calendarmessage")
-            msg.attach(part_ics)
-        
-        # Send via SMTP
-        with smtplib.SMTP(config["host"], config["port"]) as server:
-            if config["use_tls"]:
-                server.starttls()
-            server.login(config["user"], config["password"])
-            server.sendmail(
-                config["from_email"],
-                [to_email],
-                msg.as_string()
-            )
-        
-        return True, message_id, ""
-        
-    except smtplib.SMTPAuthenticationError as e:
-        return False, "", f"SMTP authentication failed: {e}"
-    except smtplib.SMTPConnectError as e:
-        return False, "", f"SMTP connection failed: {e}"
-    except Exception as e:
-        return False, "", f"Failed to send email: {e}"
+    # Use unified outbound email module for consistent sender name and tagging
+    return send_outbound_email(
+        to_email=to_email,
+        subject=subject,
+        body=body_text,
+        email_type=email_type,
+        html_body=body_html,
+        to_name=to_name,
+        ics_content=ics_content,
+        ics_method=ics_method,
+        ics_filename=ics_filename,
+    )
 
 
 def send_reading_reminder_invite(
@@ -252,7 +207,7 @@ def send_reading_reminder_invite(
     body_text = _generate_invite_body_text(papers, start_time, duration_minutes, agent_note)
     body_html = _generate_invite_body_html(papers, start_time, duration_minutes, agent_note)
     
-    # Send the email
+    # Send the email with REMINDER type for proper subject tagging
     success, message_id, error = send_calendar_invite_email(
         to_email=user_email,
         to_name=user_name,
@@ -262,6 +217,7 @@ def send_reading_reminder_invite(
         ics_content=ics_content,
         ics_method="REQUEST",
         ics_filename="reading_reminder.ics",
+        email_type=EmailType.REMINDER,
     )
     
     return {
@@ -328,7 +284,7 @@ def send_reschedule_invite(
     body_text = _generate_reschedule_body_text(papers, new_start_time, duration_minutes, reschedule_reason)
     body_html = _generate_reschedule_body_html(papers, new_start_time, duration_minutes, reschedule_reason)
     
-    # Send the email
+    # Send the email with RESCHEDULE type for proper subject tagging
     success, message_id, error = send_calendar_invite_email(
         to_email=user_email,
         to_name=user_name,
@@ -338,6 +294,7 @@ def send_reschedule_invite(
         ics_content=ics_content,
         ics_method="REQUEST",
         ics_filename="rescheduled_reminder.ics",
+        email_type=EmailType.RESCHEDULE,
     )
     
     return {

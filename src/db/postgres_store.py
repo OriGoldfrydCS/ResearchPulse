@@ -1724,7 +1724,7 @@ class PostgresStore(Store):
             return settings.to_dict() if settings else None
     
     def get_or_create_user_settings(self, user_id: UUID) -> Dict[str, Any]:
-        """Get or create user settings."""
+        """Get or create user settings with defaults for new fields."""
         with get_db_session() as db:
             settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
             if not settings:
@@ -1732,10 +1732,24 @@ class PostgresStore(Store):
                     user_id=user_id,
                     inbox_check_enabled=False,
                     inbox_check_frequency_seconds=None,
+                    retrieval_max_results=7,
+                    execution_mode="manual",
                 )
                 db.add(settings)
                 db.commit()
                 db.refresh(settings)
+            else:
+                # Ensure defaults for new fields if null (backward compat)
+                dirty = False
+                if settings.retrieval_max_results is None:
+                    settings.retrieval_max_results = 7
+                    dirty = True
+                if settings.execution_mode is None:
+                    settings.execution_mode = "manual"
+                    dirty = True
+                if dirty:
+                    db.commit()
+                    db.refresh(settings)
             return settings.to_dict()
     
     def update_inbox_settings(
@@ -1795,12 +1809,122 @@ class PostgresStore(Store):
             settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
             if settings:
                 settings.colleague_join_code_hash = None
+                settings.colleague_join_code_encrypted = None
                 settings.colleague_join_code_updated_at = datetime.utcnow()
                 settings.updated_at = datetime.utcnow()
                 db.commit()
                 db.refresh(settings)
                 return settings.to_dict()
             return self.get_or_create_user_settings(user_id)
+    
+    def set_colleague_join_code_encrypted(self, user_id: UUID, encrypted_code: str) -> Dict[str, Any]:
+        """Set or update the colleague join code (encrypted for display-back)."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                db.add(settings)
+            settings.colleague_join_code_encrypted = encrypted_code
+            # Also clear old bcrypt hash if present
+            settings.colleague_join_code_hash = None
+            settings.colleague_join_code_updated_at = datetime.utcnow()
+            settings.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(settings)
+            return settings.to_dict()
+    
+    def get_colleague_join_code_encrypted(self, user_id: UUID) -> Optional[str]:
+        """Get the encrypted colleague join code."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            return settings.colleague_join_code_encrypted if settings else None
+    
+    # =========================================================================
+    # Execution & Retrieval Settings Operations
+    # =========================================================================
+    
+    def get_retrieval_max_results(self, user_id: UUID) -> int:
+        """Get retrieval_max_results from DB, defaulting to 7."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if settings and settings.retrieval_max_results is not None:
+                return settings.retrieval_max_results
+            return 7
+    
+    def update_execution_settings(
+        self,
+        user_id: UUID,
+        retrieval_max_results: Optional[int] = None,
+        execution_mode: Optional[str] = None,
+        scheduled_frequency: Optional[str] = None,
+        scheduled_every_x_days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update execution/retrieval settings."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                db.add(settings)
+            
+            if retrieval_max_results is not None:
+                settings.retrieval_max_results = max(1, min(50, retrieval_max_results))
+            if execution_mode is not None:
+                if execution_mode in ("manual", "scheduled"):
+                    settings.execution_mode = execution_mode
+            if scheduled_frequency is not None:
+                if scheduled_frequency in ("daily", "every_x_days", "weekly", "monthly", ""):
+                    settings.scheduled_frequency = scheduled_frequency if scheduled_frequency else None
+            if scheduled_every_x_days is not None:
+                settings.scheduled_every_x_days = max(1, min(30, scheduled_every_x_days))
+            
+            # Compute next_run_at when switching to scheduled mode
+            if settings.execution_mode == "scheduled" and settings.scheduled_frequency:
+                from datetime import timedelta
+                now = datetime.utcnow()
+                freq = settings.scheduled_frequency
+                if freq == "daily":
+                    settings.next_run_at = now + timedelta(days=1)
+                elif freq == "every_x_days":
+                    days = settings.scheduled_every_x_days or 1
+                    settings.next_run_at = now + timedelta(days=days)
+                elif freq == "weekly":
+                    settings.next_run_at = now + timedelta(weeks=1)
+                elif freq == "monthly":
+                    settings.next_run_at = now + timedelta(days=30)
+            elif settings.execution_mode == "manual":
+                settings.next_run_at = None
+            
+            settings.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(settings)
+            return settings.to_dict()
+    
+    def record_run_completed(self, user_id: UUID) -> None:
+        """Record that a run just completed and compute next_run_at."""
+        with get_db_session() as db:
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            if not settings:
+                return
+            from datetime import timedelta
+            now = datetime.utcnow()
+            settings.last_run_at = now
+            
+            if settings.execution_mode == "scheduled" and settings.scheduled_frequency:
+                freq = settings.scheduled_frequency
+                if freq == "daily":
+                    settings.next_run_at = now + timedelta(days=1)
+                elif freq == "every_x_days":
+                    days = settings.scheduled_every_x_days or 1
+                    settings.next_run_at = now + timedelta(days=days)
+                elif freq == "weekly":
+                    settings.next_run_at = now + timedelta(weeks=1)
+                elif freq == "monthly":
+                    settings.next_run_at = now + timedelta(days=30)
+            else:
+                settings.next_run_at = None
+            
+            settings.updated_at = now
+            db.commit()
     
     # =========================================================================
     # Processed Inbound Email Operations (Idempotency)

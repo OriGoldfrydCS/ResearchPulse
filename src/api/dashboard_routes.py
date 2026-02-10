@@ -4405,11 +4405,12 @@ async def set_colleague_join_code(data: ColleagueJoinCodeRequest):
     """
     Set or rotate the colleague join code.
     
-    The code is hashed before storage (never stored in plaintext).
-    Share this code with colleagues who want to subscribe via email.
+    The code is encrypted (AES) before storage for display-back capability.
+    Also stores bcrypt hash for backward-compatible verification.
     """
     try:
         from ..tools.inbound_processor import hash_join_code
+        from ..tools.join_code_crypto import encrypt_join_code
         
         if len(data.code) < 4:
             raise HTTPException(status_code=400, detail="Code must be at least 4 characters")
@@ -4420,10 +4421,13 @@ async def set_colleague_join_code(data: ColleagueJoinCodeRequest):
         user = store.get_or_create_default_user()
         user_id = UUID(user["id"])
         
-        # Hash the code before storing
+        # Store encrypted version (for display-back) and hash (for verification)
+        encrypted = encrypt_join_code(data.code)
         code_hash = hash_join_code(data.code)
         
-        settings = store.set_colleague_join_code(user_id, code_hash)
+        # Save both: hash for backward compat, encrypted for display-back
+        store.set_colleague_join_code(user_id, code_hash)
+        settings = store.set_colleague_join_code_encrypted(user_id, encrypted)
         
         return {
             "success": True,
@@ -4432,6 +4436,38 @@ async def set_colleague_join_code(data: ColleagueJoinCodeRequest):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/settings/colleague-join-code/current")
+async def get_current_join_code():
+    """
+    Get the current join code (decrypted) for display to the owner.
+    
+    Only the owner can see the current code.
+    """
+    try:
+        from ..tools.join_code_crypto import decrypt_join_code
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        encrypted = store.get_colleague_join_code_encrypted(user_id)
+        if encrypted:
+            plaintext = decrypt_join_code(encrypted)
+            return {
+                "success": True,
+                "has_code": True,
+                "code": plaintext,  # Decrypted for display only
+            }
+        else:
+            return {
+                "success": True,
+                "has_code": False,
+                "code": None,
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4513,3 +4549,110 @@ async def run_inbox_diagnostics_endpoint(
             "error": str(e),
             "traceback": traceback.format_exc(),
         }
+
+
+# =============================================================================
+# Execution Settings API (Papers per run + Execution Mode)
+# =============================================================================
+
+class ExecutionSettingsUpdate(BaseModel):
+    """Request model for updating execution settings."""
+    retrieval_max_results: Optional[int] = None
+    execution_mode: Optional[str] = None  # 'manual' | 'scheduled'
+    scheduled_frequency: Optional[str] = None  # 'daily' | 'every_x_days' | 'weekly' | 'monthly'
+    scheduled_every_x_days: Optional[int] = None
+
+
+@router.get("/settings/execution")
+async def get_execution_settings():
+    """
+    Get current execution and retrieval settings.
+    
+    Returns:
+        - retrieval_max_results: Papers per run
+        - execution_mode: 'manual' | 'scheduled'
+        - scheduled_frequency: Schedule cadence
+        - scheduled_every_x_days: Days for every_x_days mode
+        - last_run_at: Last execution timestamp
+        - next_run_at: Next scheduled execution timestamp
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        settings = store.get_or_create_user_settings(user_id)
+        
+        return {
+            "success": True,
+            "settings": {
+                "retrieval_max_results": settings.get("retrieval_max_results", 7),
+                "execution_mode": settings.get("execution_mode", "manual"),
+                "scheduled_frequency": settings.get("scheduled_frequency"),
+                "scheduled_every_x_days": settings.get("scheduled_every_x_days"),
+                "last_run_at": settings.get("last_run_at"),
+                "next_run_at": settings.get("next_run_at"),
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/settings/execution")
+async def update_execution_settings(data: ExecutionSettingsUpdate):
+    """
+    Update execution and retrieval settings.
+    
+    Validates input ranges:
+    - retrieval_max_results: 1-50
+    - execution_mode: 'manual' | 'scheduled'
+    - scheduled_frequency: 'daily' | 'every_x_days' | 'weekly' | 'monthly'
+    - scheduled_every_x_days: 1-30
+    """
+    try:
+        # Validate inputs
+        if data.retrieval_max_results is not None:
+            if data.retrieval_max_results < 1 or data.retrieval_max_results > 50:
+                raise HTTPException(status_code=400, detail="retrieval_max_results must be between 1 and 50")
+        
+        if data.execution_mode is not None:
+            if data.execution_mode not in ("manual", "scheduled"):
+                raise HTTPException(status_code=400, detail="execution_mode must be 'manual' or 'scheduled'")
+        
+        if data.scheduled_frequency is not None:
+            valid_freqs = ("daily", "every_x_days", "weekly", "monthly", "")
+            if data.scheduled_frequency not in valid_freqs:
+                raise HTTPException(status_code=400, detail=f"Invalid frequency. Valid: {valid_freqs}")
+        
+        if data.scheduled_every_x_days is not None:
+            if data.scheduled_every_x_days < 1 or data.scheduled_every_x_days > 30:
+                raise HTTPException(status_code=400, detail="scheduled_every_x_days must be between 1 and 30")
+        
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        settings = store.update_execution_settings(
+            user_id=user_id,
+            retrieval_max_results=data.retrieval_max_results,
+            execution_mode=data.execution_mode,
+            scheduled_frequency=data.scheduled_frequency,
+            scheduled_every_x_days=data.scheduled_every_x_days,
+        )
+        
+        import logging
+        logging.info(
+            "[SETTINGS] Updated execution settings: retrieval_max_results=%s mode=%s freq=%s",
+            settings.get("retrieval_max_results"), settings.get("execution_mode"),
+            settings.get("scheduled_frequency"),
+        )
+        
+        return {
+            "success": True,
+            "message": "Execution settings updated",
+            "settings": settings,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

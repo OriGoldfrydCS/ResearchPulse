@@ -33,11 +33,30 @@ import uuid
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+# Import unified outbound email module
+try:
+    from .outbound_email import (
+        send_outbound_email,
+        EmailType,
+        apply_subject_tag,
+        get_formatted_from_header,
+        SENDER_DISPLAY_NAME,
+    )
+except ImportError:
+    from outbound_email import (
+        send_outbound_email,
+        EmailType,
+        apply_subject_tag,
+        get_formatted_from_header,
+        SENDER_DISPLAY_NAME,
+    )
 
 # Add parent to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -118,6 +137,7 @@ class FileToWrite(BaseModel):
     file_path: str = Field(..., description="Relative path from artifacts/")
     content: str = Field(..., description="File content")
     description: str = Field("", description="Description of the file")
+    paper_id: Optional[str] = Field(None, description="arXiv paper ID (for associating artifact with paper)")
 
 
 class DeliveryDecisionResult(BaseModel):
@@ -202,9 +222,13 @@ def _send_email_smtp(
     subject: str,
     body: str,
     html_body: Optional[str] = None,
+    email_type: EmailType = EmailType.UPDATE,
 ) -> bool:
     """
-    Send email via SMTP using environment variables for configuration.
+    Send email via SMTP using the unified outbound email module.
+    
+    This function is a backward-compatible wrapper around send_outbound_email()
+    that ensures consistent sender display name and subject tagging.
     
     Required environment variables:
         SMTP_HOST: SMTP server hostname (default: smtp.gmail.com)
@@ -218,65 +242,23 @@ def _send_email_smtp(
         subject: Email subject line
         body: Plain text body (fallback for email clients that don't support HTML)
         html_body: Optional HTML body for rich formatting
+        email_type: Type of email for subject tagging (default: UPDATE)
     
     Returns:
         True if email was sent successfully, False otherwise.
     """
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
+    success, message_id, error = send_outbound_email(
+        to_email=to_email,
+        subject=subject,
+        body=body,
+        email_type=email_type,
+        html_body=html_body,
+    )
     
-    if not smtp_user or not smtp_password:
-        print("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
-        return False
+    if not success and error:
+        print(f"Email send failed: {error}")
     
-    try:
-        # Create multipart message for HTML + plain text fallback
-        if html_body:
-            msg = MIMEMultipart("alternative")
-        else:
-            msg = MIMEMultipart()
-        
-        msg["From"] = smtp_from
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        
-        # Clean up the plain text body (remove header lines if present)
-        body_lines = body.split("\n")
-        body_start = 0
-        for i, line in enumerate(body_lines):
-            if line.startswith("=" * 20):  # Start of content
-                body_start = i
-                break
-        clean_body = "\n".join(body_lines[body_start:])
-        
-        # Attach plain text part (required for email clients that don't support HTML)
-        msg.attach(MIMEText(clean_body, "plain", "utf-8"))
-        
-        # Attach HTML part if provided (preferred by modern email clients)
-        if html_body:
-            print(f"[DEBUG] SMTP: Attaching HTML part ({len(html_body)} chars)")
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
-        else:
-            print(f"[DEBUG] SMTP: NO HTML body provided, sending plain text only")
-        
-        # Connect and send
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        
-        print(f"✓ Email sent successfully to {to_email}")
-        return True
-        
-    except smtplib.SMTPAuthenticationError:
-        print("SMTP authentication failed. Check SMTP_USER and SMTP_PASSWORD.")
-        return False
-    except Exception as e:
-        print(f"Failed to send email: {e}")
-        return False
+    return success
 
 
 def _generate_email_content(
@@ -1033,16 +1015,6 @@ def send_summary_email_html(
         print("No papers to include in summary email.")
         return False
     
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
-    
-    if not smtp_user or not smtp_password:
-        print("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD.")
-        return False
-    
     try:
         subject, plain_text, html_body = generate_summary_email_html(
             papers=papers,
@@ -1051,27 +1023,21 @@ def send_summary_email_html(
             triggered_by=triggered_by,
         )
         
-        msg = MIMEMultipart("alternative")
-        msg["From"] = smtp_from
-        msg["To"] = researcher_email
-        msg["Subject"] = subject
+        # Use unified outbound email module for consistent sender name and tagging
+        success, message_id, error = send_outbound_email(
+            to_email=researcher_email,
+            subject=subject,
+            body=plain_text,
+            email_type=EmailType.UPDATE,
+            html_body=html_body,
+            to_name=researcher_name,
+        )
         
-        part1 = MIMEText(plain_text, "plain")
-        part2 = MIMEText(html_body, "html")
-        msg.attach(part1)
-        msg.attach(part2)
+        if not success and error:
+            print(f"Summary email error: {error}")
         
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+        return success
         
-        print(f"✓ Summary email sent successfully to {researcher_email}")
-        return True
-        
-    except smtplib.SMTPAuthenticationError:
-        print("SMTP authentication failed.")
-        return False
     except Exception as e:
         print(f"Failed to send summary email: {e}")
         return False
@@ -1127,12 +1093,13 @@ def send_digest_email(
         include_abstracts=include_abstracts,
     )
     
-    # Send via SMTP with HTML
+    # Send via SMTP with HTML using DIGEST email type for proper tagging
     return _send_email_smtp(
         to_email=researcher_email,
         subject=subject,
         body=plain_text,
         html_body=html_body,
+        email_type=EmailType.DIGEST,
     )
 
 
@@ -1527,6 +1494,7 @@ def decide_delivery_action(
                 file_path=file_path,
                 content=ics_content,
                 description=f"Calendar event for reading paper {paper.arxiv_id}",
+                paper_id=paper.arxiv_id,
             ))
     
     # 3. Reading list

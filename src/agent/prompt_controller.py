@@ -28,11 +28,44 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Maximum papers to retrieve internally for ranking/filtering
-# NOTE: Set to 7 for faster testing (original default was 30)
+# NOTE: This constant is a fallback default only.
+# Production reads from DB via get_retrieval_max_results().
 MAX_RETRIEVAL_RESULTS = 7
 
 # Default number of papers if user doesn't specify
 DEFAULT_OUTPUT_COUNT = 5
+
+
+def get_retrieval_max_results(user_id=None) -> int:
+    """
+    Load retrieval_max_results from DB (preferred) or fall back to constant.
+
+    Returns:
+        int: The max papers to retrieve per run.
+    """
+    try:
+        from db.database import is_database_configured
+        if not is_database_configured():
+            logger.info("[SETTINGS] retrieval_max_results=%d source=default (no DB)", MAX_RETRIEVAL_RESULTS)
+            return MAX_RETRIEVAL_RESULTS
+
+        from db.store import get_default_store
+        store = get_default_store()
+
+        if user_id is None:
+            user = store.get_or_create_default_user()
+            user_id_val = user["id"]
+        else:
+            user_id_val = user_id
+
+        from uuid import UUID
+        uid = UUID(str(user_id_val)) if not isinstance(user_id_val, UUID) else user_id_val
+        value = store.get_retrieval_max_results(uid)
+        logger.info("[SETTINGS] retrieval_max_results=%d source=db", value)
+        return value
+    except Exception as e:
+        logger.warning("[SETTINGS] retrieval_max_results=%d source=default (error: %s)", MAX_RETRIEVAL_RESULTS, e)
+        return MAX_RETRIEVAL_RESULTS
 
 
 # =============================================================================
@@ -85,14 +118,17 @@ class ParsedPrompt:
         """
         return self.requested_count if self.requested_count else DEFAULT_OUTPUT_COUNT
     
+    _retrieval_max: Optional[int] = None  # Injected DB value
+
     @property
     def retrieval_count(self) -> int:
         """
         Get the number of papers to retrieve internally.
         
-        Always returns MAX_RETRIEVAL_RESULTS to allow for proper
-        ranking, filtering, and selection before truncation.
+        Uses DB-loaded value if set, else falls back to MAX_RETRIEVAL_RESULTS.
         """
+        if self._retrieval_max is not None:
+            return self._retrieval_max
         return MAX_RETRIEVAL_RESULTS
     
     def to_dict(self) -> Dict[str, Any]:
@@ -495,9 +531,9 @@ class PromptController:
         """
         Get the number of papers to retrieve internally.
         
-        Always returns MAX_RETRIEVAL_RESULTS for proper ranking.
+        Returns the DB-backed value if set on parsed prompt, else MAX_RETRIEVAL_RESULTS.
         """
-        return MAX_RETRIEVAL_RESULTS
+        return parsed.retrieval_count
     
     def get_output_count(self, parsed: ParsedPrompt) -> int:
         """Get the number of papers to show to the user."""

@@ -117,7 +117,7 @@ async def root():
 async def startup_event():
     """Initialize services on startup."""
     # Import retrieval limits for logging
-    from src.agent.prompt_controller import MAX_RETRIEVAL_RESULTS
+    from src.agent.prompt_controller import get_retrieval_max_results
     from src.agent.stop_controller import StopPolicy
     
     print("=" * 60)
@@ -126,7 +126,8 @@ async def startup_event():
     print(f"Server starting on http://{APP_HOST}:{APP_PORT}")
     print(f"API documentation: http://{APP_HOST}:{APP_PORT}/docs")
     print(f"Web UI: http://{APP_HOST}:{APP_PORT}/")
-    print(f"ResearchPulse retrieval_limit={MAX_RETRIEVAL_RESULTS}")
+    retrieval_limit = get_retrieval_max_results()
+    print(f"ResearchPulse retrieval_limit={retrieval_limit}")
     print(f"ResearchPulse max_papers_checked={StopPolicy().max_papers_checked}")
     print("=" * 60)
     
@@ -160,6 +161,14 @@ async def startup_event():
                     await startup_inbox_scheduler()
                 except Exception as e:
                     print(f"Inbox scheduler startup: {e}")
+                
+                # Start execution scheduler for keep-alive mode
+                try:
+                    from src.tools.scheduler_service import start_scheduler
+                    start_scheduler()
+                    print("Execution scheduler started")
+                except Exception as e:
+                    print(f"Execution scheduler startup: {e}")
         else:
             print("Database: not configured (using local files)")
     except Exception as e:
@@ -175,6 +184,13 @@ async def shutdown_event():
         print("Inbox scheduler stopped")
     except Exception as e:
         print(f"Shutdown error: {e}")
+    
+    try:
+        from src.tools.scheduler_service import stop_scheduler
+        stop_scheduler()
+        print("Execution scheduler stopped")
+    except Exception as e:
+        print(f"Execution scheduler shutdown: {e}")
 
 
 # =============================================================================

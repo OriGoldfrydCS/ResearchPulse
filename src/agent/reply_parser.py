@@ -60,6 +60,81 @@ DATE_PATTERNS = [
     r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+on\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
 ]
 
+
+def strip_email_quotes(body: str) -> str:
+    """Strip quoted previous messages and signatures from email reply body.
+
+    Keeps only the user's new text at the top of the reply.
+    Handles common quote markers: lines starting with '>', 'On ... wrote:',
+    '---', '___', and common signature delimiters ('--').
+    """
+    lines = body.splitlines()
+    clean_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Stop at quoted-reply headers ("On Feb 10, 2026, ... wrote:")
+        if re.match(r"^On .+ wrote:\s*$", stripped, re.IGNORECASE):
+            break
+
+        # Stop at Gmail-style forwarded content
+        if stripped.startswith("---------- Forwarded message"):
+            break
+
+        # Stop at signature delimiter
+        if stripped in ("--", "---", "___", "— "):
+            break
+
+        # Stop at "From:" line (Outlook-style quoted headers)
+        if re.match(r"^From:\s+", stripped, re.IGNORECASE):
+            break
+
+        # Skip lines that are purely quote-prefixed
+        if stripped.startswith(">"):
+            continue
+
+        clean_lines.append(line)
+
+    return "\n".join(clean_lines).strip()
+
+
+def extract_reschedule_datetime_text(email_body_text: str) -> Optional[str]:
+    """Extract the raw datetime text from a reschedule reply email body.
+
+    Strips quoted content and signatures first, then looks for reschedule
+    phrases and datetime expressions.
+
+    Returns the matched datetime substring or None.
+    """
+    cleaned = strip_email_quotes(email_body_text)
+    if not cleaned:
+        return None
+
+    # Look for reschedule-like phrases followed by a datetime expression
+    # e.g. "reschedule to February 11, 2026 at 10:00 AM"
+    reschedule_pattern = re.search(
+        r"(?:reschedule|move|change|push|postpone)\s+(?:it\s+)?(?:to\s+)?"
+        r"((?:january|february|march|april|may|june|july|august|september|october|november|december|"
+        r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|tomorrow|next\s+\w+)"
+        r"[^.\n]*)",
+        cleaned, re.IGNORECASE,
+    )
+    if reschedule_pattern:
+        return reschedule_pattern.group(1).strip()
+
+    # Fallback: look for any date-like expression
+    date_pattern = re.search(
+        r"((?:january|february|march|april|may|june|july|august|september|october|november|december|"
+        r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+        r"\s+\d{1,2}[^.\n]*(?:am|pm))",
+        cleaned, re.IGNORECASE,
+    )
+    if date_pattern:
+        return date_pattern.group(1).strip()
+
+    return None
+
 # Keywords indicating reschedule intent
 RESCHEDULE_KEYWORDS = [
     "reschedule", "move", "change", "push", "postpone", "delay",
@@ -217,26 +292,37 @@ def _extract_datetime_from_text(text: str) -> Tuple[Optional[datetime], Optional
         dt = (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
         return dt, match.group(0)
     
-    # "[Month] [day] at Xpm"
+    # "[Month] [day][,] [year] at X:XX am/pm"  (e.g. "February 11, 2026 at 10:00 AM")
     months = ["january", "february", "march", "april", "may", "june",
               "july", "august", "september", "october", "november", "december"]
+    # Also accept 3-letter abbreviations
+    month_abbrevs = ["jan", "feb", "mar", "apr", "may", "jun",
+                     "jul", "aug", "sep", "oct", "nov", "dec"]
+
+    # Try with optional comma and optional year first (most specific)
     match = re.search(
-        r"(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+        r"(january|february|march|april|may|june|july|august|september|october|november|december|"
+        r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+        r"\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
         text, re.IGNORECASE
     )
     if match:
-        month = months.index(match.group(1).lower()) + 1
+        month_str = match.group(1).lower()
+        if month_str in months:
+            month = months.index(month_str) + 1
+        else:
+            month = month_abbrevs.index(month_str) + 1
         day = int(match.group(2))
-        hour = int(match.group(3))
-        minute = int(match.group(4)) if match.group(4) else 0
-        period = match.group(5)
+        year = int(match.group(3)) if match.group(3) else now.year
+        hour = int(match.group(4))
+        minute = int(match.group(5)) if match.group(5) else 0
+        period = match.group(6)
         hour = _convert_to_24h(hour, period)
         
-        year = now.year
-        # If the date has passed this year, assume next year
+        # If the date has passed this year and no explicit year, assume next year
         try:
             dt = datetime(year, month, day, hour, minute)
-            if dt < now:
+            if dt < now and not match.group(3):
                 dt = datetime(year + 1, month, day, hour, minute)
             return dt, match.group(0)
         except ValueError:

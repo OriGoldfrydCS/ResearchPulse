@@ -904,6 +904,20 @@ class UserSettings(Base):
     # Colleague join code (bcrypt hashed - never store plaintext)
     colleague_join_code_hash = Column(String(255), nullable=True)
     colleague_join_code_updated_at = Column(DateTime, nullable=True)
+    # Encrypted join code (AES - allows decryption for display-back)
+    colleague_join_code_encrypted = Column(Text, nullable=True)
+    
+    # Retrieval settings (papers per run)
+    retrieval_max_results = Column(Integer, nullable=True, default=7)
+    
+    # Execution mode settings
+    execution_mode = Column(String(20), nullable=True, default="manual")  # 'manual' | 'scheduled'
+    scheduled_frequency = Column(String(30), nullable=True)  # 'daily' | 'every_x_days' | 'weekly' | 'monthly'
+    scheduled_every_x_days = Column(Integer, nullable=True)
+    
+    # Run tracking for scheduler
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -913,15 +927,21 @@ class UserSettings(Base):
     )
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API response (without exposing hash)."""
+        """Convert to dictionary for API response (without exposing hash or encrypted code)."""
         return {
             "id": str(self.id),
             "user_id": str(self.user_id),
             "inbox_check_frequency_seconds": self.inbox_check_frequency_seconds,
             "inbox_check_enabled": self.inbox_check_enabled,
             "last_inbox_check_at": self.last_inbox_check_at.isoformat() if self.last_inbox_check_at else None,
-            "has_join_code": self.colleague_join_code_hash is not None,
+            "has_join_code": self.colleague_join_code_hash is not None or self.colleague_join_code_encrypted is not None,
             "colleague_join_code_updated_at": self.colleague_join_code_updated_at.isoformat() if self.colleague_join_code_updated_at else None,
+            "retrieval_max_results": self.retrieval_max_results if self.retrieval_max_results is not None else 7,
+            "execution_mode": self.execution_mode or "manual",
+            "scheduled_frequency": self.scheduled_frequency,
+            "scheduled_every_x_days": self.scheduled_every_x_days,
+            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
+            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -48,6 +48,7 @@ from agent.prompt_controller import (
     MAX_RETRIEVAL_RESULTS,
     DEFAULT_OUTPUT_COUNT,
     prompt_controller,
+    get_retrieval_max_results,
 )
 
 
@@ -612,11 +613,17 @@ class ResearchReActAgent:
         """
         self._log("INFO", f"Starting workflow for: {user_message[:100]}...")
         
+        # Load DB-backed retrieval limit for this run
+        db_retrieval_limit = get_retrieval_max_results()
+        
         # Parse prompt for template matching and output constraints (CRITICAL)
         # Also saves prompt to database for audit/compliance tracking
         self._parsed_prompt, self._prompt_id = self._prompt_controller.parse_and_save(
             user_message, run_id=self.run_id
         )
+        # Inject DB-backed retrieval limit into parsed prompt
+        self._parsed_prompt._retrieval_max = db_retrieval_limit
+        
         self._log("INFO", f"Detected prompt template: {self._parsed_prompt.template.value}")
         if self._prompt_id:
             self._log("INFO", f"Prompt saved to DB with ID: {self._prompt_id}")

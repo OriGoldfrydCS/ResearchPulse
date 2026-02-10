@@ -594,7 +594,7 @@
 
         .settings-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(2, 1fr);
             gap: 16px;
         }
 
@@ -2815,14 +2815,14 @@
 
         <!-- Navigation Tabs -->
         <nav class="nav-tabs glass-panel rounded-2xl">
-            <button class="nav-tab active" data-tab="chat"><span class="tab-icon">💬</span>Chat</button>
+            <button class="nav-tab active" data-tab="chat"><span class="tab-icon">💬</span>Ask</button>
             <button class="nav-tab" data-tab="papers"><span class="tab-icon">📄</span>Papers</button>
             <button class="nav-tab" data-tab="emails"><span class="tab-icon">📧</span>Emails</button>
-            <button class="nav-tab" data-tab="calendar"><span class="tab-icon">📅</span>Calendar</button>
+            <button class="nav-tab" data-tab="calendar"><span class="tab-icon">📅</span>Remainders</button>
             <button class="nav-tab" data-tab="shares"><span class="tab-icon">📤</span>Shares</button>
             <button class="nav-tab" data-tab="colleagues"><span class="tab-icon">👥</span>Colleagues</button>
-            <button class="nav-tab" data-tab="settings"><span class="tab-icon">⚙️</span>Settings</button>
-            <button class="nav-tab" data-tab="about"><span class="tab-icon">❓</span>About</button>
+            <button class="nav-tab" data-tab="settings"><span class="tab-icon">⚙️</span>My Settings</button>
+            <button class="nav-tab" data-tab="about"><span class="tab-icon">❓</span>Q&A</button>
         </nav>
 
         <main>
@@ -2851,7 +2851,8 @@
                             </div>
                             <div>Start by asking ResearchPulse to find papers!</div>
                             <div style="margin-top:8px;font-size:0.9rem;color:#94a3b8;">
-                                Try: "Find recent papers on transformer architectures"
+                                Try clicking "Search for me" if you have set your preferences, use the prompt templates,
+                                or enter a free-text query.
                             </div>
                         </div>
                     </div>
@@ -3362,7 +3363,7 @@
             <!-- Settings Tab Panel -->
             <div class="tab-panel" id="tab-settings">
                 <div class="dashboard-header">
-                    <h2>⚙️ Settings & Health</h2>
+                    <h2>⚙️ Research Profile & Personal Settings </h2>
                 </div>
                 <div class="settings-grid">
                     <!-- Research Profile Section -->
@@ -3392,8 +3393,7 @@
                             <div class="form-row">
                                 <label>Topics to Exclude:</label>
                                 <textarea id="profile-interests-exclude"
-                                    placeholder="Topics to filter out (free text)&#10;e.g. computer vision, hardware, quantum computing"
-                                    rows="2"></textarea>
+                                    placeholder="Topics to filter out (free text)&#10;" rows="2"></textarea>
                             </div>
                             <div class="form-row">
                                 <label>Preferred Search Time Period:</label>
@@ -3406,8 +3406,11 @@
                                 </select>
                             </div>
                         </div>
-                        <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
-                        <span id="profile-save-status" class="save-status"></span>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
+                            <button onclick="clearProfile()" class="action-btn">🗑️ Clear Details</button>
+                            <span id="profile-save-status" class="save-status"></span>
+                        </div>
                     </div>
 
                     <div class="settings-section">
@@ -3421,16 +3424,6 @@
                                     id="health-email" class="health-value">Checking...</span></div>
                         </div>
                         <button onclick="checkHealth()" class="action-btn">🔍 Check Health</button>
-                    </div>
-                    <div class="settings-section">
-                        <h3>📋 Delivery Policy</h3>
-                        <div id="policy-editor">
-                            <label><input type="checkbox" id="policy-colleague-share" /> Enable colleague
-                                sharing</label>
-                            <label>Min match score: <input type="number" id="policy-min-score" min="0" max="1"
-                                    step="0.1" value="0.7" /></label>
-                        </div>
-                        <button onclick="savePolicy()" class="action-btn primary">💾 Save Policy</button>
                     </div>
 
                     <!-- Inbox Check Settings -->
@@ -3455,45 +3448,108 @@
                                 <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
                             </div>
                         </div>
-                        <div style="margin-top: 12px;">
+                        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                             <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
                                 Settings</button>
-                            <button onclick="checkInboxNow()" class="action-btn" style="margin-left: 8px;">📥 Check
-                                Now</button>
+                            <button onclick="checkInboxNow()" class="action-btn">📥 Check Now</button>
                         </div>
                         <span id="inbox-save-status" class="save-status"></span>
                     </div>
 
-                    <!-- Colleague Join Code -->
-                    <div class="settings-section">
-                        <h3>🔐 Colleague Join Code</h3>
-                        <p class="section-desc">Set a join code that colleagues must provide when requesting to join via
-                            email. Share this code privately with trusted colleagues.</p>
-                        <div class="join-code-form">
-                            <div class="form-row">
-                                <label>Join Code:</label>
-                                <input type="text" id="colleague-join-code"
-                                    placeholder="Enter a secret code (4-32 chars)" maxlength="32" />
+                    <!-- Bottom row: 3 boxes side by side -->
+                    <div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                        <!-- Colleague Join Code -->
+                        <div class="settings-section">
+                            <h3>🔐 Colleague Join Code</h3>
+                            <p class="section-desc">Set a join code that colleagues must provide when requesting to join
+                                via
+                                email. Share this code privately with trusted colleagues.</p>
+                            <div class="join-code-form">
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <label>Current Code:</label>
+                                    <span id="current-join-code-display"
+                                        style="font-weight: bold; color: var(--accent);">Loading...</span>
+                                </div>
+                                <div class="form-row">
+                                    <label>Set New Code:</label>
+                                    <input type="text" id="colleague-join-code"
+                                        placeholder="Enter a secret code (4-32 chars)" maxlength="32" />
+                                </div>
+                                <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                </div>
                             </div>
-                            <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;"></div>
+                            <div
+                                style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Code</button>
+                                <button onclick="clearJoinCode()" class="action-btn">🗑️ Clear</button>
+                            </div>
+                            <span id="join-code-save-status" class="save-status"></span>
                         </div>
-                        <div style="margin-top: 12px;">
-                            <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Join Code</button>
-                            <button onclick="clearJoinCode()" class="action-btn" style="margin-left: 8px;">🗑️ Clear
-                                Code</button>
-                        </div>
-                        <span id="join-code-save-status" class="save-status"></span>
-                    </div>
 
-                    <div class="settings-section">
-                        <h3>🔧 Actions</h3>
-                        <button onclick="reindexAll()" class="action-btn">📚 Re-index All Papers</button>
-                        <button onclick="resetSeenPapers()" class="action-btn" style="margin-left: 10px;">🔄 Reset Seen
-                            Papers</button>
-                        <p style="font-size: 0.85em; color: #666; margin-top: 8px;">
-                            💡 "Reset Seen Papers" clears the history of processed papers, allowing the agent to
-                            re-evaluate all papers.
-                        </p>
+                        <!-- Papers per Run -->
+                        <div class="settings-section">
+                            <h3>📊 Papers per Run</h3>
+                            <p class="section-desc">Control how many papers to retrieve per run.</p>
+                            <div class="form-row" style="margin-bottom: 8px;">
+                                <label>Papers per run:</label>
+                                <input type="number" id="exec-retrieval-max" min="1" max="50" value="7"
+                                    style="width: 80px;" />
+                            </div>
+                            <p style="font-size: 0.8em; color: #888; margin: 0 0 12px 0;">
+                                ⚠️ Increasing this will consume more tokens, cost more, and be slower.
+                            </p>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="savePapersPerRunSettings()" class="action-btn primary">💾 Save
+                                    Settings</button>
+                                <button onclick="setDefaultPapersPerRun()" class="action-btn">🔄 Default</button>
+                            </div>
+                            <span id="exec-save-status" class="save-status"></span>
+                        </div>
+
+                        <!-- Execution Mode -->
+                        <div class="settings-section">
+                            <h3>⚙️ Execution Mode</h3>
+                            <p class="section-desc">Configure whether runs happen manually or on a schedule.</p>
+                            <div class="form-row" style="margin-bottom: 8px;">
+                                <label>Execution Mode:</label>
+                                <select id="exec-mode" onchange="toggleScheduleOptions()">
+                                    <option value="manual">Manual only</option>
+                                    <option value="scheduled">Keep alive (scheduled)</option>
+                                </select>
+                            </div>
+
+                            <!-- Schedule Options (shown only when scheduled) -->
+                            <div id="schedule-options"
+                                style="display: none; margin-left: 16px; padding: 12px; border-left: 3px solid var(--accent); margin-bottom: 12px;">
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <label>Frequency:</label>
+                                    <select id="exec-frequency" onchange="toggleEveryXDays()">
+                                        <option value="daily">Daily</option>
+                                        <option value="every_x_days">Every X days</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div id="every-x-days-input" style="display: none;" class="form-row">
+                                    <label>Every how many days?</label>
+                                    <input type="number" id="exec-every-x-days" min="1" max="30" value="3"
+                                        style="width: 80px;" />
+                                </div>
+                            </div>
+
+                            <!-- Run timestamps (read-only) -->
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
+                                <div>Last run: <span id="exec-last-run">—</span></div>
+                                <div>Next run: <span id="exec-next-run">—</span></div>
+                            </div>
+
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="saveExecutionModeSettings()" class="action-btn primary">💾 Save
+                                    Schedule</button>
+                                <button onclick="setDefaultExecutionMode()" class="action-btn">🔄 Default</button>
+                            </div>
+                            <span id="exec-save-status-mode" class="save-status"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -4172,7 +4228,7 @@
                 else if (tabId === 'shares') refreshShares();
                 else if (tabId === 'colleagues') refreshColleagues();
                 else if (tabId === 'runs') refreshRuns();
-                else if (tabId === 'settings') { checkHealth(); loadProfile(); loadInboxSettings(); }
+                else if (tabId === 'settings') { checkHealth(); loadProfile(); loadInboxSettings(); loadExecutionSettings(); loadCurrentJoinCode(); }
                 else if (tabId === 'chat') { populatePromptBuilder(); }
             });
         });
@@ -4181,6 +4237,8 @@
         loadProfile();
         loadSavedPrompts();
         loadInboxSettings();
+        loadExecutionSettings();
+        loadCurrentJoinCode();
 
         // =============================================================================
         // Dashboard Data Functions
@@ -6571,6 +6629,44 @@
             }
         }
 
+        async function clearProfile() {
+            if (!confirm('Are you sure you want to clear all profile details? This will delete your info from the database.')) return;
+            const statusEl = document.getElementById('profile-save-status');
+            statusEl.textContent = 'Clearing...';
+            statusEl.className = 'save-status';
+            try {
+                const emptyProfile = {
+                    researcher_name: '',
+                    email: '',
+                    affiliation: '',
+                    interests_include: '',
+                    interests_exclude: '',
+                    preferred_time_period: 'last two weeks',
+                };
+                const response = await fetch('/api/profile', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emptyProfile)
+                });
+                if (!response.ok) throw new Error('Failed to clear profile');
+                // Clear form fields
+                document.getElementById('profile-name').value = '';
+                document.getElementById('profile-email').value = '';
+                document.getElementById('profile-affiliation').value = '';
+                document.getElementById('profile-interests-include').value = '';
+                document.getElementById('profile-interests-exclude').value = '';
+                document.getElementById('profile-time-period').value = 'last two weeks';
+                window.currentProfile = null;
+                statusEl.textContent = '✅ Profile cleared!';
+                statusEl.className = 'save-status success';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+            } catch (err) {
+                console.error('Error clearing profile:', err);
+                statusEl.textContent = '❌ Failed to clear';
+                statusEl.className = 'save-status error';
+            }
+        }
+
         // =============================================================================
         // Search For Me - Quick Search Function
         // =============================================================================
@@ -6913,24 +7009,8 @@
         }
 
         async function savePolicy() {
-            const colleagueShare = document.getElementById('policy-colleague-share')?.checked || false;
-            const minScore = parseFloat(document.getElementById('policy-min-score')?.value || '0.7');
-
-            try {
-                const response = await fetch('/api/policies', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        colleague_share_enabled: colleagueShare,
-                        colleague_share_min_score: minScore
-                    })
-                });
-                if (!response.ok) throw new Error('Failed to save policy');
-                alert('Policy saved successfully!');
-            } catch (err) {
-                console.error('Error saving policy:', err);
-                alert('Failed to save policy: ' + err.message);
-            }
+            // Delivery Policy removed - this function is a no-op stub for backward compat
+            console.log('savePolicy called but Delivery Policy section removed');
         }
 
         // =============================================================================
@@ -7100,14 +7180,15 @@
                     throw new Error(error.detail || 'Failed to set code');
                 }
 
-                codeInput.value = '';  // Clear for security
+                codeInput.value = '';  // Clear input for security
                 statusSpan.textContent = '✅ Join code set successfully';
                 statusSpan.style.color = 'green';
 
                 setTimeout(() => { statusSpan.textContent = ''; }, 3000);
 
-                // Reload settings to update status
+                // Reload settings and current code display
                 loadInboxSettings();
+                loadCurrentJoinCode();
 
             } catch (err) {
                 console.error('Error setting join code:', err);
@@ -7139,8 +7220,9 @@
 
                 setTimeout(() => { statusSpan.textContent = ''; }, 3000);
 
-                // Reload settings to update status
+                // Reload settings and current code display
                 loadInboxSettings();
+                loadCurrentJoinCode();
 
             } catch (err) {
                 console.error('Error clearing join code:', err);
@@ -7149,30 +7231,205 @@
             }
         }
 
-        async function reindexAll() {
-            if (!confirm('This will re-index all papers in Pinecone. Continue?')) return;
+        // =============================================================================
+        // Join Code Display (decrypted)
+        // =============================================================================
+
+        async function loadCurrentJoinCode() {
+            const display = document.getElementById('current-join-code-display');
+            if (!display) return;
             try {
-                const response = await fetch('/api/reindex', { method: 'POST' });
-                if (!response.ok) throw new Error('Failed to reindex');
+                const response = await fetch('/api/settings/colleague-join-code/current');
+                if (!response.ok) {
+                    display.textContent = 'Error loading';
+                    return;
+                }
                 const data = await response.json();
-                alert('Reindex completed! ' + (data.message || ''));
+                if (data.has_code && data.code) {
+                    display.textContent = data.code;
+                    display.style.color = 'var(--accent)';
+                } else {
+                    display.textContent = 'None';
+                    display.style.color = '#888';
+                }
             } catch (err) {
-                console.error('Error reindexing:', err);
-                alert('Failed to reindex: ' + err.message);
+                console.error('Error loading join code:', err);
+                display.textContent = 'Error';
             }
         }
 
-        async function resetSeenPapers() {
-            if (!confirm('This will clear the history of seen papers. The agent will re-evaluate all papers on the next run. Continue?')) return;
-            try {
-                const response = await fetch('/api/reset-seen-papers', { method: 'POST' });
-                if (!response.ok) throw new Error('Failed to reset');
-                const data = await response.json();
-                alert('✅ Seen papers reset! ' + (data.message || 'The agent will now see all papers as new.'));
-            } catch (err) {
-                console.error('Error resetting seen papers:', err);
-                alert('Failed to reset: ' + err.message);
+        // =============================================================================
+        // Execution Settings Functions
+        // =============================================================================
+
+        function toggleScheduleOptions() {
+            const mode = document.getElementById('exec-mode')?.value;
+            const opts = document.getElementById('schedule-options');
+            if (opts) {
+                opts.style.display = mode === 'scheduled' ? 'block' : 'none';
             }
+        }
+
+        function toggleEveryXDays() {
+            const freq = document.getElementById('exec-frequency')?.value;
+            const input = document.getElementById('every-x-days-input');
+            if (input) {
+                input.style.display = freq === 'every_x_days' ? 'flex' : 'none';
+            }
+        }
+
+        async function loadExecutionSettings() {
+            try {
+                const response = await fetch('/api/settings/execution');
+                if (!response.ok) return;
+                const data = await response.json();
+                if (!data.settings) return;
+
+                const s = data.settings;
+
+                const maxEl = document.getElementById('exec-retrieval-max');
+                if (maxEl) maxEl.value = s.retrieval_max_results || 7;
+
+                const modeEl = document.getElementById('exec-mode');
+                if (modeEl) {
+                    modeEl.value = s.execution_mode || 'manual';
+                    toggleScheduleOptions();
+                }
+
+                const freqEl = document.getElementById('exec-frequency');
+                if (freqEl && s.scheduled_frequency) {
+                    freqEl.value = s.scheduled_frequency;
+                    toggleEveryXDays();
+                }
+
+                const xDaysEl = document.getElementById('exec-every-x-days');
+                if (xDaysEl && s.scheduled_every_x_days) {
+                    xDaysEl.value = s.scheduled_every_x_days;
+                }
+
+                const lastRunEl = document.getElementById('exec-last-run');
+                if (lastRunEl) {
+                    lastRunEl.textContent = s.last_run_at
+                        ? new Date(s.last_run_at).toLocaleString()
+                        : '—';
+                }
+
+                const nextRunEl = document.getElementById('exec-next-run');
+                if (nextRunEl) {
+                    nextRunEl.textContent = s.next_run_at
+                        ? new Date(s.next_run_at).toLocaleString()
+                        : '—';
+                }
+            } catch (err) {
+                console.error('Error loading execution settings:', err);
+            }
+        }
+
+        async function savePapersPerRunSettings() {
+            const statusSpan = document.getElementById('exec-save-status');
+            try {
+                statusSpan.textContent = 'Saving...';
+                statusSpan.style.color = '#666';
+
+                const payload = {
+                    retrieval_max_results: parseInt(document.getElementById('exec-retrieval-max')?.value || '7'),
+                };
+
+                const response = await fetch('/api/settings/execution', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const data = await response.json();
+                statusSpan.textContent = '✅ Papers per run saved';
+                statusSpan.style.color = 'green';
+                setTimeout(() => { statusSpan.textContent = ''; }, 3000);
+
+            } catch (err) {
+                console.error('Error saving papers per run settings:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        async function saveExecutionModeSettings() {
+            const statusSpan = document.getElementById('exec-save-status-mode');
+            try {
+                statusSpan.textContent = 'Saving...';
+                statusSpan.style.color = '#666';
+
+                const mode = document.getElementById('exec-mode')?.value || 'manual';
+                const payload = {
+                    execution_mode: mode,
+                };
+
+                if (mode === 'scheduled') {
+                    payload.scheduled_frequency = document.getElementById('exec-frequency')?.value || 'daily';
+                    if (payload.scheduled_frequency === 'every_x_days') {
+                        payload.scheduled_every_x_days = parseInt(document.getElementById('exec-every-x-days')?.value || '3');
+                    }
+                }
+
+                const response = await fetch('/api/settings/execution', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save');
+                }
+
+                const data = await response.json();
+                statusSpan.textContent = '✅ Schedule saved';
+                statusSpan.style.color = 'green';
+                setTimeout(() => { statusSpan.textContent = ''; }, 3000);
+
+                // Reload to update timestamps
+                loadExecutionSettings();
+
+            } catch (err) {
+                console.error('Error saving execution mode settings:', err);
+                statusSpan.textContent = '❌ ' + err.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        function setDefaultPapersPerRun() {
+            document.getElementById('exec-retrieval-max').value = 7;
+            const statusSpan = document.getElementById('exec-save-status');
+            statusSpan.textContent = '🔄 Reset to default (7). Click Save to apply.';
+            statusSpan.style.color = '#666';
+            setTimeout(() => { statusSpan.textContent = ''; }, 4000);
+        }
+
+        function setDefaultExecutionMode() {
+            document.getElementById('exec-mode').value = 'manual';
+            document.getElementById('exec-frequency').value = 'daily';
+            document.getElementById('exec-every-x-days').value = 3;
+            document.getElementById('schedule-options').style.display = 'none';
+            document.getElementById('every-x-days-input').style.display = 'none';
+            const statusSpan = document.getElementById('exec-save-status-mode');
+            statusSpan.textContent = '🔄 Reset to default (Manual). Click Save to apply.';
+            statusSpan.style.color = '#666';
+            setTimeout(() => { statusSpan.textContent = ''; }, 4000);
+        }
+
+        async function reindexAll() {
+            // Actions section removed from UI - keeping function for API backward compat
+            console.log('reindexAll called but Actions section removed from UI');
+        }
+
+        async function resetSeenPapers() {
+            // Actions section removed from UI - keeping function for API backward compat
+            console.log('resetSeenPapers called but Actions section removed from UI');
         }
 
         // =============================================================================
