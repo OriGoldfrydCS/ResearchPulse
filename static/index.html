@@ -4017,7 +4017,8 @@
                                 <p>2. When the agent finds papers matching a colleague's interests, it can automatically
                                     share them via email.</p>
                                 <p>3. Track all shares and their delivery status (sent, pending, failed) in the
-                                    <strong>Shares</strong> tab.</p>
+                                    <strong>Shares</strong> tab.
+                                </p>
                             </div>
                         </div>
                         <div class="faq-item">
@@ -4112,7 +4113,8 @@
                                     <strong>Pinecone</strong>. On future runs, new papers are compared against this
                                     vector store using semantic similarity. If a paper is too similar to something
                                     you've already seen, it's flagged as low-novelty and deprioritized — so you only see
-                                    genuinely new research.</p>
+                                    genuinely new research.
+                                </p>
                             </div>
                         </div>
                         <div class="faq-item">
@@ -4140,209 +4142,202 @@
                         </div>
                     </div>
 
-                    <div class="about-footer"
-                        style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
-                        <p style="color: var(--text-muted); font-size: 0.9rem;">💡 <strong>Tip:</strong> Use keyboard
-                            shortcuts like <kbd>Ctrl+A</kbd> to select all papers, or <kbd>Escape</kbd> to clear
-                            selection.</p>
+                </div>
+            </div>
+    </div>
+
+    <!-- Settings Tab Panel -->
+    <div class="tab-panel" id="tab-settings">
+        <div class="dashboard-header">
+            <h2>⚙️ Research Profile & Personal Settings </h2>
+        </div>
+        <div class="settings-grid">
+            <!-- Research Profile Section -->
+            <div class="settings-section profile-section">
+                <h3>👤 Research Profile</h3>
+                <p class="section-desc">Update your research areas and preferences to get better paper
+                    recommendations.</p>
+                <div class="profile-form">
+                    <div class="form-row">
+                        <label>Name:</label>
+                        <input type="text" id="profile-name" placeholder="Your name" />
                     </div>
+                    <div class="form-row">
+                        <label>Email:</label>
+                        <input type="email" id="profile-email" placeholder="your.email@example.com" />
+                    </div>
+                    <div class="form-row">
+                        <label>Affiliation:</label>
+                        <input type="text" id="profile-affiliation" placeholder="Your institution" />
+                    </div>
+                    <div class="form-row">
+                        <label>Research Interests:</label>
+                        <textarea id="profile-interests-include"
+                            placeholder="Describe your research areas (free text)&#10;e.g. machine learning, natural language processing, biology, AI agents"
+                            rows="4"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label>Topics to Exclude:</label>
+                        <textarea id="profile-interests-exclude" placeholder="Topics to filter out (free text)&#10;"
+                            rows="2"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label>Preferred Search Time Period:</label>
+                        <select id="profile-time-period">
+                            <option value="last week">Last week</option>
+                            <option value="last two weeks" selected>Last two weeks</option>
+                            <option value="last month">Last month</option>
+                            <option value="last 3 months">Last 3 months</option>
+                            <option value="last 6 months">Last 6 months</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
+                    <button onclick="clearProfile()" class="action-btn">🗑️ Clear Details</button>
+                    <span id="profile-save-status" class="save-status"></span>
                 </div>
             </div>
 
-            <!-- Settings Tab Panel -->
-            <div class="tab-panel" id="tab-settings">
-                <div class="dashboard-header">
-                    <h2>⚙️ Research Profile & Personal Settings </h2>
+            <div class="settings-section">
+                <h3>🔗 System Health</h3>
+                <div id="health-status" class="health-status">
+                    <div class="health-item"><span class="health-label">Database:</span><span id="health-db"
+                            class="health-value">Checking...</span></div>
+                    <div class="health-item"><span class="health-label">Pinecone:</span><span id="health-pinecone"
+                            class="health-value">Checking...</span></div>
+                    <div class="health-item"><span class="health-label">Email Provider:</span><span id="health-email"
+                            class="health-value">Checking...</span></div>
                 </div>
-                <div class="settings-grid">
-                    <!-- Research Profile Section -->
-                    <div class="settings-section profile-section">
-                        <h3>👤 Research Profile</h3>
-                        <p class="section-desc">Update your research areas and preferences to get better paper
-                            recommendations.</p>
-                        <div class="profile-form">
-                            <div class="form-row">
-                                <label>Name:</label>
-                                <input type="text" id="profile-name" placeholder="Your name" />
-                            </div>
-                            <div class="form-row">
-                                <label>Email:</label>
-                                <input type="email" id="profile-email" placeholder="your.email@example.com" />
-                            </div>
-                            <div class="form-row">
-                                <label>Affiliation:</label>
-                                <input type="text" id="profile-affiliation" placeholder="Your institution" />
-                            </div>
-                            <div class="form-row">
-                                <label>Research Interests:</label>
-                                <textarea id="profile-interests-include"
-                                    placeholder="Describe your research areas (free text)&#10;e.g. machine learning, natural language processing, biology, AI agents"
-                                    rows="4"></textarea>
-                            </div>
-                            <div class="form-row">
-                                <label>Topics to Exclude:</label>
-                                <textarea id="profile-interests-exclude"
-                                    placeholder="Topics to filter out (free text)&#10;" rows="2"></textarea>
-                            </div>
-                            <div class="form-row">
-                                <label>Preferred Search Time Period:</label>
-                                <select id="profile-time-period">
-                                    <option value="last week">Last week</option>
-                                    <option value="last two weeks" selected>Last two weeks</option>
-                                    <option value="last month">Last month</option>
-                                    <option value="last 3 months">Last 3 months</option>
-                                    <option value="last 6 months">Last 6 months</option>
-                                </select>
-                            </div>
+                <button onclick="checkHealth()" class="action-btn">🔍 Check Health</button>
+            </div>
+
+            <!-- Inbox Check Settings -->
+            <div class="settings-section">
+                <h3>📬 Inbox Check Settings</h3>
+                <p class="section-desc">Configure automatic inbox monitoring for email replies and colleague
+                    join requests.</p>
+                <div class="inbox-settings-form">
+                    <div class="form-row">
+                        <label>Inbox Check Frequency:</label>
+                        <select id="inbox-check-frequency">
+                            <option value="">Disabled (power saving)</option>
+                            <option value="10">Every 10 seconds</option>
+                            <option value="30">Every 30 seconds</option>
+                            <option value="60">Every 1 minute</option>
+                            <option value="300">Every 5 minutes</option>
+                            <option value="900">Every 15 minutes</option>
+                            <option value="3600">Every 1 hour</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="margin-top: 8px;">
+                        <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
+                    </div>
+                </div>
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
+                        Settings</button>
+                    <button onclick="checkInboxNow()" class="action-btn">📥 Check Now</button>
+                </div>
+                <span id="inbox-save-status" class="save-status"></span>
+            </div>
+
+            <!-- Bottom row: 3 boxes side by side -->
+            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                <!-- Colleague Join Code -->
+                <div class="settings-section">
+                    <h3>🔐 Colleague Join Code</h3>
+                    <p class="section-desc">Set a join code that colleagues must provide when requesting to join
+                        via
+                        email. Share this code privately with trusted colleagues.</p>
+                    <div class="join-code-form">
+                        <div class="form-row" style="margin-bottom: 8px;">
+                            <label>Current Code:</label>
+                            <span id="current-join-code-display"
+                                style="font-weight: bold; color: var(--accent);">Loading...</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                            <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
-                            <button onclick="clearProfile()" class="action-btn">🗑️ Clear Details</button>
-                            <span id="profile-save-status" class="save-status"></span>
+                        <div class="form-row">
+                            <label>Set New Code:</label>
+                            <input type="text" id="colleague-join-code" placeholder="Enter a secret code (4-32 chars)"
+                                maxlength="32" />
+                        </div>
+                        <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Code</button>
+                        <button onclick="clearJoinCode()" class="action-btn">🗑️ Clear</button>
+                    </div>
+                    <span id="join-code-save-status" class="save-status"></span>
+                </div>
+
+                <!-- Papers per Run -->
+                <div class="settings-section">
+                    <h3>📊 Papers per Run</h3>
+                    <p class="section-desc">How many papers to fetch from arXiv each run.</p>
+                    <div class="form-row" style="margin-bottom: 8px;">
+                        <label>Papers to fetch:</label>
+                        <input type="number" id="exec-retrieval-max" min="1" max="50" value="7" style="width: 80px;" />
+                    </div>
+                    <p style="font-size: 0.8em; color: #888; margin: 0 0 12px 0;">
+                        ⚠️ Increasing this will consume more tokens, cost more, and be slower.
+                    </p>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <button onclick="savePapersPerRunSettings()" class="action-btn primary">💾 Save
+                            Settings</button>
+                        <button onclick="setDefaultPapersPerRun()" class="action-btn">🔄 Default</button>
+                    </div>
+                    <span id="exec-save-status" class="save-status"></span>
+                </div>
+
+                <!-- Execution Mode -->
+                <div class="settings-section">
+                    <h3>⚙️ Execution Mode</h3>
+                    <p class="section-desc">Configure whether runs happen manually or on a schedule.</p>
+                    <div class="form-row" style="margin-bottom: 8px;">
+                        <label>Execution Mode:</label>
+                        <select id="exec-mode" onchange="toggleScheduleOptions()">
+                            <option value="manual">Manual only</option>
+                            <option value="scheduled">Keep alive (scheduled)</option>
+                        </select>
+                    </div>
+
+                    <!-- Schedule Options (shown only when scheduled) -->
+                    <div id="schedule-options"
+                        style="display: none; margin-left: 16px; padding: 12px; border-left: 3px solid var(--accent); margin-bottom: 12px;">
+                        <div class="form-row" style="margin-bottom: 8px;">
+                            <label>Frequency:</label>
+                            <select id="exec-frequency" onchange="toggleEveryXDays()">
+                                <option value="daily">Daily</option>
+                                <option value="every_x_days">Every X days</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                            </select>
+                        </div>
+                        <div id="every-x-days-input" style="display: none;" class="form-row">
+                            <label>Every how many days?</label>
+                            <input type="number" id="exec-every-x-days" min="1" max="30" value="3"
+                                style="width: 80px;" />
                         </div>
                     </div>
 
-                    <div class="settings-section">
-                        <h3>🔗 System Health</h3>
-                        <div id="health-status" class="health-status">
-                            <div class="health-item"><span class="health-label">Database:</span><span id="health-db"
-                                    class="health-value">Checking...</span></div>
-                            <div class="health-item"><span class="health-label">Pinecone:</span><span
-                                    id="health-pinecone" class="health-value">Checking...</span></div>
-                            <div class="health-item"><span class="health-label">Email Provider:</span><span
-                                    id="health-email" class="health-value">Checking...</span></div>
-                        </div>
-                        <button onclick="checkHealth()" class="action-btn">🔍 Check Health</button>
+                    <!-- Run timestamps (read-only) -->
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
+                        <div>Last run: <span id="exec-last-run">—</span></div>
+                        <div>Next run: <span id="exec-next-run">—</span></div>
                     </div>
 
-                    <!-- Inbox Check Settings -->
-                    <div class="settings-section">
-                        <h3>📬 Inbox Check Settings</h3>
-                        <p class="section-desc">Configure automatic inbox monitoring for email replies and colleague
-                            join requests.</p>
-                        <div class="inbox-settings-form">
-                            <div class="form-row">
-                                <label>Inbox Check Frequency:</label>
-                                <select id="inbox-check-frequency">
-                                    <option value="">Disabled (power saving)</option>
-                                    <option value="10">Every 10 seconds</option>
-                                    <option value="30">Every 30 seconds</option>
-                                    <option value="60">Every 1 minute</option>
-                                    <option value="300">Every 5 minutes</option>
-                                    <option value="900">Every 15 minutes</option>
-                                    <option value="3600">Every 1 hour</option>
-                                </select>
-                            </div>
-                            <div class="form-row" style="margin-top: 8px;">
-                                <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
-                            </div>
-                        </div>
-                        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                            <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
-                                Settings</button>
-                            <button onclick="checkInboxNow()" class="action-btn">📥 Check Now</button>
-                        </div>
-                        <span id="inbox-save-status" class="save-status"></span>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <button onclick="saveExecutionModeSettings()" class="action-btn primary">💾 Save
+                            Schedule</button>
+                        <button onclick="setDefaultExecutionMode()" class="action-btn">🔄 Default</button>
                     </div>
-
-                    <!-- Bottom row: 3 boxes side by side -->
-                    <div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-                        <!-- Colleague Join Code -->
-                        <div class="settings-section">
-                            <h3>🔐 Colleague Join Code</h3>
-                            <p class="section-desc">Set a join code that colleagues must provide when requesting to join
-                                via
-                                email. Share this code privately with trusted colleagues.</p>
-                            <div class="join-code-form">
-                                <div class="form-row" style="margin-bottom: 8px;">
-                                    <label>Current Code:</label>
-                                    <span id="current-join-code-display"
-                                        style="font-weight: bold; color: var(--accent);">Loading...</span>
-                                </div>
-                                <div class="form-row">
-                                    <label>Set New Code:</label>
-                                    <input type="text" id="colleague-join-code"
-                                        placeholder="Enter a secret code (4-32 chars)" maxlength="32" />
-                                </div>
-                                <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                                </div>
-                            </div>
-                            <div
-                                style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Code</button>
-                                <button onclick="clearJoinCode()" class="action-btn">🗑️ Clear</button>
-                            </div>
-                            <span id="join-code-save-status" class="save-status"></span>
-                        </div>
-
-                        <!-- Papers per Run -->
-                        <div class="settings-section">
-                            <h3>📊 Papers per Run</h3>
-                            <p class="section-desc">How many papers to fetch from arXiv each run.</p>
-                            <div class="form-row" style="margin-bottom: 8px;">
-                                <label>Papers to fetch:</label>
-                                <input type="number" id="exec-retrieval-max" min="1" max="50" value="7"
-                                    style="width: 80px;" />
-                            </div>
-                            <p style="font-size: 0.8em; color: #888; margin: 0 0 12px 0;">
-                                ⚠️ Increasing this will consume more tokens, cost more, and be slower.
-                            </p>
-                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <button onclick="savePapersPerRunSettings()" class="action-btn primary">💾 Save
-                                    Settings</button>
-                                <button onclick="setDefaultPapersPerRun()" class="action-btn">🔄 Default</button>
-                            </div>
-                            <span id="exec-save-status" class="save-status"></span>
-                        </div>
-
-                        <!-- Execution Mode -->
-                        <div class="settings-section">
-                            <h3>⚙️ Execution Mode</h3>
-                            <p class="section-desc">Configure whether runs happen manually or on a schedule.</p>
-                            <div class="form-row" style="margin-bottom: 8px;">
-                                <label>Execution Mode:</label>
-                                <select id="exec-mode" onchange="toggleScheduleOptions()">
-                                    <option value="manual">Manual only</option>
-                                    <option value="scheduled">Keep alive (scheduled)</option>
-                                </select>
-                            </div>
-
-                            <!-- Schedule Options (shown only when scheduled) -->
-                            <div id="schedule-options"
-                                style="display: none; margin-left: 16px; padding: 12px; border-left: 3px solid var(--accent); margin-bottom: 12px;">
-                                <div class="form-row" style="margin-bottom: 8px;">
-                                    <label>Frequency:</label>
-                                    <select id="exec-frequency" onchange="toggleEveryXDays()">
-                                        <option value="daily">Daily</option>
-                                        <option value="every_x_days">Every X days</option>
-                                        <option value="weekly">Weekly</option>
-                                        <option value="monthly">Monthly</option>
-                                    </select>
-                                </div>
-                                <div id="every-x-days-input" style="display: none;" class="form-row">
-                                    <label>Every how many days?</label>
-                                    <input type="number" id="exec-every-x-days" min="1" max="30" value="3"
-                                        style="width: 80px;" />
-                                </div>
-                            </div>
-
-                            <!-- Run timestamps (read-only) -->
-                            <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
-                                <div>Last run: <span id="exec-last-run">—</span></div>
-                                <div>Next run: <span id="exec-next-run">—</span></div>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <button onclick="saveExecutionModeSettings()" class="action-btn primary">💾 Save
-                                    Schedule</button>
-                                <button onclick="setDefaultExecutionMode()" class="action-btn">🔄 Default</button>
-                            </div>
-                            <span id="exec-save-status-mode" class="save-status"></span>
-                        </div>
-                    </div>
+                    <span id="exec-save-status-mode" class="save-status"></span>
                 </div>
             </div>
-        </main>
+        </div>
+    </div>
+    </main>
     </div>
 
     <script>
