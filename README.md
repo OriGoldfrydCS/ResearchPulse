@@ -97,13 +97,13 @@ Once reasoning is complete, the agent executes real-world actions:
 
 Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the agent reaches **20+ autonomous junctions** where it chooses different paths based on context, scores, policies, and feature flags:
 
-<p align="center">
-  <a href="static/public/decision_graph.svg" target="_blank">
-    <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" height="800" />
-  </a>
-</p>
+<div style="overflow:scroll; max-height:600px; max-width:100%; border:2px solid #d1d5db; border-radius:12px;">
+  <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" />
+</div>
 
-<p align="center"><em>👆 Click the diagram to open full-size &amp; zoomable view</em></p>
+<p align="center">
+  <em>↕️ ↔️ Scroll inside the box to navigate · <a href="static/public/decision_graph.svg">Open full-size SVG</a></em>
+</p>
 
 #### 🗺️ Legend
 
@@ -115,41 +115,41 @@ Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the age
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/◆-Decision-db2777?style=flat-square" /></td>
-    <td><strong>Diamond — Autonomous Decision</strong><br/>Agent evaluates a condition and chooses a path. No human in the loop.</td>
+    <td><strong>Diamond - Autonomous Decision</strong><br/>Agent evaluates a condition and chooses a path. No human in the loop.</td>
     <td>Scope Gate, Stop Policy, Importance, Digest Mode, Auto-Send</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/■-Action-3b82f6?style=flat-square" /></td>
-    <td><strong>Rectangle — Action / Processing</strong><br/>Agent performs a concrete task: fetch, score, send, persist.</td>
+    <td><strong>Rectangle - Action / Processing</strong><br/>Agent performs a concrete task: fetch, score, send, persist.</td>
     <td>Fetch Papers, Score Relevance, Send Email, Share Paper</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/⬭-Terminal-16a34a?style=flat-square" /></td>
-    <td><strong>Rounded — Start / End / Terminate</strong><br/>Entry and exit points of the agent episode.</td>
+    <td><strong>Rounded - Start / End / Terminate</strong><br/>Entry and exit points of the agent episode.</td>
     <td>Agent Episode Starts, Episode Complete, Terminate</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-HIGH-dc2626?style=flat-square" /></td>
-    <td><strong>Red — HIGH Importance</strong><br/>Paper with relevance ≥ 0.65 and novelty ≥ 0.5. Triggers email + calendar + reading list.</td>
+    <td><strong>Red - HIGH Importance</strong><br/>Paper with relevance ≥ 0.65 and novelty ≥ 0.5. Triggers email + calendar + reading list.</td>
     <td>HIGH Importance path</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-MEDIUM-d97706?style=flat-square" /></td>
-    <td><strong>Amber — MEDIUM Importance</strong><br/>Paper with relevance ≥ 0.4 (or ≥ 0.3 + novelty ≥ 0.6). Added to reading list.</td>
+    <td><strong>Amber - MEDIUM Importance</strong><br/>Paper with relevance ≥ 0.4 (or ≥ 0.3 + novelty ≥ 0.6). Added to reading list.</td>
     <td>MEDIUM Importance path</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-LOW-16a34a?style=flat-square" /></td>
-    <td><strong>Green — LOW Importance</strong><br/>Paper below thresholds. Logged only, no actions triggered.</td>
+    <td><strong>Green - LOW Importance</strong><br/>Paper below thresholds. Logged only, no actions triggered.</td>
     <td>LOW Importance path</td>
   </tr>
 </table>
 
 > [!IMPORTANT]
-> Every **diamond** node is an autonomous decision the agent makes on its own — no human in the loop. The agent evaluates each paper independently and chooses a unique combination of actions based on the paper's scores, your delivery policy, and your colleagues' interests. Two papers in the same run can follow completely different paths.
+> Every **diamond** node is an autonomous decision the agent makes on its own - no human in the loop. The agent evaluates each paper independently and chooses a unique combination of actions based on the paper's scores, your delivery policy, and your colleagues' interests. Two papers in the same run can follow completely different paths.
 
 > [!TIP]
-> This is **not a chain** — it's a graph with 20+ independent decision junctions per paper. The agent can simultaneously send an email digest, share with a colleague, create a calendar event, *and* suggest a profile update — or do none of those — all based on autonomous reasoning. After each run, four feature-flagged autonomous components (Audit Log, LLM Novelty, Profile Evolution, Live Document) each make their own independent decisions.
+> This is **not a chain** - it's a graph with 20+ independent decision junctions per paper. The agent can simultaneously send an email digest, share with a colleague, create a calendar event, *and* suggest a profile update - or do none of those - all based on autonomous reasoning. After each run, four feature-flagged autonomous components (Audit Log, LLM Novelty, Profile Evolution, Live Document) each make their own independent decisions.
 
 ---
 
