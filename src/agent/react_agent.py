@@ -71,6 +71,13 @@ from tools.terminate_run import terminate_run, terminate_run_json
 # Import DB utilities - use data_service for DB-first access
 from db.data_service import get_research_profile, get_colleagues, get_delivery_policy, is_db_available, save_artifacts_to_db
 
+# Import autonomous components (with graceful degradation)
+try:
+    from config.feature_flags import is_feature_enabled, get_feature_config
+    FEATURE_FLAGS_AVAILABLE = True
+except ImportError:
+    FEATURE_FLAGS_AVAILABLE = False
+
 
 # =============================================================================
 # Interest to arXiv Category Mapping
@@ -1024,6 +1031,14 @@ class ResearchReActAgent:
         
         self._log("INFO", f"Episode completed. Processed {len(self._scored_papers)} papers, made {len(self._decisions)} decisions")
         
+        # ==================================================================
+        # AUTONOMOUS COMPONENTS (Feature-flagged, advisory-only)
+        # ==================================================================
+        # These components enhance the run with additional insights but
+        # NEVER block or modify core functionality. All are feature-flagged.
+        # ==================================================================
+        self._run_autonomous_components()
+        
         return self.episode
     
     def run(self, user_message: str) -> AgentEpisode:
@@ -1055,6 +1070,156 @@ class ResearchReActAgent:
             self.episode.end_time = datetime.utcnow().isoformat() + "Z"
             self.episode.stop_reason = f"error: {str(e)}"
             return self.episode
+    
+    def _run_autonomous_components(self) -> None:
+        """
+        Run all autonomous components after the main workflow completes.
+        
+        This method is called at the end of _finalize_episode and includes:
+        1. Run Audit Log - Structured logging of run data
+        2. LLM Novelty Scoring - Enhanced novelty assessment (if not already done)
+        3. Profile Evolution - Advisory suggestions for profile refinement
+        4. Live Document - Update living research briefing
+        
+        **Important guarantees:**
+        - ALL calls are wrapped in try/except for graceful degradation
+        - ALL features are behind feature flags (default OFF)
+        - Failures here NEVER affect the core run results
+        - User's episode.papers_processed is NOT modified by these calls
+        """
+        if not FEATURE_FLAGS_AVAILABLE:
+            self._log("DEBUG", "Feature flags not available, skipping autonomous components")
+            return
+        
+        user_id = self._research_profile.get("user_id", "")
+        
+        # Convert user_id to UUID for feature flag checks
+        try:
+            from uuid import UUID
+            user_uuid = UUID(user_id) if user_id else None
+        except (ValueError, TypeError):
+            user_uuid = None
+        
+        # Combine scored papers with remaining fetched papers for analysis.
+        # Scored papers have real relevance/novelty scores from the pipeline.
+        # Fetched-but-unseen papers that weren't scored (already seen) get defaults
+        # since they matched the user's query and are valid for profile analysis.
+        scored_ids = set()
+        analysis_papers = []
+        
+        if self._scored_papers:
+            for p in self._scored_papers:
+                analysis_papers.append(p)
+                scored_ids.add(p.get("arxiv_id", ""))
+        
+        if self._fetched_papers:
+            for p in self._fetched_papers:
+                if p.get("arxiv_id", "") not in scored_ids:
+                    paper = dict(p)  # shallow copy
+                    paper.setdefault("relevance_score", 0.7)
+                    paper.setdefault("novelty_score", 0.75)
+                    analysis_papers.append(paper)
+        
+        # 1. Run Audit Log
+        try:
+            if is_feature_enabled("AUDIT_LOG", user_uuid):
+                from tools.audit_log import build_audit_log_from_episode, save_audit_log
+                
+                self._log("DEBUG", "Building run audit log...")
+                audit_log = build_audit_log_from_episode(
+                    run_id=self.run_id,
+                    user_id=user_id,
+                    research_profile=self._research_profile,
+                    fetched_papers=self._fetched_papers,
+                    scored_papers=self._scored_papers,
+                    decisions=self._decisions,
+                    actions=self._actions,
+                    colleagues=self._colleagues if hasattr(self, '_colleagues') else [],
+                    stop_reason=self.episode.stop_reason or "",
+                )
+                
+                save_result = save_audit_log(audit_log)
+                if save_result.get("success"):
+                    self._log("INFO", f"Audit log saved: {save_result.get('audit_log_id', save_result.get('log_id', 'unknown'))}")
+                else:
+                    self._log("DEBUG", f"Audit log save skipped: {save_result.get('error', 'unknown')}")
+        except Exception as e:
+            self._log("WARNING", f"Audit log failed (non-critical): {e}")
+        
+        # 2. LLM Novelty Scoring (enhance scored papers)
+        try:
+            if is_feature_enabled("LLM_NOVELTY", user_uuid) and analysis_papers:
+                from tools.llm_novelty import score_paper_novelty_with_llm
+                
+                self._log("DEBUG", "Running LLM novelty scoring...")
+                enhanced_count = 0
+                
+                for paper in analysis_papers:
+                    # Skip if already has LLM novelty score
+                    if paper.get("llm_novelty_score") is not None:
+                        continue
+                    
+                    try:
+                        novelty_result = score_paper_novelty_with_llm(
+                            paper=paper,
+                            similar_papers=[],
+                            relevance_score=paper.get("relevance_score"),
+                            user_id=user_id,
+                        )
+                        
+                        if novelty_result.get("llm_novelty_score") is not None:
+                            paper["llm_novelty_score"] = novelty_result["llm_novelty_score"]
+                            paper["llm_novelty_reasoning"] = novelty_result.get("llm_novelty_reasoning", "")
+                            paper["novelty_sub_scores"] = novelty_result.get("novelty_sub_scores", {})
+                            enhanced_count += 1
+                    except Exception:
+                        pass  # Individual paper failures don't block others
+                
+                if enhanced_count > 0:
+                    self._log("INFO", f"LLM novelty scoring: enhanced {enhanced_count} papers")
+        except Exception as e:
+            self._log("WARNING", f"LLM novelty scoring failed (non-critical): {e}")
+        
+        # 3. Profile Evolution Suggestions (ADVISORY ONLY)
+        try:
+            if is_feature_enabled("PROFILE_EVOLUTION", user_uuid) and analysis_papers:
+                from agent.profile_evolution import analyze_and_suggest_profile_evolution
+                
+                self._log("DEBUG", "Running profile evolution analysis...")
+                evolution_result = analyze_and_suggest_profile_evolution(
+                    run_id=self.run_id,
+                    user_id=user_id,
+                    user_profile=self._research_profile,
+                    scored_papers=analysis_papers,
+                )
+                
+                suggestions_count = evolution_result.get("suggestions_count", 0)
+                if suggestions_count > 0:
+                    self._log("INFO", f"Profile evolution: {suggestions_count} suggestions generated (pending review)")
+                elif evolution_result.get("skip_reason"):
+                    self._log("DEBUG", f"Profile evolution skipped: {evolution_result.get('skip_reason')}")
+        except Exception as e:
+            self._log("WARNING", f"Profile evolution failed (non-critical): {e}")
+        
+        # 4. Live Document Update
+        try:
+            if is_feature_enabled("LIVE_DOCUMENT", user_uuid) and analysis_papers:
+                from tools.live_document import update_live_document_from_run
+                
+                self._log("DEBUG", "Updating live document...")
+                doc_result = update_live_document_from_run(
+                    run_id=self.run_id,
+                    user_id=user_id,
+                    user_profile=self._research_profile,
+                    scored_papers=analysis_papers,
+                )
+                
+                if doc_result.get("save_result", {}).get("success"):
+                    self._log("INFO", f"Live document updated: {doc_result.get('top_papers_count', 0)} top papers")
+                elif doc_result.get("error"):
+                    self._log("DEBUG", f"Live document update failed: {doc_result.get('error')}")
+        except Exception as e:
+            self._log("WARNING", f"Live document failed (non-critical): {e}")
 
 
 # =============================================================================

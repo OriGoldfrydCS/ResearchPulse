@@ -146,6 +146,11 @@ class PaperView(Base):
     summary = Column(Text, nullable=True)  # AI-generated summary of the paper
     summary_generated_at = Column(DateTime, nullable=True)  # When summary was generated
     
+    # LLM Novelty Scoring (Autonomous Component)
+    llm_novelty_score = Column(Float, nullable=True)  # LLM-assessed novelty 0-100
+    llm_novelty_reasoning = Column(Text, nullable=True)  # LLM explanation for novelty score
+    novelty_sub_scores = Column(JSON, default=dict)  # Sub-scores: {"methodology": 0.8, ...}
+    
     __table_args__ = (
         UniqueConstraint('user_id', 'paper_id', name='uq_paper_view_user_paper'),
         Index('ix_paper_view_user_id', 'user_id'),
@@ -923,6 +928,15 @@ class UserSettings(Base):
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
     
+    # Feature flags for autonomous components
+    feature_llm_novelty_enabled = Column(Boolean, default=False)
+    feature_llm_novelty_model = Column(String(50), nullable=True, default="gpt-4o-mini")
+    feature_audit_log_enabled = Column(Boolean, default=False)
+    feature_profile_evolution_enabled = Column(Boolean, default=False)
+    feature_profile_evolution_cooldown_hours = Column(Integer, nullable=True, default=24)
+    feature_live_document_enabled = Column(Boolean, default=False)
+    feature_live_document_max_papers = Column(Integer, nullable=True, default=10)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -946,6 +960,23 @@ class UserSettings(Base):
             "scheduled_every_x_days": self.scheduled_every_x_days,
             "last_run_at": self.last_run_at.isoformat() + "Z" if self.last_run_at else None,
             "next_run_at": self.next_run_at.isoformat() + "Z" if self.next_run_at else None,
+            "feature_flags": {
+                "llm_novelty": {
+                    "enabled": self.feature_llm_novelty_enabled or False,
+                    "model": self.feature_llm_novelty_model or "gpt-4o-mini",
+                },
+                "audit_log": {
+                    "enabled": self.feature_audit_log_enabled or False,
+                },
+                "profile_evolution": {
+                    "enabled": self.feature_profile_evolution_enabled or False,
+                    "cooldown_hours": self.feature_profile_evolution_cooldown_hours or 24,
+                },
+                "live_document": {
+                    "enabled": self.feature_live_document_enabled or False,
+                    "max_top_papers": self.feature_live_document_max_papers or 10,
+                },
+            },
             "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
             "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
@@ -1002,6 +1033,169 @@ class ProcessedInboundEmail(Base):
             "subject": self.subject,
             "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
         }
+
+
+# =============================================================================
+# RunAuditLog Model - Audit log for agent runs
+# =============================================================================
+
+class RunAuditLog(Base):
+    """
+    Structured audit log for agent runs.
+    
+    Captures detailed information about each run including:
+    - Papers retrieved, scored, shared, and discarded
+    - Colleague sharing details
+    - LLM usage statistics
+    - User profile snapshot for audit purposes
+    """
+    __tablename__ = "run_audit_logs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id = Column(String(100), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Summary statistics
+    papers_retrieved_count = Column(Integer, default=0)
+    papers_scored_count = Column(Integer, default=0)
+    papers_shared_count = Column(Integer, default=0)
+    papers_discarded_count = Column(Integer, default=0)
+    
+    # Detailed JSON data
+    papers_retrieved = Column(JSON, default=list)
+    papers_shared = Column(JSON, default=list)
+    papers_discarded = Column(JSON, default=list)
+    colleague_shares = Column(JSON, default=dict)
+    
+    # Execution metadata
+    execution_time_ms = Column(Integer)
+    llm_calls_count = Column(Integer, default=0)
+    llm_tokens_used = Column(Integer, default=0)
+    stop_reason = Column(Text)
+    
+    # User profile snapshot
+    user_profile_snapshot = Column(JSON, default=dict)
+    
+    # Full structured log
+    full_log = Column(JSON, nullable=False)
+    
+    __table_args__ = (
+        Index('ix_run_audit_logs_user_id', 'user_id'),
+        Index('ix_run_audit_logs_run_id', 'run_id'),
+        Index('ix_run_audit_logs_created_at', 'created_at'),
+    )
+
+
+# =============================================================================
+# ProfileEvolutionSuggestion Model - Advisory profile change suggestions
+# =============================================================================
+
+class ProfileEvolutionSuggestion(Base):
+    """
+    Profile evolution suggestion (advisory only, not auto-applied).
+    
+    Generated by analyzing high-relevance and high-novelty papers
+    to suggest profile refinements. Users must explicitly accept
+    or reject suggestions.
+    """
+    __tablename__ = "profile_evolution_suggestions"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Suggestion content
+    suggestion_type = Column(String(50), nullable=False)  # add_topic, remove_topic, refine_topic, etc.
+    suggestion_text = Column(Text, nullable=False)
+    reasoning = Column(Text, nullable=False)
+    confidence = Column(Float)
+    
+    # Supporting evidence
+    supporting_papers = Column(JSON, default=list)
+    
+    # Structured suggestion data
+    suggestion_data = Column(JSON, nullable=False)
+    
+    # Status tracking
+    status = Column(String(50), default="pending")  # pending, accepted, rejected, expired
+    reviewed_at = Column(DateTime)
+    reviewed_by = Column(String(100))
+    
+    __table_args__ = (
+        Index('ix_profile_suggestions_user_id', 'user_id'),
+        Index('ix_profile_suggestions_status', 'status'),
+        Index('ix_profile_suggestions_created_at', 'created_at'),
+    )
+
+
+# =============================================================================
+# LiveDocument Model - Living research document
+# =============================================================================
+
+class LiveDocument(Base):
+    """
+    Living research document that evolves over time.
+    
+    Automatically updated after each run with:
+    - Current owner profile and interests
+    - Top novel papers from recent runs
+    - Colleague sharing summary
+    - Profile evolution suggestions
+    - Archive of past run summaries
+    """
+    __tablename__ = "live_documents"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    
+    # Document metadata
+    title = Column(String(500), default="Research Pulse - Live Briefing")
+    
+    # Document content - JSONB for full data, text for rendered
+    document_data = Column(JSON, default=dict)
+    markdown_content = Column(Text, nullable=False)
+    html_content = Column(Text)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to history
+    history = relationship("LiveDocumentHistory", back_populates="live_document", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index('ix_live_documents_user_id', 'user_id'),
+    )
+
+
+# =============================================================================
+# LiveDocumentHistory Model - Version history for live documents
+# =============================================================================
+
+class LiveDocumentHistory(Base):
+    """
+    Version history for live documents.
+    
+    Stores previous versions of the live document for review
+    and rollback purposes.
+    """
+    __tablename__ = "live_document_history"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("live_documents.id", ondelete="CASCADE"), nullable=False)
+    
+    # Stored content
+    document_data = Column(JSON, default=dict)
+    markdown_content = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    live_document = relationship("LiveDocument", back_populates="history")
+    
+    __table_args__ = (
+        Index('ix_live_doc_history_doc_id', 'document_id'),
+    )
 
 
 def arxiv_category_to_dict(cat: ArxivCategoryDB) -> Dict[str, Any]:
@@ -1072,6 +1266,10 @@ def paper_view_to_dict(view: PaperView, include_paper: bool = False) -> Dict[str
         # Paper summary
         "summary": view.summary if hasattr(view, 'summary') else None,
         "summary_generated_at": view.summary_generated_at.isoformat() + "Z" if hasattr(view, 'summary_generated_at') and view.summary_generated_at else None,
+        # LLM novelty scoring (new autonomous component)
+        "llm_novelty_score": view.llm_novelty_score if hasattr(view, 'llm_novelty_score') else None,
+        "llm_novelty_reasoning": view.llm_novelty_reasoning if hasattr(view, 'llm_novelty_reasoning') else None,
+        "novelty_sub_scores": view.novelty_sub_scores if hasattr(view, 'novelty_sub_scores') else {},
     }
     if include_paper and view.paper:
         result["paper"] = paper_to_dict(view.paper)
@@ -1329,4 +1527,90 @@ def prompt_request_to_dict(prompt: PromptRequest) -> Dict[str, Any]:
         "papers_retrieved": prompt.papers_retrieved,
         "papers_returned": prompt.papers_returned,
         "created_at": prompt.created_at.isoformat() + "Z" if prompt.created_at else None,
+    }
+
+
+# =============================================================================
+# Autonomous Components Conversion Functions
+# =============================================================================
+
+def run_audit_log_to_dict(log: RunAuditLog) -> Dict[str, Any]:
+    """Convert RunAuditLog model to dictionary."""
+    # Format created_at: strip timezone info before adding Z to avoid "+00:00Z"
+    created_at_str = None
+    if log.created_at:
+        dt = log.created_at.replace(tzinfo=None) if log.created_at.tzinfo else log.created_at
+        created_at_str = dt.isoformat() + "Z"
+    return {
+        "id": str(log.id),
+        "run_id": log.run_id,
+        "user_id": str(log.user_id),
+        "created_at": created_at_str,
+        "papers_retrieved_count": log.papers_retrieved_count or 0,
+        "papers_scored_count": log.papers_scored_count or 0,
+        "papers_shared_count": log.papers_shared_count or 0,
+        "papers_discarded_count": log.papers_discarded_count or 0,
+        "papers_retrieved": log.papers_retrieved or [],
+        "papers_shared": log.papers_shared or [],
+        "papers_discarded": log.papers_discarded or [],
+        "colleague_shares": log.colleague_shares or {},
+        "execution_time_ms": log.execution_time_ms,
+        "llm_calls_count": log.llm_calls_count or 0,
+        "llm_tokens_used": log.llm_tokens_used or 0,
+        "stop_reason": log.stop_reason,
+        "user_profile_snapshot": log.user_profile_snapshot or {},
+        "full_log": log.full_log,
+    }
+
+
+def profile_evolution_suggestion_to_dict(suggestion: ProfileEvolutionSuggestion) -> Dict[str, Any]:
+    """Convert ProfileEvolutionSuggestion model to dictionary."""
+    return {
+        "id": str(suggestion.id),
+        "user_id": str(suggestion.user_id),
+        "run_id": suggestion.run_id,
+        "created_at": suggestion.created_at.isoformat() + "Z" if suggestion.created_at else None,
+        "suggestion_type": suggestion.suggestion_type,
+        "suggestion_text": suggestion.suggestion_text,
+        "reasoning": suggestion.reasoning,
+        "confidence": suggestion.confidence,
+        "supporting_papers": suggestion.supporting_papers or [],
+        "suggestion_data": suggestion.suggestion_data,
+        "status": suggestion.status or "pending",
+        "reviewed_at": suggestion.reviewed_at.isoformat() + "Z" if suggestion.reviewed_at else None,
+        "reviewed_by": suggestion.reviewed_by,
+    }
+
+
+def live_document_to_dict(doc: LiveDocument, include_content: bool = True) -> Dict[str, Any]:
+    """Convert LiveDocument model to dictionary."""
+    def _fmt_dt(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt.isoformat() + "Z"
+
+    result = {
+        "id": str(doc.id),
+        "user_id": str(doc.user_id),
+        "title": doc.title,
+        "document_data": doc.document_data or {},
+        "created_at": _fmt_dt(doc.created_at),
+        "updated_at": _fmt_dt(doc.updated_at),
+    }
+    if include_content:
+        result["markdown_content"] = doc.markdown_content
+        result["html_content"] = doc.html_content
+    return result
+
+
+def live_document_history_to_dict(history: LiveDocumentHistory) -> Dict[str, Any]:
+    """Convert LiveDocumentHistory model to dictionary."""
+    return {
+        "id": str(history.id),
+        "document_id": str(history.document_id),
+        "document_data": history.document_data or {},
+        "markdown_content": history.markdown_content,
+        "created_at": history.created_at.isoformat() + "Z" if history.created_at else None,
     }

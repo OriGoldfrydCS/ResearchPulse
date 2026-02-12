@@ -2537,6 +2537,331 @@
             transform: rotate(90deg);
         }
 
+        /* Autonomous Components Buttons */
+        .autonomous-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .autonomous-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px 12px;
+            font-size: 0.85rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .autonomous-btn:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Autonomous Components Modal */
+        .autonomous-modal {
+            max-width: 800px;
+            width: 95%;
+        }
+
+        .autonomous-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .autonomous-modal-header h3 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .autonomous-modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .autonomous-modal-close:hover {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .autonomous-modal-content {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .autonomous-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        .autonomous-empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        /* Live Document Styles */
+        .live-doc-content {
+            line-height: 1.6;
+        }
+
+        .live-doc-content h1,
+        .live-doc-content h2,
+        .live-doc-content h3 {
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+        }
+
+        .live-doc-content ul,
+        .live-doc-content ol {
+            margin: 0.5em 0;
+            padding-left: 1.5em;
+        }
+
+        .live-doc-content li {
+            margin: 0.25em 0;
+        }
+
+        /* Suggestion Card Styles */
+        .suggestion-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .suggestion-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .suggestion-field {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .suggestion-status {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: var(--surface);
+        }
+
+        .suggestion-status.pending {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .suggestion-status.accepted {
+            background: var(--success);
+            color: #fff;
+        }
+
+        .suggestion-status.rejected {
+            background: var(--error);
+            color: #fff;
+        }
+
+        .suggestion-reason {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .suggestion-values {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .suggestion-value {
+            background: var(--bg);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .suggestion-value-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .suggestion-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .suggestion-actions button {
+            flex: 1;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            transition: all 0.2s;
+        }
+
+        .suggestion-actions .accept-btn:hover {
+            background: var(--success);
+            color: white;
+            border-color: var(--success);
+        }
+
+        .suggestion-actions .reject-btn:hover {
+            background: var(--error);
+            color: white;
+            border-color: var(--error);
+        }
+
+        /* Audit Log Styles */
+        .audit-log-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .audit-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .audit-log-run-id {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .audit-log-time {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .audit-log-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 0.9rem;
+        }
+
+        .audit-log-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Feature Flags Styles */
+        .feature-flag-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .feature-flag-name {
+            font-weight: 500;
+        }
+
+        .feature-flag-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature-flag-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .feature-flag-badge.enabled {
+            background: var(--success);
+            color: white;
+        }
+
+        .feature-flag-badge.disabled {
+            background: var(--text-muted);
+            color: white;
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+            cursor: pointer;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--text-muted);
+            border-radius: 26px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle-switch input:checked+.toggle-slider {
+            background-color: var(--success);
+        }
+
+        .toggle-switch input:checked+.toggle-slider:before {
+            transform: translateX(24px);
+        }
+
         .templates-list {
             display: flex;
             flex-direction: column;
@@ -2917,10 +3242,10 @@
 
         <!-- Navigation Tabs -->
         <nav class="nav-tabs glass-panel rounded-2xl">
-            <button class="nav-tab active" data-tab="chat"><span class="tab-icon">💬</span>Ask</button>
+            <button class="nav-tab active" data-tab="chat"><span class="tab-icon">🏠📣</span>Home </button>
             <button class="nav-tab" data-tab="papers"><span class="tab-icon">📄</span>Papers</button>
             <button class="nav-tab" data-tab="emails"><span class="tab-icon">📧</span>Emails</button>
-            <button class="nav-tab" data-tab="calendar"><span class="tab-icon">📅</span>Remainders</button>
+            <button class="nav-tab" data-tab="calendar"><span class="tab-icon">📅</span>Alerts</button>
             <button class="nav-tab" data-tab="shares"><span class="tab-icon">📤</span>Shares</button>
             <button class="nav-tab" data-tab="colleagues"><span class="tab-icon">👥</span>Colleagues</button>
             <button class="nav-tab" data-tab="settings"><span class="tab-icon">⚙️</span>My Settings</button>
@@ -3002,6 +3327,19 @@
                             <button onclick="showAddTemplateForm()" id="add-template-btn" class="action-btn small">➕ Add
                                 New Template</button>
                         </div>
+                    </div>
+
+                    <!-- Autonomous Component Buttons -->
+                    <div class="autonomous-buttons" style="margin-top: 8px;">
+                        <button onclick="viewLiveDocument()" class="action-btn autonomous-btn">
+                            📄 Live Document
+                        </button>
+                        <button onclick="viewProfileSuggestions()" class="action-btn autonomous-btn">
+                            💡 Profile Suggestions
+                        </button>
+                        <button onclick="viewHistoryLogs()" class="action-btn autonomous-btn">
+                            📋 History Logs
+                        </button>
                     </div>
                 </div>
 
@@ -3158,6 +3496,19 @@
                         <button class="action-btn" onclick="closeEmailDetailModal()">Close</button>
                         <button class="action-btn primary" id="email-resend-btn" onclick="resendEmailFromModal()">📤
                             Resend</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Autonomous Components Modal -->
+            <div class="modal-overlay" id="autonomous-modal">
+                <div class="modal autonomous-modal">
+                    <div class="autonomous-modal-header">
+                        <h3 id="autonomous-modal-title">🤖 Autonomous Component</h3>
+                        <button class="autonomous-modal-close" onclick="closeAutonomousModal()">×</button>
+                    </div>
+                    <div class="autonomous-modal-content" id="autonomous-modal-content">
+                        <div class="autonomous-loading">Loading...</div>
                     </div>
                 </div>
             </div>
@@ -7994,6 +8345,299 @@
             } else {
                 content.classList.remove('expanded');
                 chevron.classList.remove('expanded');
+            }
+        }
+
+        // ===== Autonomous Components Functions =====
+        let autonomousExpanded = false;
+
+        function toggleAutonomousComponents() {
+            autonomousExpanded = !autonomousExpanded;
+            const content = document.getElementById('autonomous-components-content');
+            const chevron = document.getElementById('autonomous-chevron');
+
+            if (autonomousExpanded) {
+                content.classList.add('expanded');
+                chevron.classList.add('expanded');
+            } else {
+                content.classList.remove('expanded');
+                chevron.classList.remove('expanded');
+            }
+        }
+
+        function openAutonomousModal(title) {
+            const modal = document.getElementById('autonomous-modal');
+            const titleEl = document.getElementById('autonomous-modal-title');
+            const contentEl = document.getElementById('autonomous-modal-content');
+
+            titleEl.textContent = title;
+            contentEl.innerHTML = '<div class="autonomous-loading">Loading...</div>';
+            modal.classList.add('active');
+        }
+
+        function closeAutonomousModal() {
+            document.getElementById('autonomous-modal').classList.remove('active');
+        }
+
+        // Close modal when clicking overlay
+        document.getElementById('autonomous-modal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeAutonomousModal();
+        });
+
+        async function viewLiveDocument() {
+            openAutonomousModal('📄 Live Research Document');
+            const contentEl = document.getElementById('autonomous-modal-content');
+
+            try {
+                const response = await fetch('/api/live-document?format=markdown');
+
+                if (response.status === 404) {
+                    const data = await response.json();
+                    contentEl.innerHTML = `
+                        <div class="autonomous-empty">
+                            <p>${data.detail || 'No live document found. Run a research pulse first to generate one.'}</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Failed to fetch live document');
+
+                const mdText = await response.text();
+                // Store for download
+                window._liveDocText = mdText;
+                contentEl.innerHTML = `
+                    <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
+                        <strong>What is this?</strong> This is your <em>Live Research Briefing</em> — an auto-generated document
+                        that summarises your top papers, trending topics, and category breakdown across all research runs.
+                        It updates automatically after every run.
+                    </div>
+                    <div class="live-doc-content" style="white-space: pre-wrap; font-size: 0.88rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; line-height: 1.6;">${escapeHtml(mdText)}</div>
+                    <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
+                        <button onclick="downloadLiveDocument()" class="action-btn">⬇️ Download .txt</button>
+                        <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset Live Document</button>
+                    </div>
+                `;
+            } catch (error) {
+                contentEl.innerHTML = `
+                    <div class="autonomous-empty">
+                        <p>Error loading live document: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function resetLiveDocument() {
+            if (!confirm('Reset the Live Document? This will delete the current document and all history. A new one will be generated on the next research run.')) return;
+            try {
+                const response = await fetch('/api/live-document', { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to reset');
+                await viewLiveDocument();
+            } catch (error) {
+                alert('Error resetting live document: ' + error.message);
+            }
+        }
+
+        function downloadLiveDocument() {
+            const text = window._liveDocText;
+            if (!text) return;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'research_briefing.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function viewProfileSuggestions() {
+            openAutonomousModal('💡 Profile Evolution Suggestions');
+            const contentEl = document.getElementById('autonomous-modal-content');
+
+            try {
+                const response = await fetch('/api/profile-suggestions?status=pending&limit=20');
+
+                if (response.status === 404) {
+                    const data = await response.json();
+                    contentEl.innerHTML = `
+                        <div class="autonomous-empty">
+                            <p>${data.detail || 'Profile Evolution feature is not enabled.'}</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Failed to fetch suggestions');
+
+                const data = await response.json();
+
+                if (!data.suggestions || data.suggestions.length === 0) {
+                    contentEl.innerHTML = `
+                        <div class="autonomous-empty">
+                            <p>No profile suggestions yet.</p>
+                            <p>Run more research sessions to receive personalized recommendations.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = data.suggestions.map(s => {
+                    const typeLabel = (s.suggestion_type || 'suggestion').replace(/_/g, ' ');
+                    const typeIcon = {
+                        'add_topic': '➕',
+                        'remove_topic': '➖',
+                        'refine_topic': '✏️',
+                        'add_category': '📂',
+                        'remove_category': '🗑️',
+                        'merge_topics': '🔀',
+                    }[s.suggestion_type] || '💡';
+
+                    // Build supporting papers list
+                    let papersHtml = '';
+                    if (s.supporting_papers && s.supporting_papers.length > 0) {
+                        papersHtml = `
+                            <div class="suggestion-papers" style="margin-top:8px;font-size:0.85em;color:#6b7280;">
+                                <strong>Based on:</strong>
+                                ${s.supporting_papers.slice(0, 3).map(p =>
+                            `<div style="margin:2px 0;">• <a href="https://arxiv.org/abs/${escapeHtml(p.arxiv_id)}" target="_blank" style="color:#3b82f6;">${escapeHtml(p.title)}</a></div>`
+                        ).join('')}
+                            </div>
+                        `;
+                    }
+
+                    return `
+                    <div class="suggestion-card">
+                        <div class="suggestion-card-header">
+                            <span class="suggestion-field">${typeIcon} ${escapeHtml(typeLabel)}</span>
+                            <span class="suggestion-status ${s.status}">${s.status}</span>
+                        </div>
+                        <div class="suggestion-reason">${escapeHtml(s.suggestion_text || '')}</div>
+                        <div style="margin-top:6px;font-size:0.9em;color:#6b7280;">
+                            ${escapeHtml(s.reasoning || '')}
+                        </div>
+                        ${s.confidence ? `<div style="margin-top:4px;font-size:0.8em;color:#9ca3af;">Confidence: ${Math.round(s.confidence * 100)}%</div>` : ''}
+                        ${papersHtml}
+                        ${s.status === 'pending' ? `
+                            <div class="suggestion-actions">
+                                <button class="accept-btn" onclick="updateSuggestionStatus('${s.id}', 'accepted')">✓ Accept</button>
+                                <button class="reject-btn" onclick="updateSuggestionStatus('${s.id}', 'rejected')">✕ Reject</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `}).join('');
+
+                contentEl.innerHTML = html;
+            } catch (error) {
+                contentEl.innerHTML = `
+                    <div class="autonomous-empty">
+                        <p>Error loading suggestions: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function updateSuggestionStatus(suggestionId, status) {
+            try {
+                const response = await fetch('/api/profile-suggestions/' + suggestionId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: status })
+                });
+
+                if (!response.ok) throw new Error('Failed to update suggestion');
+
+                const result = await response.json();
+
+                if (status === 'accepted' && result.applied) {
+                    // Refresh the profile form so the settings tab shows the update
+                    await loadProfile();
+                }
+
+                // Reload the suggestions (only show pending)
+                await viewProfileSuggestions();
+            } catch (error) {
+                alert('Error updating suggestion: ' + error.message);
+            }
+        }
+
+        async function viewHistoryLogs() {
+            openAutonomousModal('📋 History Logs');
+            const contentEl = document.getElementById('autonomous-modal-content');
+
+            try {
+                const response = await fetch('/api/audit-logs?limit=50');
+
+                if (response.status === 404) {
+                    const data = await response.json();
+                    contentEl.innerHTML = `
+                        <div class="autonomous-empty">
+                            <p>${data.detail || 'History Logs are not available.'}</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Failed to fetch history logs');
+
+                const data = await response.json();
+
+                if (!data.audit_logs || data.audit_logs.length === 0) {
+                    contentEl.innerHTML = `
+                        <div class="autonomous-empty">
+                            <p>No history logs yet.</p>
+                            <p>Run a research session to see the history trail.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = data.audit_logs.map(log => {
+                    const createdAt = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+                    const durationSec = log.execution_time_ms ? (log.execution_time_ms / 1000).toFixed(1) : '0.0';
+                    return `
+                        <div class="audit-log-item">
+                            <div class="audit-log-header">
+                                <span class="audit-log-run-id">Run: ${escapeHtml(log.run_id || '')}</span>
+                                <span class="audit-log-time">${createdAt}</span>
+                            </div>
+                            <div class="audit-log-stats">
+                                <span class="audit-log-stat">📄 ${log.papers_retrieved_count || 0} retrieved</span>
+                                <span class="audit-log-stat">📊 ${log.papers_scored_count || 0} scored</span>
+                                <span class="audit-log-stat">✉️ ${log.papers_shared_count || 0} shared</span>
+                                <span class="audit-log-stat">🗑️ ${log.papers_discarded_count || 0} discarded</span>
+                                <span class="audit-log-stat">⏱️ ${durationSec}s</span>
+                            </div>
+                            ${log.stop_reason ? `<div style="color: var(--text-secondary); margin-top: 6px; font-size: 0.82rem;">Stop: ${escapeHtml(log.stop_reason)}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                html += `
+                    <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+                        <button onclick="resetHistoryLogs()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset All History</button>
+                    </div>
+                `;
+
+                contentEl.innerHTML = html;
+            } catch (error) {
+                contentEl.innerHTML = `
+                    <div class="autonomous-empty">
+                        <p>Error loading history logs: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function resetHistoryLogs() {
+            if (!confirm('Reset all history logs? This will permanently delete all run history from the database.')) return;
+            try {
+                const response = await fetch('/api/audit-logs', { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to reset');
+                await viewHistoryLogs();
+            } catch (error) {
+                alert('Error resetting history logs: ' + error.message);
             }
         }
 

@@ -4784,3 +4784,638 @@ async def update_execution_settings(data: ExecutionSettingsUpdate):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Autonomous Components API (Feature-Flagged)
+# =============================================================================
+
+# --- Audit Logs ---
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """
+    List run audit logs.
+    
+    Feature flag: AUDIT_LOG_ENABLED (must be enabled)
+    
+    Returns list of audit logs ordered by created_at desc.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("AUDIT_LOG", user_id):
+                raise HTTPException(status_code=404, detail="Audit log feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        from ..tools.audit_log import get_audit_logs
+        
+        logs = get_audit_logs(user_id=user_id, limit=limit, offset=offset)
+        
+        return {
+            "success": True,
+            "audit_logs": logs,
+            "count": len(logs),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/audit-logs/{run_id}")
+async def get_audit_log(run_id: str):
+    """
+    Get a specific audit log by run_id.
+    
+    Feature flag: AUDIT_LOG_ENABLED (must be enabled)
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("AUDIT_LOG", user_id):
+                raise HTTPException(status_code=404, detail="Audit log feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        from ..tools.audit_log import get_audit_log_by_run_id
+        
+        log = get_audit_log_by_run_id(run_id)
+        
+        if not log:
+            raise HTTPException(status_code=404, detail="Audit log not found")
+        
+        return {
+            "success": True,
+            "audit_log": log,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/audit-logs")
+async def reset_audit_logs():
+    """
+    Delete all audit logs for the current user.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+
+        from ..db.database import is_database_configured, get_db_session
+        from ..db.orm_models import RunAuditLog
+
+        if not is_database_configured():
+            raise HTTPException(status_code=500, detail="Database not configured")
+
+        with get_db_session() as db:
+            deleted = db.query(RunAuditLog).filter_by(user_id=user_id).delete()
+            db.commit()
+
+        return {"success": True, "deleted_count": deleted}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Profile Evolution Suggestions ---
+
+class SuggestionStatusUpdate(BaseModel):
+    """Request model for updating suggestion status."""
+    status: str = Field(..., description="New status: accepted, rejected, or expired")
+
+
+@router.get("/profile-suggestions")
+async def list_profile_suggestions(
+    status: Optional[str] = Query(default="pending", regex="^(pending|accepted|rejected|expired|all)$"),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """
+    List profile evolution suggestions.
+    
+    Feature flag: PROFILE_EVOLUTION_ENABLED (must be enabled)
+    
+    Args:
+        status: Filter by status (pending, accepted, rejected, expired, all)
+        limit: Maximum suggestions to return
+    
+    Returns list of suggestions ordered by created_at desc.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("PROFILE_EVOLUTION", user_id):
+                raise HTTPException(status_code=404, detail="Profile evolution feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        from ..agent.profile_evolution import get_pending_suggestions
+        from ..db.database import is_database_configured, get_db_session
+        from ..db.orm_models import ProfileEvolutionSuggestion, profile_evolution_suggestion_to_dict
+        
+        if status == "pending":
+            suggestions = get_pending_suggestions(user_id)
+        else:
+            # Query with optional status filter
+            if not is_database_configured():
+                return {"success": True, "suggestions": [], "count": 0}
+            
+            with get_db_session() as db:
+                query = db.query(ProfileEvolutionSuggestion).filter_by(user_id=user_id)
+                if status != "all":
+                    query = query.filter_by(status=status)
+                
+                results = query.order_by(
+                    ProfileEvolutionSuggestion.created_at.desc()
+                ).limit(limit).all()
+                
+                suggestions = [profile_evolution_suggestion_to_dict(s) for s in results]
+        
+        return {
+            "success": True,
+            "suggestions": suggestions[:limit],
+            "count": len(suggestions),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/profile-suggestions/{suggestion_id}")
+async def update_profile_suggestion(suggestion_id: str, data: SuggestionStatusUpdate):
+    """
+    Update a profile suggestion's status (accept/reject).
+    
+    Feature flag: PROFILE_EVOLUTION_ENABLED (must be enabled)
+    
+    When accepted, the suggestion is automatically applied to the user's
+    research profile (e.g., adding a topic or arXiv category).
+    
+    Args:
+        suggestion_id: UUID of the suggestion
+        data: New status (accepted, rejected, expired)
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("PROFILE_EVOLUTION", user_id):
+                raise HTTPException(status_code=404, detail="Profile evolution feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        # Validate status
+        if data.status not in ("accepted", "rejected", "expired"):
+            raise HTTPException(status_code=400, detail="Status must be: accepted, rejected, or expired")
+        
+        from ..agent.profile_evolution import update_suggestion_status
+        
+        success = update_suggestion_status(
+            suggestion_id=UUID(suggestion_id),
+            status=data.status,
+            reviewed_by=user.get("id"),
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Suggestion not found")
+        
+        # If accepted, apply the suggestion to the user's profile
+        applied = False
+        if data.status == "accepted":
+            applied = _apply_suggestion_to_profile(store, user_id, UUID(suggestion_id))
+        
+        return {
+            "success": True,
+            "message": f"Suggestion marked as {data.status}",
+            "applied": applied,
+        }
+    except HTTPException:
+        raise
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid suggestion ID format")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> bool:
+    """
+    Apply an accepted suggestion to the user's profile.
+    
+    Reads the suggestion_data from DB and modifies the user's profile
+    accordingly (add/remove topics, categories, etc.).
+    """
+    try:
+        from ..db.database import get_db_session
+        from ..db.orm_models import ProfileEvolutionSuggestion, User
+        
+        with get_db_session() as db:
+            suggestion = db.query(ProfileEvolutionSuggestion).filter_by(
+                id=suggestion_id
+            ).first()
+            
+            if not suggestion or not suggestion.suggestion_data:
+                return False
+            
+            sd = suggestion.suggestion_data
+            action = sd.get("action", suggestion.suggestion_type)
+            
+            user = db.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False
+            
+            # Get current profile fields
+            interests = user.interests_include or ""
+            topics = list(user.research_topics or [])
+            cats_include = list(user.arxiv_categories_include or [])
+            cats_exclude = list(user.arxiv_categories_exclude or [])
+            
+            if action == "add_topic":
+                new_topic = sd.get("topic", "")
+                if new_topic:
+                    # Append to interests_include free text
+                    if interests:
+                        interests = interests.rstrip(", ") + ", " + new_topic
+                    else:
+                        interests = new_topic
+                    # Also add to research_topics list
+                    if new_topic not in topics:
+                        topics.append(new_topic)
+                        
+            elif action == "remove_topic":
+                old_topic = sd.get("topic", "")
+                if old_topic:
+                    topics = [t for t in topics if t.lower() != old_topic.lower()]
+                    
+            elif action == "refine_topic":
+                old_topic = sd.get("topic", "")
+                new_topic = sd.get("new_topic", "")
+                if old_topic and new_topic:
+                    topics = [new_topic if t.lower() == old_topic.lower() else t for t in topics]
+                    if interests:
+                        import re
+                        interests = re.sub(
+                            re.escape(old_topic), new_topic, interests, flags=re.IGNORECASE
+                        )
+                        
+            elif action == "add_category":
+                cat = sd.get("category", "")
+                if cat and cat not in cats_include:
+                    cats_include.append(cat)
+                    # Also add human-readable name to interests & topics
+                    human_name = None
+                    try:
+                        from ..tools.arxiv_categories import get_all_categories
+                        all_cats = get_all_categories()
+                        if cat in all_cats:
+                            human_name = all_cats[cat].name
+                    except Exception:
+                        pass
+                    if not human_name:
+                        # Fallback: derive from category code
+                        human_name = cat.split(".")[-1] if "." in cat else cat
+                    if human_name:
+                        if interests:
+                            interests = interests.rstrip(", ") + ", " + human_name
+                        else:
+                            interests = human_name
+                        if human_name not in topics:
+                            topics.append(human_name)
+                    
+            elif action == "remove_category":
+                cat = sd.get("category", "")
+                if cat:
+                    cats_include = [c for c in cats_include if c != cat]
+                    # Also remove human-readable name from interests & topics
+                    human_name = None
+                    try:
+                        from ..tools.arxiv_categories import get_all_categories
+                        all_cats = get_all_categories()
+                        if cat in all_cats:
+                            human_name = all_cats[cat].name
+                    except Exception:
+                        pass
+                    if human_name:
+                        topics = [t for t in topics if t != human_name]
+                        if human_name in (interests or ""):
+                            interests = interests.replace(", " + human_name, "").replace(human_name + ", ", "").replace(human_name, "")
+                    
+            elif action == "merge_topics":
+                to_merge = sd.get("topics_to_merge", [])
+                merged = sd.get("merged_topic", "")
+                if to_merge and merged:
+                    topics = [t for t in topics if t.lower() not in
+                              [m.lower() for m in to_merge]]
+                    if merged not in topics:
+                        topics.append(merged)
+            
+            # Apply updates
+            user.interests_include = interests
+            user.research_topics = topics
+            user.arxiv_categories_include = cats_include
+            user.arxiv_categories_exclude = cats_exclude
+            user.updated_at = __import__('datetime').datetime.utcnow()
+            db.commit()
+            
+        return True
+        
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to apply suggestion: {e}")
+        return False
+
+
+# --- Live Document ---
+
+@router.get("/live-document")
+async def get_live_document(format: str = Query(default="json", regex="^(json|markdown|html)$")):
+    """
+    Get the user's live research briefing document.
+    
+    Feature flag: LIVE_DOCUMENT_ENABLED (must be enabled)
+    
+    Args:
+        format: Response format (json, markdown, html)
+    
+    Returns the latest version of the live document.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("LIVE_DOCUMENT", user_id):
+                raise HTTPException(status_code=404, detail="Live document feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        from ..tools.live_document import get_live_document, LiveDocumentManager, LiveDocumentData
+        
+        doc_data = get_live_document(user_id)
+        
+        if not doc_data:
+            raise HTTPException(status_code=404, detail="No live document found. Run a research pulse first.")
+        
+        if format == "markdown":
+            manager = LiveDocumentManager()
+            doc = LiveDocumentData(**doc_data.get("document_data", {}))
+            return Response(
+                content=manager.render_markdown(doc),
+                media_type="text/markdown",
+            )
+        elif format == "html":
+            manager = LiveDocumentManager()
+            doc = LiveDocumentData(**doc_data.get("document_data", {}))
+            return Response(
+                content=manager.render_html(doc),
+                media_type="text/html",
+            )
+        else:
+            return {
+                "success": True,
+                "document": doc_data,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/live-document/history")
+async def get_live_document_history(limit: int = Query(default=10, ge=1, le=50)):
+    """
+    Get version history of the live document.
+    
+    Feature flag: LIVE_DOCUMENT_ENABLED (must be enabled)
+    
+    Returns list of previous document versions.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Check feature flag with user_id for DB-backed flags
+        try:
+            from ..config.feature_flags import is_feature_enabled
+            if not is_feature_enabled("LIVE_DOCUMENT", user_id):
+                raise HTTPException(status_code=404, detail="Live document feature is not enabled")
+        except ImportError:
+            raise HTTPException(status_code=404, detail="Feature flags not available")
+        
+        from ..tools.live_document import get_live_document, get_document_history
+        
+        # First get the current document to find its ID
+        doc_data = get_live_document(user_id)
+        
+        if not doc_data:
+            raise HTTPException(status_code=404, detail="No live document found")
+        
+        document_id = doc_data.get("id")
+        if not document_id:
+            return {"success": True, "history": [], "count": 0}
+        
+        history = get_document_history(UUID(document_id), limit=limit)
+        
+        return {
+            "success": True,
+            "history": history,
+            "count": len(history),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/live-document")
+async def reset_live_document():
+    """
+    Delete the live document and its history for the current user.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+
+        from ..db.database import is_database_configured, get_db_session
+        from ..db.orm_models import LiveDocument, LiveDocumentHistory
+
+        if not is_database_configured():
+            raise HTTPException(status_code=500, detail="Database not configured")
+
+        with get_db_session() as db:
+            doc = db.query(LiveDocument).filter_by(user_id=user_id).first()
+            history_deleted = 0
+            if doc:
+                history_deleted = db.query(LiveDocumentHistory).filter_by(
+                    document_id=doc.id
+                ).delete()
+                db.delete(doc)
+            db.commit()
+
+        return {"success": True, "document_deleted": doc is not None, "history_deleted": history_deleted}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Feature Flags Status ---
+
+class FeatureFlagUpdate(BaseModel):
+    """Request model for updating feature flags."""
+    llm_novelty: Optional[dict] = None
+    audit_log: Optional[dict] = None
+    profile_evolution: Optional[dict] = None
+    live_document: Optional[dict] = None
+
+
+@router.get("/feature-flags")
+async def get_feature_flags_status():
+    """
+    Get status of all autonomous component feature flags.
+    
+    First tries to load from database, then falls back to environment variables.
+    Returns which features are enabled/disabled.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        # Try to load from DB first
+        try:
+            from ..config.feature_flags import get_feature_flags_from_db, get_feature_config, reload_feature_config_from_db
+            
+            # Load from DB and merge with global config
+            reload_feature_config_from_db(user_id)
+            
+            db_flags = get_feature_flags_from_db(user_id)
+            if db_flags:
+                return {
+                    "success": True,
+                    "features": db_flags,
+                    "source": "database",
+                }
+            
+            # Fall back to environment config
+            config = get_feature_config()
+            return {
+                "success": True,
+                "features": {
+                    "llm_novelty": {
+                        "enabled": config.llm_novelty.enabled,
+                        "model": config.llm_novelty.model,
+                    },
+                    "audit_log": {
+                        "enabled": config.audit_log.enabled,
+                    },
+                    "profile_evolution": {
+                        "enabled": config.profile_evolution.enabled,
+                        "cooldown_hours": config.profile_evolution.cooldown_hours,
+                    },
+                    "live_document": {
+                        "enabled": config.live_document.enabled,
+                        "max_top_papers": config.live_document.max_top_papers,
+                    },
+                },
+                "source": "environment",
+            }
+        except ImportError:
+            return {
+                "success": True,
+                "features": {
+                    "llm_novelty": {"enabled": False, "model": "gpt-4o-mini"},
+                    "audit_log": {"enabled": False},
+                    "profile_evolution": {"enabled": False, "cooldown_hours": 24},
+                    "live_document": {"enabled": False, "max_top_papers": 10},
+                },
+                "source": "default",
+                "message": "Feature flags module not available",
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/feature-flags")
+async def update_feature_flags(data: FeatureFlagUpdate):
+    """
+    Update feature flag settings and save to database.
+    
+    Args:
+        data: Feature flags to update. Only provided fields will be updated.
+        
+    Example body:
+    {
+        "llm_novelty": {"enabled": true, "model": "gpt-4o-mini"},
+        "audit_log": {"enabled": true},
+        "profile_evolution": {"enabled": true, "cooldown_hours": 24},
+        "live_document": {"enabled": true, "max_top_papers": 10}
+    }
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+        
+        from ..config.feature_flags import update_feature_flags_in_db
+        
+        # Build flags dict from provided data
+        flags = {}
+        if data.llm_novelty is not None:
+            flags["llm_novelty"] = data.llm_novelty
+        if data.audit_log is not None:
+            flags["audit_log"] = data.audit_log
+        if data.profile_evolution is not None:
+            flags["profile_evolution"] = data.profile_evolution
+        if data.live_document is not None:
+            flags["live_document"] = data.live_document
+        
+        if not flags:
+            raise HTTPException(status_code=400, detail="No feature flags provided to update")
+        
+        success = update_feature_flags_in_db(user_id, flags)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save feature flags to database")
+        
+        return {
+            "success": True,
+            "message": "Feature flags updated successfully",
+            "updated": list(flags.keys()),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

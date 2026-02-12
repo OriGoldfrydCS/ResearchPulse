@@ -57,6 +57,10 @@ dependencies = [
     "cryptography>=41.0.0,<44.0.0",
     "pinecone<6.0.0",
     "python-multipart>=0.0.22",
+    "supabase>=2.0.0,<3.0.0",
+    "sqlalchemy>=2.0.0,<3.0.0",
+    "alembic>=1.13.0,<2.0.0",
+    "psycopg2-binary>=2.9.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

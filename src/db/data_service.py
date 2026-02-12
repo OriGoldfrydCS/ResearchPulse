@@ -158,6 +158,7 @@ def get_research_profile() -> Dict[str, Any]:
         if user:
             # Convert User to research profile format
             return {
+                "user_id": user.get("id"),  # Include user_id for autonomous components
                 "researcher_name": user.get("name"),
                 "email": user.get("email"),  # Include email for notifications
                 "affiliation": user.get("affiliation"),
