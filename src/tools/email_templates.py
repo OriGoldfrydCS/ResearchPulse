@@ -4,7 +4,7 @@ Shared email template system for ResearchPulse.
 All emails use a unified design system:
 - Dark theme (#0f172a background)
 - Pink/purple gradient accents
-- ResearchPulse logo (static/public/logo.png) via base64 embedding
+- ResearchPulse logo (hosted URL)
 - Mobile-friendly HTML
 - Consistent header, footer, typography, and action buttons
 
@@ -14,12 +14,10 @@ for both owner and colleague emails.
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 from datetime import datetime
 from html import escape
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -28,48 +26,14 @@ logger = logging.getLogger(__name__)
 # Logo Embedding
 # =============================================================================
 
-_LOGO_BASE64_CACHE: Optional[str] = None
-
-
-def _get_logo_base64() -> str:
-    """Load logo.png and return a base64-encoded data URI.
-
-    Searches for static/public/logo.png relative to project root.
-    Falls back to a tiny transparent PNG if file is not found.
-    """
-    global _LOGO_BASE64_CACHE
-    if _LOGO_BASE64_CACHE is not None:
-        return _LOGO_BASE64_CACHE
-
-    # Walk up from this file to find the project root (contains static/)
-    current = Path(__file__).resolve()
-    for parent in [current.parent, current.parent.parent, current.parent.parent.parent]:
-        candidate = parent / "static" / "public" / "logo.png"
-        if candidate.exists():
-            try:
-                raw = candidate.read_bytes()
-                encoded = base64.b64encode(raw).decode("ascii")
-                _LOGO_BASE64_CACHE = f"data:image/png;base64,{encoded}"
-                logger.debug("Logo loaded from %s (%d bytes)", candidate, len(raw))
-                return _LOGO_BASE64_CACHE
-            except Exception as exc:
-                logger.warning("Failed to read logo file %s: %s", candidate, exc)
-                break
-
-    # Fallback: 1x1 transparent PNG
-    _LOGO_BASE64_CACHE = (
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
-        "AAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-    )
-    logger.warning("Logo file not found; using fallback transparent pixel.")
-    return _LOGO_BASE64_CACHE
+# Use hosted logo URL - more reliable for emails than base64 embedding
+_LOGO_URL = "https://researchpulse-yp0b.onrender.com/static/public/logo.png"
 
 
 def get_logo_html(width: int = 40, height: int = 40) -> str:
-    """Return an <img> tag with the base64-encoded ResearchPulse logo."""
-    src = _get_logo_base64()
+    """Return an <img> tag with the ResearchPulse logo URL."""
     return (
-        f'<img src="{src}" alt="ResearchPulse" '
+        f'<img src="{_LOGO_URL}" alt="ResearchPulse" '
         f'width="{width}" height="{height}" '
         f'style="display:inline-block;vertical-align:middle;border:0;outline:none;" />'
     )
@@ -180,27 +144,13 @@ def colleague_management_links(
     remove_url: str,
     update_url: str,
 ) -> str:
-    """Render the 'Remove me' and 'Update interests' links for colleague emails."""
-    return f'''
-    <tr>
-        <td style="padding:10px 30px 20px 30px;text-align:center;">
-            <p style="color:#64748b;font-size:12px;margin:0 0 10px 0;">Manage your subscription:</p>
-            {action_button("Remove me", remove_url, color="linear-gradient(135deg, #ef4444 0%, #dc2626 100%)")}
-            &nbsp;&nbsp;
-            {action_button("Update interests", update_url, color="linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)")}
-        </td>
-    </tr>'''
+    """Render management info for colleague emails (removal via email reply)."""
+    return ''
 
 
 def colleague_management_footer_links(remove_url: str, update_url: str) -> str:
-    """Inline footer text links for emails (less prominent than buttons)."""
-    return (
-        f'<p style="color:#64748b;font-size:12px;margin:0 0 12px 0;">'
-        f'<a href="{escape(remove_url)}" style="color:#f87171;text-decoration:underline;">Remove me</a>'
-        f' &nbsp;|&nbsp; '
-        f'<a href="{escape(update_url)}" style="color:#60a5fa;text-decoration:underline;">Update my interests</a>'
-        f'</p>'
-    )
+    """Inline footer text for emails (removal via email reply)."""
+    return ''
 
 
 # =============================================================================
@@ -431,25 +381,13 @@ def render_colleague_confirmation_email(
         "What happens next?\n"
         "  • You'll receive paper recommendations matching your interests.\n"
         "  • Emails come as papers are discovered (frequency depends on owner settings).\n\n"
-        "Managing your subscription:\n"
+        "To remove yourself from the list, reply with:\n"
+        "  Code: YOUR_INVITE_CODE\n"
+        "  Instruction: Remove\n\n"
+        "Best regards,\nResearchPulse\n"
     )
-    if update_url:
-        plain += f"  • Update interests: {update_url}\n"
-    else:
-        plain += "  • To update interests, reply to any email with:\n      Action: UPDATE\n      Research interests: topic1, topic2\n"
-    if remove_url:
-        plain += f"  • Remove yourself: {remove_url}\n"
-    else:
-        plain += "  • To unsubscribe, reply with subject: REMOVE\n"
-    plain += "\nBest regards,\nResearchPulse\n"
 
     # HTML
-    mgmt = ""
-    footer_links = ""
-    if remove_url or update_url:
-        mgmt = colleague_management_links(remove_url or "#", update_url or "#")
-        footer_links = colleague_management_footer_links(remove_url or "#", update_url or "#")
-
     html = email_wrapper_start()
     html += email_header(subtitle="Welcome aboard! 🎉")
     html += f'''
@@ -462,14 +400,14 @@ def render_colleague_confirmation_email(
         {section_title("📚 Your stored interests")}
         <p style="color:#e2e8f0;font-size:14px;margin:0 0 20px 0;">{escape(interests_str)}</p>
 
-        {section_title("🔧 How to manage your subscription")}
-        <ul style="color:#94a3b8;font-size:14px;padding-left:20px;margin:0 0 20px 0;">
-            <li style="margin-bottom:6px;">To <strong style="color:#60a5fa;">update your interests</strong>, click the button below or reply with your new topics.</li>
-            <li>To <strong style="color:#f87171;">remove yourself</strong>, click the remove button below.</li>
-        </ul>
+        {section_title("🔧 How to unsubscribe")}
+        <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 20px 0;">To remove yourself from the list, reply with:</p>
+        <div style="background:#0f172a;border-radius:8px;padding:12px 16px;font-family:monospace;font-size:13px;color:#e2e8f0;margin:0 0 20px 0;">
+            Code: YOUR_INVITE_CODE<br>
+            Instruction: Remove
+        </div>
     </td></tr>'''
-    html += mgmt
-    html += email_footer(extra_links=footer_links)
+    html += email_footer(extra_links="")
     html += email_wrapper_end()
 
     return subject, plain, html
