@@ -1032,7 +1032,8 @@
             gap: 12px;
         }
 
-        .input-area input {
+        .input-area input,
+        .input-area textarea {
             flex: 1;
             padding: 14px 20px;
             border: 1px solid var(--border);
@@ -1042,14 +1043,25 @@
             background: var(--surface);
             color: var(--text);
             transition: all 0.2s ease;
+            font-family: inherit;
         }
 
-        .input-area input:focus {
+        .input-area textarea {
+            resize: none;
+            min-height: 48px;
+            max-height: 120px;
+            overflow-y: auto;
+            line-height: 1.4;
+        }
+
+        .input-area input:focus,
+        .input-area textarea:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(168, 67, 112, 0.15);
         }
 
-        .input-area input:disabled {
+        .input-area input:disabled,
+        .input-area textarea:disabled {
             background: var(--bg);
             cursor: not-allowed;
             opacity: 0.6;
@@ -1110,6 +1122,115 @@
 
         .stop-icon {
             display: block;
+        }
+
+        /* ========== Steps Trace Display (Course Project compliance) ========== */
+        .steps-trace {
+            background: var(--surface) !important;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px !important;
+            max-width: 100%;
+        }
+
+        .steps-trace-header {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 12px;
+            color: var(--primary);
+        }
+
+        .step-detail {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .step-detail[open] {
+            border-color: var(--primary);
+        }
+
+        .step-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            background: var(--bg);
+            font-size: 0.9rem;
+            user-select: none;
+            list-style: none;
+        }
+
+        .step-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .step-summary::before {
+            content: '▶';
+            font-size: 0.7rem;
+            transition: transform 0.2s ease;
+            color: var(--text-muted);
+        }
+
+        .step-detail[open] .step-summary::before {
+            transform: rotate(90deg);
+        }
+
+        .step-number {
+            background: var(--primary);
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            min-width: 28px;
+            text-align: center;
+        }
+
+        .step-module {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .step-content {
+            padding: 12px 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .step-section {
+            margin-bottom: 10px;
+        }
+
+        .step-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .step-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .step-data {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8rem;
+            color: var(--text);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 0;
         }
 
         /* ========== Chat Header ========== */
@@ -3299,10 +3420,10 @@
                             title="Generate a search prompt from your research interests" style="white-space: nowrap;">
                             🔍 Search for me
                         </button>
-                        <input type="text" id="message-input" placeholder="Ask about research papers..."
-                            autocomplete="off" />
+                        <textarea id="message-input" placeholder="Ask about research papers..." autocomplete="off"
+                            rows="1"></textarea>
                         <button id="send-btn" class="send-btn">
-                            <span>Send</span>
+                            <span>Run Agent</span>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2">
                                 <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" />
@@ -3742,112 +3863,279 @@
                 <div class="about-content glass-panel" style="padding: 24px; border-radius: 16px;">
                     <div class="about-intro" style="margin-bottom: 24px;">
                         <h3 style="margin: 0 0 12px 0; font-size: 1.25rem;">Welcome to ResearchPulse</h3>
-                        <p style="color: var(--text-muted); line-height: 1.6;">ResearchPulse is your AI-powered research
+                        <p style="color: var(--text-muted); line-height: 1.6;">ResearchPulse is your autonomous
+                            AI-powered research
                             assistant that helps you discover, organize, and stay updated on the latest academic papers
                             relevant to your research interests.</p>
                     </div>
 
                     <h3 style="margin: 0 0 16px 0; font-size: 1.1rem;">Frequently Asked Questions</h3>
                     <div class="faq-list" id="faq-list">
+                        <!-- Getting Started -->
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
                                 <span>How do I get started with ResearchPulse?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>1. Go to the <strong>Settings</strong> tab and fill in your Research Profile with
-                                    your interests and preferences.</p>
-                                <p>2. Return to the <strong>Chat</strong> tab and use the "Search for me" button or type
-                                    your own query.</p>
-                                <p>3. The AI agent will search for relevant papers based on your interests and display
-                                    them in the Papers tab.</p>
+                                <p>1. Go to <strong>My Settings</strong> and fill in your Research Profile — your name,
+                                    interests, and any topics to exclude.</p>
+                                <p>2. Back on the <strong>Home</strong> tab, click <strong>"Search for me"</strong> to
+                                    let the AI agent build a query from your profile, or type your own prompt.</p>
+                                <p>3. The agent searches arXiv, scores each paper for relevance and novelty, and pushes
+                                    results to the <strong>Papers</strong> tab.</p>
+                            </div>
+                        </div>
+
+                        <!-- Search & Discovery -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What does "Search for me" actually do behind the scenes?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>It reads your saved research interests and preferred time period from your profile,
+                                    then generates a targeted arXiv search query. The ReAct agent fetches papers, checks
+                                    them against your history via Pinecone RAG to avoid duplicates, scores each paper's
+                                    relevance and novelty, and decides what action to take (notify you, share with a
+                                    colleague, or just log it).</p>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What does the "Search for me" button do?</span>
+                                <span>How do Prompt Templates work?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>The "Search for me" button automatically generates a search query based on the
-                                    research interests you've configured in the Settings tab. It's a quick way to find
-                                    relevant papers without typing a detailed prompt.</p>
+                                <p>Prompt Templates are reusable search queries shown at the bottom of the Home tab.
+                                    Click any template to insert it into the chat input, then send it as-is or edit
+                                    before sending. You can also create and save your own custom templates for searches
+                                    you run frequently.</p>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do I use Prompt Templates?</span>
+                                <span>What paper sources does ResearchPulse search?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>Prompt Templates are pre-defined search queries that help you quickly find specific
-                                    types of papers. Click on the "Prompt Templates" section at the bottom of the Chat
-                                    tab, then click on any template to insert it into the chat input. You can also
-                                    create your own custom templates.</p>
+                                <p>ResearchPulse searches <strong>arXiv</strong>, covering fields such as computer
+                                    science, physics, mathematics, biology, economics, and more. You can control which
+                                    arXiv categories to include or exclude in your settings to narrow down results.</p>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How can I organize papers I've found?</span>
+                                <span>How does the AI decide which papers are relevant to me?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>In the <strong>Papers</strong> tab, you can:</p>
+                                <p>The agent uses a multi-step process:</p>
                                 <ul>
-                                    <li>⭐ Star important papers for quick access</li>
-                                    <li>Mark papers as read/unread</li>
-                                    <li>Mark papers as "not relevant" to filter them out</li>
-                                    <li>Use bulk actions to manage multiple papers at once</li>
-                                    <li>Export papers to CSV for external use</li>
+                                    <li><strong>Relevance scoring</strong> — compares each paper's abstract against your
+                                        research interests using the LLM.</li>
+                                    <li><strong>Novelty detection</strong> — queries Pinecone vector search to see if
+                                        similar papers have already been recommended.</li>
+                                    <li><strong>Importance ranking</strong> — assigns high / medium / low importance
+                                        based on both relevance and novelty scores.</li>
+                                </ul>
+                                <p>Only papers that pass the minimum importance threshold (configurable in Execution
+                                    Settings) trigger an action.</p>
+                            </div>
+                        </div>
+
+                        <!-- Papers & Organization -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How can I organize and manage my papers?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>In the <strong>Papers</strong> tab you can:</p>
+                                <ul>
+                                    <li>⭐ <strong>Star</strong> papers to bookmark them for later</li>
+                                    <li>Toggle <strong>read / unread</strong> status</li>
+                                    <li>Mark papers as <strong>"not relevant"</strong> so they're filtered out</li>
+                                    <li>Use <strong>bulk actions</strong> — select multiple papers and star, delete, or
+                                        mark them in one click</li>
+                                    <li><strong>Sort</strong> by date, title, relevance, or importance</li>
+                                    <li><strong>Filter</strong> by starred, unread, importance level, or arXiv category
+                                    </li>
+                                    <li><strong>Export to CSV</strong> for use in reference managers or spreadsheets
+                                    </li>
                                 </ul>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What are Colleagues and how do I use them?</span>
+                                <span>Can I get an AI summary of a paper?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>Colleagues are collaborators or team members you can share papers with. Add
-                                    colleagues in the <strong>Colleagues</strong> tab with their research interests.
-                                    When the agent finds papers matching their interests, it can automatically share
-                                    relevant papers with them via email.</p>
+                                <p>Yes. Open any paper's detail drawer and click <strong>"Summarize Paper"</strong>. The
+                                    AI reads the PDF and generates a concise summary highlighting key contributions,
+                                    methods, and findings. You can also click <strong>"Regenerate"</strong> to get a
+                                    fresh summary if needed.</p>
+                            </div>
+                        </div>
+
+                        <!-- Live Document & Profile Suggestions -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What is the Live Document?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>The <strong>Live Document</strong> is an auto-updating report generated after each
+                                    agent run. It summarizes the latest findings, actions taken, and key statistics from
+                                    the run — giving you a quick at-a-glance view of what the agent discovered and did.
+                                    Access it from the Home tab.</p>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do Calendar Events work?</span>
+                                <span>What are Profile Suggestions?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>Calendar Events help you schedule time to read papers. You can:</p>
+                                <p><strong>Profile Suggestions</strong> analyze patterns in the papers you've starred or
+                                    marked as relevant and recommend updates to your research profile. This helps the
+                                    agent get better at finding papers you care about over time — a form of profile
+                                    evolution.</p>
+                            </div>
+                        </div>
+
+                        <!-- Colleagues & Sharing -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do I share papers with colleagues?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>1. Add colleagues in the <strong>Colleagues</strong> tab with their name, email, and
+                                    research interests.</p>
+                                <p>2. When the agent finds papers matching a colleague's interests, it can automatically
+                                    share them via email.</p>
+                                <p>3. Track all shares and their delivery status (sent, pending, failed) in the
+                                    <strong>Shares</strong> tab.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What is the Colleague Join Code?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>The <strong>Join Code</strong> is a passphrase you set in <strong>My
+                                        Settings</strong>. When colleagues receive a link to join your ResearchPulse
+                                    network, they must enter this code. It prevents unauthorized people from adding
+                                    themselves as your colleagues.</p>
+                            </div>
+                        </div>
+
+                        <!-- Emails, Calendar & Alerts -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do email notifications work?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Once your email is configured in My Settings, ResearchPulse can:</p>
                                 <ul>
-                                    <li>Create reading reminders for papers</li>
-                                    <li>Download ICS files to add events to your calendar app</li>
-                                    <li>The AI can also automatically suggest calendar events for important papers</li>
+                                    <li>Send you <strong>digest emails</strong> summarizing high-importance papers from
+                                        a run</li>
+                                    <li>Automatically <strong>share papers</strong> with colleagues whose interests
+                                        match</li>
+                                    <li>Monitor your <strong>inbox</strong> for replies (e.g., a colleague responding to
+                                        a shared paper)</li>
+                                </ul>
+                                <p>You can view all sent and pending emails in the <strong>Emails</strong> tab.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>How do Calendar Alerts work?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>The agent can create reading reminders as calendar events. You can:</p>
+                                <ul>
+                                    <li>Download <strong>.ics files</strong> and import them into Google Calendar,
+                                        Outlook, or Apple Calendar</li>
+                                    <li>Let the AI <strong>auto-suggest</strong> calendar events for high-importance
+                                        papers</li>
+                                    <li>Manage all events in the <strong>Alerts</strong> tab</li>
                                 </ul>
                             </div>
                         </div>
+
+                        <!-- Inbox & Automation -->
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do I configure email notifications?</span>
+                                <span>What is Inbox Check and how do I configure it?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>Email notifications require setting up your email in the Settings tab. Once
-                                    configured, ResearchPulse can send you digests of new papers matching your
-                                    interests, and share papers with your colleagues automatically.</p>
+                                <p><strong>Inbox Check</strong> automatically monitors your email for replies from
+                                    colleagues you've shared papers with. Configure the check frequency in <strong>My
+                                        Settings → Inbox Check Settings</strong>. You can also trigger a manual check
+                                    with the <strong>"Check Now"</strong> button.</p>
+                            </div>
+                        </div>
+
+                        <!-- Settings & Advanced -->
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>What are Execution Settings?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Execution Settings let you control how the agent runs:</p>
+                                <ul>
+                                    <li><strong>Max runtime</strong> — how long a run can last before being stopped</li>
+                                    <li><strong>Max papers checked</strong> — limit on papers evaluated per run</li>
+                                    <li><strong>Min importance to act</strong> — only papers above this threshold
+                                        trigger notifications or shares</li>
+                                    <li><strong>Stop if no new papers</strong> — end the run early if everything has
+                                        been seen before</li>
+                                </ul>
+                                <p>Find these under <strong>My Settings</strong>.</p>
                             </div>
                         </div>
                         <div class="faq-item">
                             <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What paper sources does ResearchPulse use?</span>
+                                <span>How does novelty detection prevent duplicate recommendations?</span>
                                 <span class="faq-chevron">▶</span>
                             </div>
                             <div class="faq-answer">
-                                <p>ResearchPulse primarily searches <strong>arXiv</strong>, a popular preprint
-                                    repository for scientific papers. This gives you access to the latest research in
-                                    fields like computer science, physics, mathematics, and more.</p>
+                                <p>Every paper the agent processes is embedded as a vector and stored in
+                                    <strong>Pinecone</strong>. On future runs, new papers are compared against this
+                                    vector store using semantic similarity. If a paper is too similar to something
+                                    you've already seen, it's flagged as low-novelty and deprioritized — so you only see
+                                    genuinely new research.</p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>Does my profile improve over time?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Yes. ResearchPulse has a <strong>profile evolution</strong> feature. As you star
+                                    papers, mark items as relevant or irrelevant, and interact with results, the system
+                                    learns your preferences. Use the <strong>Profile Suggestions</strong> button on the
+                                    Home tab to see AI-generated recommendations for refining your research interests.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="faq-item">
+                            <div class="faq-question" onclick="toggleFaq(this)">
+                                <span>Can I switch between light and dark mode?</span>
+                                <span class="faq-chevron">▶</span>
+                            </div>
+                            <div class="faq-answer">
+                                <p>Yes — use the sun/moon toggle in the top navigation bar to switch between light and
+                                    dark themes. Your preference is saved automatically.</p>
                             </div>
                         </div>
                     </div>
@@ -4125,7 +4413,7 @@
             } else {
                 // Show Send button when ready for input
                 elements.sendBtn.innerHTML = `
-                    <span>Send</span>
+                    <span>Run Agent</span>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
                     </svg>
@@ -4233,6 +4521,55 @@
       `;
 
             elements.chatMessages.appendChild(messageDiv);
+            scrollToBottom(elements.chatMessages);
+        }
+
+        /**
+         * Render execution steps trace in the chat UI.
+         * Course Project requirement: display module, prompt, response for each step.
+         */
+        function renderStepsTrace(steps) {
+            if (!steps || steps.length === 0) return;
+
+            clearEmptyState();
+            const container = document.createElement('div');
+            container.className = 'message agent steps-trace-container';
+
+            let html = '<div class="message-bubble steps-trace">';
+            html += '<div class="steps-trace-header">🔍 Execution Steps Trace</div>';
+
+            steps.forEach((step, idx) => {
+                const moduleName = escapeHtml(step.module || `Step ${idx + 1}`);
+                const promptStr = typeof step.prompt === 'object'
+                    ? escapeHtml(JSON.stringify(step.prompt, null, 2))
+                    : escapeHtml(String(step.prompt || ''));
+                const responseStr = typeof step.response === 'object'
+                    ? escapeHtml(JSON.stringify(step.response, null, 2))
+                    : escapeHtml(String(step.response || ''));
+
+                html += `
+                    <details class="step-detail" ${idx === 0 ? 'open' : ''}>
+                        <summary class="step-summary">
+                            <span class="step-number">#${idx + 1}</span>
+                            <span class="step-module">${moduleName}</span>
+                        </summary>
+                        <div class="step-content">
+                            <div class="step-section">
+                                <div class="step-label">Prompt</div>
+                                <pre class="step-data">${promptStr}</pre>
+                            </div>
+                            <div class="step-section">
+                                <div class="step-label">Response</div>
+                                <pre class="step-data">${responseStr}</pre>
+                            </div>
+                        </div>
+                    </details>`;
+            });
+
+            html += '</div>';
+            html += `<div class="message-time">${formatTime(new Date().toISOString())}</div>`;
+            container.innerHTML = html;
+            elements.chatMessages.appendChild(container);
             scrollToBottom(elements.chatMessages);
         }
 
@@ -4601,9 +4938,9 @@
                     setStatus('done');
                     addMessage(result.response || 'Agent completed successfully.', false);
 
-                    // Display execution steps if available
+                    // Display execution steps trace (Course Project requirement)
                     if (result.steps && result.steps.length > 0) {
-                        console.log('Execution steps:', result.steps);
+                        renderStepsTrace(result.steps);
                     }
                 } else {
                     setStatus('error');

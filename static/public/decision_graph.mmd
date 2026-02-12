@@ -1,0 +1,136 @@
+graph TD
+    START(["🚀 Agent Episode Starts"]) --> SCOPE{"🔒 Scope Gate\nClassify User Request"}
+    SCOPE -->|"IN_SCOPE"| PARSE["📝 Parse Prompt\nTemplate · Output Count K\nTime Period · Topic"]
+    SCOPE -->|"OUT_OF_SCOPE\n(arXiv only)"| REDIRECT["↩️ Redirect\nSuggest arXiv rewrite"]
+    SCOPE -->|"OUT_OF_SCOPE\n(general)"| REJECT["🚫 Reject\nNot a research request"]
+
+    PARSE --> CATMAP{"🗂️ Category Source?"}
+    CATMAP -->|"Explicit\ncategories set"| FETCH
+    CATMAP -->|"Map from\ninterests"| MAPINT["Map 100+ Keywords\n→ arXiv Categories"]
+    CATMAP -->|"No interests"| DEFAULT["Default: cs.CL, cs.LG"]
+    MAPINT --> PROMPT_OVR{"💬 Prompt mentions\nspecific topics?"}
+    DEFAULT --> PROMPT_OVR
+    PROMPT_OVR -->|"Yes"| OVERRIDE["Override categories\nfrom user message"]
+    PROMPT_OVR -->|"No"| FETCH
+    OVERRIDE --> FETCH
+
+    FETCH["🔍 Fetch Papers\nfrom arXiv API"] --> CANCEL1{"❌ Cancelled?"}
+    CANCEL1 -->|"Yes"| TERMINATE(["🏁 Terminate"])
+    CANCEL1 -->|"No"| SEEN{"📋 Seen Before?\n(check DB)"}
+
+    SEEN -->|"All papers\nalready seen"| STOP_NOSEEN["⏹️ Stop:\nNo Unseen Papers"]
+    SEEN -->|"Has unseen\npapers"| STOP_CHK1{"🛡️ Stop Policy\n6 Conditions"}
+
+    STOP_CHK1 -->|"Max Runtime\nor Max Papers\nor Max RAG\nor No Important"| TERMINATE
+    STOP_CHK1 -->|"Continue"| FB_CHK{"👤 Previously marked\nNot Relevant?"}
+
+    FB_CHK -->|"Yes"| SKIP_PAPER["⏭️ Skip Paper\nrelevance = 0"]
+    FB_CHK -->|"No"| RAG_BUDGET{"📊 RAG Query\nBudget Left?"}
+
+    RAG_BUDGET -->|"Under limit"| RAG["🧠 Query Pinecone\nSemantic Similarity"]
+    RAG_BUDGET -->|"Exhausted"| SCORE
+    RAG --> NOVELTY["🆕 Calculate Novelty\nInverse of max similarity\nDecay factor 0.85"]
+    NOVELTY --> SCORE
+
+    SCORE["📊 Score Relevance\n─────────────\nTopic Match × 0.45\nCategory × 0.30\nTitle Keywords × 0.15\nVenue Bonus × 0.10\n─ Avoid Penalty × 0.35\n± Feedback Adj."] --> IMPORTANCE{"⚖️ Importance?"}
+
+    IMPORTANCE -->|"HIGH\nrel ≥ 0.65\nnov ≥ 0.5"| HIGH_PATH
+    IMPORTANCE -->|"MEDIUM\nrel ≥ 0.4 or\nrel ≥ 0.3 + nov ≥ 0.6"| MED_PATH
+    IMPORTANCE -->|"LOW\nbelow thresholds"| LOW_PATH
+
+    HIGH_PATH["🔴 HIGH Importance"] --> EMAIL_CHK{"📧 Send Email?"}
+    HIGH_PATH --> CAL_CHK{"📅 Calendar\nReminder?"}
+    HIGH_PATH --> RL_ADD["📖 Add to\nReading List"]
+
+    EMAIL_CHK -->|"Enabled"| DIGEST_CHK{"📬 Digest Mode?"}
+    EMAIL_CHK -->|"Disabled"| PERSIST
+    DIGEST_CHK -->|"Individual"| SEND_NOW["✉️ Send HTML Email\nPriority-styled template"]
+    DIGEST_CHK -->|"Batch"| QUEUE_DIGEST["📥 Queue for\nEnd-of-Run Digest"]
+
+    CAL_CHK -->|"Enabled"| EST_TIME{"⏱️ PDF Accessible?"}
+    CAL_CHK -->|"Disabled"| PERSIST
+    EST_TIME -->|"Yes"| PDF_PAGES["📄 Count PDF Pages\n× reading speed\n(Deep/Normal/Skim)"]
+    EST_TIME -->|"No"| ABSTRACT_EST["📝 Abstract Length\nHeuristic Estimate"]
+    PDF_PAGES --> GEN_ICS["📅 Generate .ics\nCalendar Event"]
+    ABSTRACT_EST --> GEN_ICS
+
+    MED_PATH["🟡 MEDIUM Importance"] --> RL_ADD
+    LOW_PATH["🟢 LOW Importance\nLog Only"] --> PERSIST
+
+    RL_ADD --> PERSIST["💾 Persist State\nto PostgreSQL + Pinecone"]
+    SEND_NOW --> PERSIST
+    QUEUE_DIGEST --> PERSIST
+    GEN_ICS --> PERSIST
+    SKIP_PAPER --> PERSIST
+
+    PERSIST --> MORE{"📄 More\nPapers?"}
+    MORE -->|"Yes"| STOP_CHK1
+    MORE -->|"No"| ENFORCE["🎯 Output Enforcement\nTruncate to exactly K papers\nSort by relevance"]
+
+    ENFORCE --> SURPLUS{"👥 Colleagues\nConfigured?"}
+    SURPLUS -->|"No"| REPORT
+    SURPLUS -->|"Yes"| COL_PROC["🔄 Colleague Surplus\nProcessing"]
+
+    COL_PROC --> AUTOSEND{"🤖 Auto-Send\nEnabled?"}
+    AUTOSEND -->|"No"| COL_SKIP["⏭️ Skip\nColleague"]
+    AUTOSEND -->|"Yes"| SHARE_PREF{"📋 Sharing\nPreference?"}
+
+    SHARE_PREF -->|"on_request"| COL_SKIP
+    SHARE_PREF -->|"never"| COL_SKIP
+    SHARE_PREF -->|"immediate\ndaily · weekly"| MATCH_CHK{"🔗 Topic or\nCategory Match?"}
+
+    MATCH_CHK -->|"Match found"| DO_SHARE["📤 Share Paper"]
+    MATCH_CHK -->|"No match"| IMP_OVERRIDE{"🔴 Paper is\nHIGH importance?"}
+    IMP_OVERRIDE -->|"Yes"| DO_SHARE
+    IMP_OVERRIDE -->|"No"| COL_SKIP
+
+    DO_SHARE --> TONE{"🏷️ How was colleague\nadded?"}
+    TONE -->|"Self-signup\nvia email"| AGENT_VOICE["🤖 Email as\nResearchPulse"]
+    TONE -->|"Manual add\nby owner"| OWNER_VOICE["👤 Email on\nbehalf of owner"]
+
+    AGENT_VOICE --> REPORT
+    OWNER_VOICE --> REPORT
+    COL_SKIP --> REPORT
+
+    REPORT["📄 Generate Run Report"] --> AUTO_COMP{"🧬 Autonomous\nComponents\n(Feature-Flagged)"}
+
+    AUTO_COMP --> AUDIT_FLAG{"📋 AUDIT_LOG\nEnabled?"}
+    AUDIT_FLAG -->|"ON"| DO_AUDIT["📝 Save Structured\nAudit Log"]
+    AUDIT_FLAG -->|"OFF"| LLM_FLAG
+    DO_AUDIT --> LLM_FLAG
+
+    LLM_FLAG{"🔬 LLM_NOVELTY\nEnabled?"}
+    LLM_FLAG -->|"ON"| DO_LLM["🧪 LLM Novelty\nScoring\n4 sub-scores per paper"]
+    LLM_FLAG -->|"OFF"| PROF_FLAG
+    DO_LLM --> PROF_FLAG
+
+    PROF_FLAG{"💡 PROFILE_EVOLUTION\nEnabled?"}
+    PROF_FLAG -->|"OFF"| DOC_FLAG
+    PROF_FLAG -->|"ON"| COOLDOWN{"⏳ Cooldown\nExpired?"}
+    COOLDOWN -->|"Active"| DOC_FLAG
+    COOLDOWN -->|"Expired"| MIN_PAPERS{"📊 ≥ N High-Rel\nPapers?"}
+    MIN_PAPERS -->|"No"| DOC_FLAG
+    MIN_PAPERS -->|"Yes"| SUGGEST["💡 LLM Profile\nSuggestions\nadd · remove · refine\nmerge topics/categories"]
+    SUGGEST --> DOC_FLAG
+
+    DOC_FLAG{"📖 LIVE_DOCUMENT\nEnabled?"}
+    DOC_FLAG -->|"ON"| DO_DOC["📖 Update Living\nResearch Briefing\nExecutive Summary\nTrending Topics"]
+    DOC_FLAG -->|"OFF"| END
+    DO_DOC --> END
+
+    END(["✅ Episode Complete"])
+
+    STOP_NOSEEN --> TERMINATE
+
+    classDef decision fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#1e293b
+    classDef action fill:#f0f9ff,stroke:#3b82f6,stroke-width:1px,color:#1e293b
+    classDef terminal fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#166534
+    classDef high fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#991b1b
+    classDef medium fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef low fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#166534
+
+    class SCOPE,CATMAP,PROMPT_OVR,CANCEL1,SEEN,STOP_CHK1,FB_CHK,RAG_BUDGET,IMPORTANCE,EMAIL_CHK,DIGEST_CHK,CAL_CHK,EST_TIME,MORE,SURPLUS,AUTOSEND,SHARE_PREF,MATCH_CHK,IMP_OVERRIDE,TONE,AUTO_COMP,AUDIT_FLAG,LLM_FLAG,PROF_FLAG,COOLDOWN,MIN_PAPERS,DOC_FLAG decision
+    class HIGH_PATH high
+    class MED_PATH medium
+    class LOW_PATH low
+    class START,END,TERMINATE,STOP_NOSEEN terminal

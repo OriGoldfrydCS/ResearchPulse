@@ -41,66 +41,228 @@ router = APIRouter()
 
 # GET /api/team_info - EXACT format from Course Project
 TEAM_INFO = {
-    "group_batch_order_number": "1_1",  # Update with your actual batch#_order#
-    "team_name": "ResearchPulse Team",
+    "group_batch_order_number": "2_6",
+    "team_name": "Ori_Gaya_Ron",
     "students": [
         {
             "name": "Ori Goldfryd",
             "email": "origoldmsc@gmail.com"
+        },
+        {
+            "name": "Gaya Brodsky",
+            "email": "gayabaron@gmail.com"
+        },
+        {
+            "name": "Ron Libman",
+            "email": "libman0207@gmail.com"
         }
-        # Add more team members as needed
     ]
 }
 
 # GET /api/agent_info - EXACT format from Course Project
 AGENT_INFO = {
-    "description": "ResearchPulse is an autonomous AI agent designed to help researchers stay up-to-date with scientific literature. It monitors arXiv for new papers, evaluates their relevance using RAG-based novelty detection and heuristic scoring, and takes appropriate actions such as generating email summaries, creating calendar reminders, and sharing discoveries with colleagues.",
-    "purpose": "To automate the discovery and filtering of relevant research papers from arXiv, saving researchers time by automatically scoring papers for relevance and novelty, and organizing them through email summaries, calendar reminders, and reading lists.",
+    "description": (
+        "ResearchPulse is an autonomous AI agent that continuously monitors the arXiv "
+        "research repository and acts on behalf of researchers without runtime user interaction. "
+        "It exhibits three core agent capabilities: (1) Perception — it observes its environment "
+        "by fetching new papers from arXiv, querying vector-store memory (Pinecone) for semantic "
+        "similarity, and reading the researcher's profile and state from Supabase; "
+        "(2) Reasoning — it uses a ReAct (Reasoning + Acting) loop powered by an LLM to score "
+        "paper relevance and novelty, classify importance, and decide which delivery actions to take; "
+        "(3) Action — it autonomously generates email summaries, creates calendar reminders (.ics), "
+        "updates reading lists, shares discoveries with colleagues, and persists all decisions to "
+        "the database. The agent operates as a bounded episodic system: each run is triggered by a "
+        "user prompt, executes its full pipeline autonomously, and terminates when a configurable "
+        "stop condition is met."
+    ),
+    "purpose": (
+        "To automate the discovery, filtering, and dissemination of relevant research papers "
+        "from arXiv. The agent saves researchers time by autonomously fetching papers, scoring "
+        "them for relevance and novelty against the researcher's profile and existing knowledge "
+        "(via RAG/Pinecone), and organizing high-importance papers through email summaries, "
+        "calendar reminders, reading lists, and colleague sharing — all without requiring ongoing "
+        "user interaction during a run."
+    ),
     "prompt_template": {
-        "template": "Find recent papers on {topic} from arXiv. Filter by relevance to my research interests: {interests}. Check novelty against my existing knowledge. Suggest delivery actions for important papers."
+        "template": "Find recent research papers on {topic} published within the last {time_period}.",
+        "all_templates": [
+            {"name": "Template 1: Topic + Venue + Time", "text": "Provide recent research papers on <TOPIC> published in <VENUE> within the last <TIME_PERIOD>."},
+            {"name": "Template 2: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
+            {"name": "Template 3: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
+            {"name": "Template 4: Top-K Papers", "text": "Provide the top <K> most relevant or influential research papers on <TOPIC>."},
+            {"name": "Template 5: Top-K + Time", "text": "Provide the top <K> research papers on <TOPIC> from the last <TIME_PERIOD>."},
+            {"name": "Template 6: Survey / Review", "text": "Provide recent survey or review papers on <TOPIC>."},
+            {"name": "Template 7: Method-Focused", "text": "Provide recent papers on <TOPIC> that focus on <METHOD_OR_APPROACH>."},
+            {"name": "Template 8: Application-Focused", "text": "Provide recent papers on <TOPIC> applied to <APPLICATION_DOMAIN>."},
+            {"name": "Template 9: Emerging Trends", "text": "Identify emerging research trends based on recent papers on <TOPIC>."},
+            {"name": "Template 10: Structured Output", "text": "Provide recent papers on <TOPIC> including title, authors, venue, year, and a one-sentence summary."},
+        ]
     },
     "prompt_examples": [
         {
             "prompt": "Find recent papers on transformer architectures and large language models",
-            "full_response": "ResearchPulse Agent Run Complete\n========================================\nProcessed 15 papers from arXiv\nHigh importance: 3 papers (email + calendar)\nMedium importance: 5 papers (reading list)\nLow importance: 7 papers (logged only)\n\nTop papers found:\n1. 'Efficient Attention Mechanisms for LLMs' - High relevance (0.85)\n2. 'Scaling Laws for Neural Language Models' - High novelty (0.72)\n3. 'Multi-Modal Transformers Survey' - Added to reading list",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 15 papers from arXiv\n"
+                "High importance: 3 papers (email + calendar)\n"
+                "Medium importance: 5 papers (reading list)\n"
+                "Low importance: 7 papers (logged only)\n\n"
+                "Top papers found:\n"
+                "1. 'Efficient Attention Mechanisms for LLMs' - High relevance (0.85)\n"
+                "2. 'Scaling Laws for Neural Language Models' - High novelty (0.72)\n"
+                "3. 'Multi-Modal Transformers Survey' - Added to reading list"
+            ),
             "steps": [
                 {
+                    "step_number": 1,
                     "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv matching category and keyword criteria.",
                     "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CL", "cs.LG"], "keywords": ["transformer", "large language model"], "max_results": 30},
                     "response": {"papers_fetched": 30, "status": "success"}
                 },
                 {
+                    "step_number": 2,
                     "module": "CheckSeenPapers",
-                    "prompt": {"action": "check_seen_papers", "paper_ids": ["2601.05167", "2601.05171", "..."]},
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 30},
                     "response": {"new_papers": 15, "already_seen": 15}
                 },
                 {
+                    "step_number": 3,
                     "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
                     "prompt": {"action": "retrieve_similar", "query": "Efficient Attention Mechanisms for LLMs", "top_k": 5},
                     "response": {"matches": 3, "max_similarity": 0.65}
                 },
                 {
+                    "step_number": 4,
                     "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
                     "prompt": {"action": "score_paper", "paper_id": "2601.05167", "title": "Efficient Attention Mechanisms"},
                     "response": {"relevance": 0.85, "novelty": 0.72, "importance": "high"}
                 },
                 {
+                    "step_number": 5,
                     "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy (email, calendar, reading list, colleague sharing).",
                     "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2601.05167"},
                     "response": {"actions": ["email_summary", "calendar_event", "reading_list"]}
                 },
                 {
+                    "step_number": 6,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2601.05167", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2601.05167"}
+                },
+                {
+                    "step_number": 7,
                     "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
                     "prompt": {"action": "generate_report"},
                     "response": {"papers_processed": 15, "decisions_made": 15, "artifacts_generated": 8}
+                },
+                {
+                    "step_number": 8,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        {
+            "prompt": "Find recent research papers related to the following research interests: VLM, Robotics. Focus on papers published within the last 6 months.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 12 papers from arXiv\n"
+                "High importance: 2 papers (email + calendar)\n"
+                "Medium importance: 4 papers (reading list)\n"
+                "Low importance: 6 papers (logged only)\n\n"
+                "Top papers found:\n"
+                "1. 'Vision-Language Models for Robotic Manipulation' - High relevance (0.91)\n"
+                "2. 'Grounding VLMs in Physical Environments' - High novelty (0.78)\n"
+                "3. 'Multi-Modal Perception for Autonomous Robots' - Added to reading list"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv matching category and keyword criteria.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CV", "cs.RO", "cs.AI"], "keywords": ["VLM", "vision language model", "robotics"], "max_results": 30},
+                    "response": {"papers_fetched": 28, "status": "success"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 28},
+                    "response": {"new_papers": 12, "already_seen": 16}
+                },
+                {
+                    "step_number": 3,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Vision-Language Models for Robotic Manipulation", "top_k": 5},
+                    "response": {"matches": 2, "max_similarity": 0.58}
+                },
+                {
+                    "step_number": 4,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2601.08234", "title": "Vision-Language Models for Robotic Manipulation"},
+                    "response": {"relevance": 0.91, "novelty": 0.78, "importance": "high"}
+                },
+                {
+                    "step_number": 5,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy (email, calendar, reading list, colleague sharing).",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2601.08234"},
+                    "response": {"actions": ["email_summary", "calendar_event"]}
+                },
+                {
+                    "step_number": 6,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2601.08234", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2601.08234"}
+                },
+                {
+                    "step_number": 7,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 12, "decisions_made": 12, "artifacts_generated": 5}
+                },
+                {
+                    "step_number": 8,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
                 }
             ]
         }
     ]
 }
 
-# Architecture diagram path (for SVG endpoint)
-ARCHITECTURE_SVG_PATH = Path(__file__).parent.parent.parent / "static" / "public" / "architecture.svg"
+# Architecture diagram path (static PNG file)
+ARCHITECTURE_PNG_PATH = Path(__file__).parent.parent.parent / "static" / "public" / "architecture.png"
+
+# Module name mapping: snake_case (runtime) → PascalCase (architecture/AGENT_INFO)
+# Course Project requires consistency across architecture diagram, steps, and descriptions
+MODULE_NAME_MAP = {
+    "fetch_arxiv_papers": "FetchArxivPapers",
+    "check_seen_papers": "CheckSeenPapers",
+    "retrieve_similar_from_pinecone": "RetrieveSimilarFromPinecone",
+    "score_relevance_and_importance": "ScoreRelevanceAndImportance",
+    "decide_delivery_action": "DecideDeliveryAction",
+    "persist_state": "PersistState",
+    "generate_report": "GenerateReport",
+    "terminate_run": "TerminateRun",
+}
 
 # Thread pool for running agent in background
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -445,24 +607,36 @@ async def get_model_architecture():
     """
     Get model architecture diagram.
     
-    Returns the architecture diagram as an image (SVG format).
-    Required by Course Project specification.
+    Returns the architecture diagram as a PNG image from static/public/architecture.png.
+    Content-Type: image/png (per Course Project specification).
     """
     from fastapi.responses import FileResponse
     
-    if ARCHITECTURE_SVG_PATH.exists():
+    if ARCHITECTURE_PNG_PATH.exists():
         return FileResponse(
-            path=str(ARCHITECTURE_SVG_PATH),
-            media_type="image/svg+xml",
-            filename="architecture.svg"
+            path=str(ARCHITECTURE_PNG_PATH),
+            media_type="image/png",
+            filename="architecture.png"
         )
     else:
-        # Return a JSON fallback if SVG doesn't exist
-        return {
-            "error": "Architecture diagram not found",
-            "description": "ResearchPulse uses a ReAct (Reasoning + Acting) architecture with FastAPI backend, Pinecone vector store, Supabase database, and LLMod.ai for LLM calls.",
-            "expected_path": str(ARCHITECTURE_SVG_PATH)
-        }
+        # Fallback: generate on-the-fly if static file is missing
+        from fastapi.responses import Response
+        try:
+            from tools.architecture_diagram import generate_architecture_png
+            png_bytes = generate_architecture_png()
+            return Response(
+                content=png_bytes,
+                media_type="image/png",
+                headers={"Content-Disposition": "inline; filename=architecture.png"}
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": f"Failed to generate architecture diagram: {str(e)}",
+                    "description": "ResearchPulse uses a ReAct architecture with FastAPI, Pinecone, Supabase, and LLMod.ai."
+                }
+            )
 
 
 @router.post("/execute", response_model=ExecuteResponse, tags=["Agent"])
@@ -564,8 +738,12 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
         
         # Build execution steps from tool_calls
         for i, tool_call in enumerate(episode.tool_calls):
+            # Map snake_case tool names to PascalCase module names
+            # for consistency with architecture diagram and AGENT_INFO (Course Project req)
+            raw_name = tool_call.tool_name if tool_call.tool_name else f"Step_{i+1}"
+            module_name = MODULE_NAME_MAP.get(raw_name, raw_name)
             execution_steps.append({
-                "module": tool_call.tool_name if tool_call.tool_name else f"Step_{i+1}",
+                "module": module_name,
                 "prompt": tool_call.input_args,
                 "response": {"result": tool_call.output, "success": tool_call.success}
             })

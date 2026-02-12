@@ -1,461 +1,412 @@
-# ResearchPulse
+<p align="center">
+  <img src="static/public/logo.png" alt="ResearchPulse Logo" width="200" />
+</p>
 
-**Research Awareness and Sharing Agent** — A ReAct agent powered by LangChain, Pinecone RAG, and FastAPI.
+<h1 align="center">ResearchPulse</h1>
 
-ResearchPulse helps researchers stay up-to-date with relevant scientific papers from arXiv. It autonomously filters information overload, ranks papers by relevance and novelty, and optionally shares discoveries with colleagues.
+<p align="center">
+  <strong>Your Autonomous AI Research Assistant</strong><br/>
+  Perceive · Reason · Act - so you never miss a breakthrough paper again.
+</p>
 
----
-
-## Features
-
-- **Episodic Execution**: Each run is triggered by the web UI, starts from a user prompt, and terminates explicitly via a configurable stop policy. No continuous polling.
-- **ReAct Agent Pattern**: Alternates between structured reasoning (Thought) and tool actions (Action → Observation), with all steps logged for transparency.
-- **arXiv Integration**: Retrieves recent papers via arXiv API/RSS, filtered by category include/exclude rules.
-- **Pinecone RAG**: Semantic retrieval to detect novelty, compare against researcher's own papers, and avoid redundant recommendations.
-- **Autonomous Decisions**: Determines relevance, importance (high/medium/low), and delivery actions (notify, share, log only).
-- **Simulated Actions**: Generates email summaries, calendar entries (.ics), and reading list updates as file artifacts.
-- **Web Chat UI**: Simple chat interface to trigger runs and view reports/artifacts.
-
----
-
-## Project Structure
-
-```
-ResearchPulse/
-├── .env.template          # Environment variables template
-├── main.py                # Application entry point
-├── requirements.txt       # Python dependencies
-├── pyproject.toml         # Project metadata and build config
-├── README.md              # This file
-├── LICENSE                # MIT License
-├── CODE_OF_CONDUCT.md     # Contributor code of conduct
-├── data/                  # Demo JSON databases
-│   ├── research_profile.json
-│   ├── papers_state.json
-│   ├── colleagues.json
-│   ├── delivery_policy.json
-│   └── arxiv_categories.json
-├── static/                # Frontend assets
-│   ├── index.html         # Chat UI
-│   └── public/            # Static public files
-└── src/                   # Backend source code
-    ├── agent/             # ReAct agent and stop controller
-    ├── tools/             # LangChain tools for the agent
-    ├── rag/               # Pinecone and embeddings integration
-    ├── arxiv/             # arXiv API client and parser
-    ├── db/                # JSON database utilities
-    ├── api/               # FastAPI routes and run manager
-    └── ui/                # Static file serving
-```
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" />
+  <img alt="LangChain" src="https://img.shields.io/badge/LangChain-ReAct-1C3C3C?logo=chainlink&logoColor=white" />
+  <img alt="Pinecone" src="https://img.shields.io/badge/Pinecone-RAG-000?logo=pinecone&logoColor=white" />
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-green" />
+</p>
 
 ---
 
-## Quick Start
+## 🧠 What is ResearchPulse?
 
-### 1. Clone and Install
+ResearchPulse is an **autonomous AI agent** that helps researchers stay on top of the scientific literature. It continuously scans arXiv, evaluates papers against your personal research profile, and takes intelligent actions - from email digests and calendar reminders to colleague-level paper sharing - all without manual intervention.
+
+Built on a **ReAct (Reasoning + Acting)** agent powered by LangChain, with Pinecone vector search for RAG-based novelty detection, and served through a modern FastAPI + web dashboard.
+
+> [!IMPORTANT]
+> ResearchPulse is a **fully autonomous agent**, not a chatbot. It perceives the research landscape, reasons about what matters to *you*, and acts on your behalf - while keeping you in full control via configurable policies and execution settings.
+
+---
+
+## 🏗️ Architecture
+
+<p align="center">
+  <img src="static/public/architecture.png" alt="ResearchPulse Architecture" width="800" />
+</p>
+
+ResearchPulse operates through a three-phase cognitive loop inspired by autonomous agent design:
+
+---
+
+### 👁️ Perception - *"What's new in the world?"*
+
+The agent observes the research landscape by pulling fresh data from external sources:
+
+| Component | What it does |
+|-----------|-------------|
+| **arXiv API** | Fetches recent papers filtered by your chosen categories and time period |
+| **Pinecone RAG** | Queries the vector store to detect novelty - has this topic been seen before? |
+| **Inbox Monitor** | Checks email for colleague replies and feedback on shared papers |
+| **Profile Loader** | Reads your research interests, exclusions, and delivery preferences |
+
+> [!NOTE]
+> Perception is **bounded** - the agent only fetches papers matching your configured arXiv categories and time window, avoiding information overload from the start.
+
+---
+
+### 🧩 Reasoning - *"What matters to the researcher?"*
+
+The LLM-powered ReAct core evaluates every paper through structured thinking:
+
+| Step | Description |
+|------|-------------|
+| **Relevance Scoring** | Compares each paper's abstract against your research profile using the LLM |
+| **Novelty Detection** | Embeds the paper and queries Pinecone - if too similar to past papers, it's deprioritized |
+| **Importance Ranking** | Assigns `high` / `medium` / `low` importance based on combined relevance + novelty |
+| **Delivery Decision** | Applies your delivery policy to decide: notify, share with a colleague, or just log it |
+| **Stop Policy** | Continuously checks guardrails (max runtime, max papers, max RAG queries) to stay bounded |
+
+The reasoning phase follows the **ReAct pattern**: `Thought → Action → Observation → Thought → ...`, with every step logged for full transparency.
+
+> [!TIP]
+> Open the **Live Document** on the Home tab after a run to see the full chain of thoughts and actions the agent took - great for understanding *why* a paper was flagged as important.
+
+---
+
+### ⚡ Action - *"Do something useful."*
+
+Once reasoning is complete, the agent executes real-world actions:
+
+| Action | Trigger | Output |
+|--------|---------|--------|
+| 📧 **Email Digest** | High-importance paper found | HTML email sent to your inbox |
+| 📅 **Calendar Reminder** | Paper worth reading soon | `.ics` file for Google Calendar / Outlook |
+| 📤 **Colleague Share** | Paper matches a colleague's interests | Targeted email with paper summary |
+| ⭐ **Paper Tagging** | Relevance/importance scored | Paper saved with metadata to your library |
+| 📝 **AI Summary** | On-demand via dashboard | LLM-generated summary of the full PDF |
+| 💡 **Profile Evolution** | Patterns detected in your feedback | Suggestions to refine your research interests |
+
+> [!NOTE]
+> All actions are **auditable**. Every email sent, calendar event created, and share made is logged in the database and visible in the dashboard's Emails, Alerts, and Shares tabs.
+
+---
+
+## 🔀 Autonomous Decision Graph
+
+Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the agent reaches **20+ autonomous junctions** where it chooses different paths based on context, scores, policies, and feature flags:
+
+<div style="position:relative; border:1px solid #d1d5db; border-radius:12px; padding:12px; margin:16px 0; background:#fafafa;">
+  <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
+    <button onclick="dgZoom(0.25)" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Zoom In">🔍+</button>
+    <button onclick="dgZoom(-0.25)" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Zoom Out">🔍−</button>
+    <button onclick="dgReset()" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Reset Zoom">↺ Reset</button>
+    <span id="dg-zoom-label" style="font-size:13px; color:#64748b; margin-left:4px;">100%</span>
+  </div>
+  <div style="overflow:auto; max-height:600px; border:1px solid #e2e8f0; border-radius:8px; background:#fff;">
+    <img id="dg-img" src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" style="transform-origin:top left; transition:transform 0.2s ease;" />
+  </div>
+</div>
+
+<script>
+  var dgScale = 1;
+  function dgZoom(delta) {
+    dgScale = Math.min(Math.max(dgScale + delta, 0.25), 3);
+    document.getElementById('dg-img').style.transform = 'scale(' + dgScale + ')';
+    document.getElementById('dg-zoom-label').textContent = Math.round(dgScale * 100) + '%';
+  }
+  function dgReset() {
+    dgScale = 1;
+    document.getElementById('dg-img').style.transform = 'scale(1)';
+    document.getElementById('dg-zoom-label').textContent = '100%';
+  }
+</script>
+
+#### 🗺️ Legend
+
+<table>
+  <tr>
+    <th>Shape / Color</th>
+    <th>Meaning</th>
+    <th>Example</th>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/◆-Decision-db2777?style=flat-square" /></td>
+    <td><strong>Diamond — Autonomous Decision</strong><br/>Agent evaluates a condition and chooses a path. No human in the loop.</td>
+    <td>Scope Gate, Stop Policy, Importance, Digest Mode, Auto-Send</td>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/■-Action-3b82f6?style=flat-square" /></td>
+    <td><strong>Rectangle — Action / Processing</strong><br/>Agent performs a concrete task: fetch, score, send, persist.</td>
+    <td>Fetch Papers, Score Relevance, Send Email, Share Paper</td>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/⬭-Terminal-16a34a?style=flat-square" /></td>
+    <td><strong>Rounded — Start / End / Terminate</strong><br/>Entry and exit points of the agent episode.</td>
+    <td>Agent Episode Starts, Episode Complete, Terminate</td>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/●-HIGH-dc2626?style=flat-square" /></td>
+    <td><strong>Red — HIGH Importance</strong><br/>Paper with relevance ≥ 0.65 and novelty ≥ 0.5. Triggers email + calendar + reading list.</td>
+    <td>HIGH Importance path</td>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/●-MEDIUM-d97706?style=flat-square" /></td>
+    <td><strong>Amber — MEDIUM Importance</strong><br/>Paper with relevance ≥ 0.4 (or ≥ 0.3 + novelty ≥ 0.6). Added to reading list.</td>
+    <td>MEDIUM Importance path</td>
+  </tr>
+  <tr>
+    <td><img src="https://img.shields.io/badge/●-LOW-16a34a?style=flat-square" /></td>
+    <td><strong>Green — LOW Importance</strong><br/>Paper below thresholds. Logged only, no actions triggered.</td>
+    <td>LOW Importance path</td>
+  </tr>
+</table>
+
+> [!IMPORTANT]
+> Every **diamond** node is an autonomous decision the agent makes on its own — no human in the loop. The agent evaluates each paper independently and chooses a unique combination of actions based on the paper's scores, your delivery policy, and your colleagues' interests. Two papers in the same run can follow completely different paths.
+
+> [!TIP]
+> This is **not a chain** — it's a graph with 20+ independent decision junctions per paper. The agent can simultaneously send an email digest, share with a colleague, create a calendar event, *and* suggest a profile update — or do none of those — all based on autonomous reasoning. After each run, four feature-flagged autonomous components (Audit Log, LLM Novelty, Profile Evolution, Live Document) each make their own independent decisions.
+
+---
+
+## ✨ Key Features
+
+| Feature | Description |
+|---------|-------------|
+| 🤖 **Autonomous Agent** | ReAct loop with bounded execution - no infinite polling |
+| 🔍 **Smart Search** | "Search for me" generates queries from your profile automatically |
+| 📊 **Relevance + Novelty** | Dual scoring via LLM + Pinecone vector similarity |
+| 👥 **Colleague Sharing** | Auto-match papers to colleagues by research interests |
+| 📄 **Paper Summaries** | One-click AI summarization of any paper's PDF |
+| 📬 **Inbox Monitoring** | Detects and processes colleague replies |
+| 🧬 **Profile Evolution** | Learns from your stars and feedback to improve over time |
+| 📥 **CSV Export** | Export your paper library for reference managers |
+| 🌓 **Dark / Light Mode** | Theme toggle with persistent preference |
+| 🔐 **Join Code Security** | Colleagues need a passphrase to join your network |
+| 📈 **Execution Controls** | Max runtime, max papers, min importance - all configurable |
+| 🩺 **Health Dashboard** | Real-time status of database, Pinecone, and email connections |
+
+---
+
+## 🖥️ Dashboard Preview
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="static/public/dashboard_dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="static/public/dashboard_light.png" />
+    <img src="static/public/dashboard_dark.png" alt="ResearchPulse Dashboard" width="900" />
+  </picture>
+</p>
+
+<p align="center">
+  <sub>🌙 Dark mode (default) &nbsp;·&nbsp; ☀️ Light mode available via toggle</sub>
+</p>
+
+> [!TIP]
+> The dashboard is a full single-page application with 8 tabs - Home, Papers, Emails, Alerts, Shares, Colleagues, Settings, and Q&A. Theme preference is persisted across sessions.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Clone & Install
 
 ```bash
 git clone <repository-url>
 cd ResearchPulse
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/macOS
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux / macOS
 pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment
 
-Copy the template and fill in your API keys:
-
 ```bash
-copy .env.template .env  # Windows
-# cp .env.template .env  # Linux/macOS
+copy .env.template .env       # Windows
+# cp .env.template .env       # Linux / macOS
 ```
 
-Edit `.env` with your credentials (see [Environment Variables](#environment-variables) below).
+> [!IMPORTANT]
+> You **must** fill in all required API keys in `.env` before starting. The app validates every variable at boot and will refuse to start with a clear error message if anything is missing.
 
-### 3. Run the Application
+### 3. Initialize Database
+
+```bash
+python main.py db-init
+```
+
+### 4. Launch
 
 ```bash
 python main.py
 ```
 
-Open your browser to `http://127.0.0.1:8000` to access the chat UI.
+Open **http://127.0.0.1:8000** - you'll land on the Home tab. Set up your Research Profile in **My Settings**, then hit **"Search for me"**.
 
 ---
 
-## Environment Variables
-
-The application reads configuration from a `.env` file. All required variables must be set before starting.
+## 🔑 Environment Variables
 
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `LLM_PROVIDER` | Yes | LLM provider identifier (default: `openai`) |
-| `LLM_API_BASE` | Yes | Base URL for OpenAI-compatible LLM API |
-| `LLM_API_KEY` | Yes | API key for the LLM service |
-| `LLM_MODEL_NAME` | Yes | Model name to use for the ReAct agent |
-| `PINECONE_API_KEY` | Yes | Pinecone API key |
-| `PINECONE_INDEX_NAME` | Yes | Name of the Pinecone index |
-| `PINECONE_ENVIRONMENT` | Yes | Pinecone environment/region |
-| `PINECONE_NAMESPACE` | No | Namespace within the index (default: `demo`) |
-| `EMBEDDING_API_BASE` | Yes | Base URL for embeddings API |
-| `EMBEDDING_API_KEY` | Yes | API key for embeddings service |
-| `EMBEDDING_API_MODEL` | Yes | Embedding model name |
-| `EMBEDDING_API_DIMENSION` | No | Embedding vector dimension (default: `1536`) |
-| `APP_HOST` | No | Server host (default: `127.0.0.1`) |
-| `APP_PORT` | No | Server port (default: `8000`) |
-| `ARXIV_MAX_RESULTS` | No | Max papers to fetch per arXiv query (default: `50`) |
+|----------|:--------:|-------------|
+| `DATABASE_URL` | ✅ | PostgreSQL (Supabase) connection string |
+| `LLM_API_KEY` | ✅ | API key for the LLM service |
+| `LLM_API_BASE` | ✅ | Base URL for OpenAI-compatible API |
+| `LLM_MODEL_NAME` | ✅ | Model name (e.g. `gpt-4o`) |
+| `LLM_PROVIDER` | ✅ | LLM provider identifier (default: `openai`) |
+| `PINECONE_API_KEY` | ✅ | Pinecone API key |
+| `PINECONE_INDEX_NAME` | ✅ | Pinecone index name |
+| `PINECONE_ENVIRONMENT` | ✅ | Pinecone environment / region |
+| `EMBEDDING_API_KEY` | ✅ | Embeddings API key |
+| `EMBEDDING_API_BASE` | ✅ | Embeddings base URL |
+| `EMBEDDING_API_MODEL` | ✅ | Embedding model name |
+| `PINECONE_NAMESPACE` | - | Namespace (default: `demo`) |
+| `EMBEDDING_API_DIMENSION` | - | Vector dimension (default: `1536`) |
+| `APP_HOST` | - | Server host (default: `127.0.0.1`) |
+| `APP_PORT` | - | Server port (default: `8000`) |
+| `ARXIV_MAX_RESULTS` | - | Max papers per query (default: `50`) |
 
-### Environment Validation and Graceful Failure
-
-The application validates environment variables at startup with the following behavior:
-
-1. **Startup Validation**: On application boot, all required environment variables are checked before any services initialize.
-
-2. **Missing Required Variables**: If any required variable is missing or empty, the application will:
-   - Log a clear error message listing all missing variables
-   - Print a human-readable instruction to the console
-   - Exit with a non-zero status code (will not start the server)
-   - Example: `ERROR: Missing required environment variables: LLM_API_KEY, PINECONE_API_KEY. Please check your .env file.`
-
-3. **Invalid Values**: If a variable has an invalid format (e.g., non-numeric port), the application will:
-   - Log the specific validation error
-   - Suggest the expected format
-   - Exit gracefully without crashing
-
-4. **Optional Variables**: Missing optional variables will use sensible defaults and log an INFO message noting the default value being used.
-
-5. **Runtime API Failures**: If external APIs (Pinecone, LLM) fail during a run:
-   - The error is caught and logged
-   - The current run terminates with a clear error in the run report
-   - The server remains operational for subsequent runs
-   - No unhandled exceptions propagate to the user
-
-6. **Partial Configuration**: The application will not attempt partial initialization. All required services must be configurable, or the app refuses to start.
+> [!TIP]
+> Keep your `.env` file **out of version control**. A `.env.template` is provided with placeholder values for every variable.
 
 ---
 
-## API Endpoints
+## 🛡️ Stop Policy & Guardrails
 
-### `POST /chat`
+Every run is **bounded** - the agent stops when *any* condition is met:
 
-Start a new episodic agent run.
+| Guardrail | Default | Purpose |
+|-----------|:-------:|---------|
+| Max runtime | 6 min | Prevents runaway execution |
+| Max papers checked | 30 | Limits evaluation scope |
+| Stop if no new papers | `true` | Exits early when nothing is unseen |
+| Max RAG queries | 50 | Caps vector store calls |
+| Min importance to act | `medium` | Only important papers trigger actions |
 
-**Request Body:**
-```json
-{
-  "message": "Find recent papers on transformer architectures for NLP"
-}
-```
-
-**Response:**
-```json
-{
-  "run_id": "uuid-string",
-  "status": "started",
-  "message": "Agent run initiated"
-}
-```
-
-### `GET /status?run_id={run_id}`
-
-Poll for run status and updates.
-
-**Response:**
-```json
-{
-  "run_id": "uuid-string",
-  "status": "running | completed | error",
-  "steps": [...],
-  "report": {...},
-  "artifacts": [...]
-}
-```
+> [!TIP]
+> All guardrails are configurable in **My Settings → Execution Settings** on the dashboard.
 
 ---
 
-## Stop Policy
+## 📦 Storage Layer
 
-The agent enforces an explicit stop policy to ensure bounded execution. The run terminates when ANY condition is met:
+```
+┌─────────────────────────────────┐   ┌──────────────────────────────┐
+│    PostgreSQL (Supabase)        │   │    Pinecone (Vector Store)   │
+│                                 │   │                              │
+│  users · papers · paper_views   │   │  Paper embeddings            │
+│  colleagues · runs · actions    │   │  Semantic similarity search  │
+│  emails · calendar_events       │   │  Novelty detection           │
+│  shares · delivery_policies     │   │                              │
+└─────────────────────────────────┘   └──────────────────────────────┘
+```
 
-| Condition | Default | Description |
-|-----------|---------|-------------|
-| `max_runtime_minutes` | 6 | Maximum wall-clock time for a run |
-| `max_papers_checked` | 30 | Maximum papers to evaluate |
-| `stop_if_no_new_papers` | true | Stop immediately if no unseen papers found |
-| `max_rag_queries` | 50 | Maximum RAG retrieval calls |
-| `min_importance_to_act` | medium | Minimum importance level to trigger actions |
-
-The stop policy can be customized per researcher in `data/research_profile.json`.
+> [!NOTE]
+> All state lives in PostgreSQL + Pinecone - the app is **deployment-safe** and works identically on local dev, Render, or any cloud host.
 
 ---
 
-## ReAct Tools
+## 🖥️ Dashboard Tabs
 
-The agent uses these LangChain tools:
-
-| Tool | Description |
-|------|-------------|
-| `fetch_arxiv_papers` | Query arXiv for recent papers by category |
-| `check_seen_papers` | Compare papers against the Papers State DB |
-| `retrieve_similar_from_pinecone` | RAG query for novelty/similarity detection |
-| `score_relevance_and_importance` | Evaluate paper relevance to researcher profile |
-| `decide_delivery_action` | Determine action based on delivery policy |
-| `persist_state` | Save decisions to local JSON databases |
-| `generate_report` | Create the final run report |
-| `terminate_run` | Explicitly end the agent run |
+| Tab | Icon | What you'll find |
+|-----|:----:|-----------------|
+| **Home** | 🏠 | Chat input, "Search for me", Live Document, Profile Suggestions |
+| **Papers** | 📄 | Full paper library with star, filter, sort, bulk actions, CSV export |
+| **Emails** | 📧 | All sent email digests and colleague notifications |
+| **Alerts** | 📅 | Calendar events and reading reminders (.ics download) |
+| **Shares** | 📤 | Papers shared with colleagues and delivery status |
+| **Colleagues** | 👥 | Manage collaborators, their interests, and join codes |
+| **My Settings** | ⚙️ | Research profile, execution settings, inbox config, health checks |
+| **Q&A** | ❓ | FAQ and help for every feature |
 
 ---
 
-## Deployment-safe Storage and Dashboard
+## ☁️ Deployment (Render)
 
-ResearchPulse supports deployment-safe storage that works consistently in both local development and cloud environments (e.g., Render). All persistent state is stored in PostgreSQL (via Supabase) and vector embeddings in Pinecone.
-
-### Architecture Overview
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     ResearchPulse                           │
-├──────────────────────────────────────────────────────────────┤
-│  Web Dashboard       │  FastAPI Backend   │  ReAct Agent    │
-│  (static/index.html) │  (/api/*)          │  (agent/)       │
-├──────────────────────┴───────────────────┴──────────────────┤
-│                    Storage Layer                             │
-│  ┌─────────────────────────┐  ┌──────────────────────────┐  │
-│  │  PostgreSQL (Supabase)  │  │  Pinecone (Vectors)      │  │
-│  │  - Users, Papers        │  │  - Paper embeddings      │  │
-│  │  - Colleagues, Runs     │  │  - Similarity search     │  │
-│  │  - Emails, Calendar     │  │  - Novelty detection     │  │
-│  │  - Shares, Policies     │  │                          │  │
-│  └─────────────────────────┘  └──────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Database Tables
-
-| Table | Description |
-|-------|-------------|
-| `users` | Researcher profiles and settings |
-| `papers` | Paper metadata (source, title, abstract, authors) |
-| `paper_views` | User's interaction with papers (decisions, importance, notes) |
-| `colleagues` | Colleague researchers for paper sharing |
-| `runs` | Agent run history and metrics |
-| `actions` | Actions taken during runs (per paper) |
-| `emails` | Email send history and content |
-| `calendar_events` | Calendar event history and ICS content |
-| `shares` | Paper shares with colleagues |
-| `delivery_policies` | User delivery preferences |
-
-### CLI Commands
-
-```bash
-# Initialize database (run migrations)
-python main.py db-init
-
-# Migrate local JSON files to database
-python main.py migrate-local-to-db
-
-# Start the server (default command)
-python main.py server
-python main.py  # Same as above
-```
-
-### Database Configuration
-
-Set the `DATABASE_URL` environment variable to your Supabase PostgreSQL connection string:
-
-```env
-DATABASE_URL=postgresql://postgres:[password]@[host]:[port]/postgres
-```
-
-The application will:
-- Use PostgreSQL as the primary storage in all environments
-- Automatically run migrations on `db-init`
-- Fail fast in production if `DATABASE_URL` is not set
-- Keep local JSON files as backup/reference only (not used in production)
-
-### Dashboard Features
-
-The web dashboard provides:
-
-| Feature | Endpoint | Description |
-|---------|----------|-------------|
-| Papers | `GET /api/papers` | View all papers with filters (seen, importance, category) |
-| Paper Details | `GET /api/papers/{id}` | View paper details and actions |
-| Delete Paper | `DELETE /api/papers/{id}` | Remove paper from views and Pinecone |
-| Mark Unseen | `POST /api/papers/{id}/mark-unseen` | Reset paper to unseen state |
-| Emails | `GET /api/emails` | View email send history |
-| Calendar | `GET /api/calendar` | View calendar event history |
-| Shares | `GET /api/shares` | View paper shares with colleagues |
-| Colleagues | `GET/POST/PUT/DELETE /api/colleagues` | Manage colleagues |
-| Runs | `GET /api/runs` | View run history |
-| Trigger Run | `POST /api/run` | Start a new agent run |
-| Policies | `GET/PUT /api/policies` | View/update delivery policies |
-| Health | `GET /api/health` | Check DB and Pinecone health |
-
-### Render Deployment
-
-#### Required Environment Variables
-
-Set these in your Render dashboard:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | **Yes** | Supabase PostgreSQL connection string |
-| `PINECONE_API_KEY` | Yes | Pinecone API key |
-| `PINECONE_INDEX_NAME` | Yes | Pinecone index name |
-| `PINECONE_ENVIRONMENT` | Yes | Pinecone environment |
-| `LLM_API_KEY` | Yes | LLM API key |
-| `LLM_API_BASE` | Yes | LLM API base URL |
-| `LLM_MODEL_NAME` | Yes | LLM model name |
-| `EMBEDDING_API_KEY` | Yes | Embedding API key |
-| `EMBEDDING_API_BASE` | Yes | Embedding API base URL |
-| `EMBEDDING_API_MODEL` | Yes | Embedding model name |
-| `ENV` | No | Set to `production` for production mode |
-| `APP_HOST` | No | Default: `0.0.0.0` |
-| `APP_PORT` | No | Default: `8000` (Render sets `PORT`) |
-
-#### Build Command
+### Build Command
 
 ```bash
 pip install -r requirements.txt && python main.py db-init
 ```
 
-#### Start Command
+### Start Command
 
 ```bash
 python main.py server
 ```
 
-### Migration from Local JSON
+> [!IMPORTANT]
+> Set **all** required environment variables in your Render dashboard before deploying. The app will exit on boot with a clear error if any are missing.
 
-If you have existing data in local JSON files, migrate it to the database:
+### Render Environment Extras
 
-```bash
-# First, ensure DATABASE_URL is set
-export DATABASE_URL=postgresql://...
-
-# Initialize the database
-python main.py db-init
-
-# Migrate local data
-python main.py migrate-local-to-db
-```
-
-The migration will:
-- Read from `data/research_profile.json` → `users` table
-- Read from `data/colleagues.json` → `colleagues` table
-- Read from `data/papers_state.json` → `papers` and `paper_views` tables
-- Read from `data/delivery_policy.json` → `delivery_policies` table
-- Read from `artifacts/emails/` → `emails` table
-- Read from `artifacts/calendar/` → `calendar_events` table
-- Read from `artifacts/shares/` → `shares` table
-
-The migration is idempotent - running it multiple times will update existing records.
-
-### Health Checks
-
-The `/api/health` endpoint returns:
-
-```json
-{
-  "status": "healthy",
-  "database": {
-    "connected": true,
-    "message": "Connection successful"
-  },
-  "pinecone": {
-    "connected": true,
-    "message": "Pinecone connection healthy"
-  },
-  "timestamp": "2026-01-30T12:00:00Z"
-}
-```
-
-### Extra Features
-
-- **Search and Filters**: Filter papers by category, importance, seen status
-- **Bulk Actions**: Delete multiple papers at once
-- **CSV Export**: Export papers to CSV via API
-- **Paper Notes/Tags**: Add notes and tags to papers
-- **Per-Colleague Controls**: Enable/disable colleagues, set keywords
-- **Health Status Panel**: Monitor DB and Pinecone status
-- **Re-index Button**: Trigger vector re-indexing
+| Variable | Value |
+|----------|-------|
+| `ENV` | `production` |
+| `APP_HOST` | `0.0.0.0` |
 
 ---
 
-## Demo Databases
-
-The `data/` folder contains JSON files with demo data:
-
-- **research_profile.json**: Researcher preferences, topics, and stop policy
-- **papers_state.json**: Previously seen papers and decisions
-- **colleagues.json**: Colleagues for paper sharing
-- **delivery_policy.json**: Rules for notifications and sharing
-- **arxiv_categories.json**: Supported arXiv category codes
-
----
-
-## Simulated Actions
-
-For demo purposes, actions produce file artifacts instead of actual emails/calendar events:
-
-- **Email Summary**: Written to `outputs/emails/email_{timestamp}.txt`
-- **Calendar Entry**: Written to `outputs/calendar/event_{timestamp}.ics`
-- **Reading List**: Appended to `outputs/reading_list.txt`
-- **Colleague Shares**: Written to `outputs/shares/share_{colleague}_{timestamp}.txt`
-
----
-
-## Development
+## 🧪 Development
 
 ### Running Tests
-
-ResearchPulse has a comprehensive test suite with unit tests and integration tests.
 
 ```bash
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run all unit tests (fast, no external services required)
-pytest tests/unit/
+# Unit tests (fast, no external services)
+pytest unit_testing/unit/
 
-# Run all tests including integration tests (mocked)
-pytest tests/
+# All tests including integration
+pytest unit_testing/
 
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
-
-# Run live integration tests (requires email credentials)
-RUN_LIVE_TESTS=1 pytest tests/integration/
+# With coverage report
+pytest unit_testing/ --cov=src --cov-report=html
 ```
-
-**Critical Test: Inbox Reading**
-
-A known issue was that ResearchPulse could not read incoming email content. This is now explicitly tested:
-
-```bash
-# Run the inbox reading regression test
-RUN_LIVE_TESTS=1 pytest tests/integration/test_inbox_reading.py -v
-```
-
-For complete testing documentation, see [TESTING.md](TESTING.md).
 
 ### Code Formatting
 
 ```bash
-black src/ tests/
-isort src/ tests/
+black src/ unit_testing/
+isort src/ unit_testing/
 ```
 
 ---
 
-## License
+## 📊 Project Structure
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+```
+ResearchPulse/
+├── main.py                 # Application entry point
+├── requirements.txt        # Python dependencies
+├── pyproject.toml          # Build config & metadata
+├── alembic.ini             # Database migration config
+├── migrations/             # Alembic migration scripts
+│   └── versions/           # Individual migrations
+├── static/
+│   ├── index.html          # Full SPA dashboard
+│   └── public/             # Logo, architecture diagram
+└── src/
+    ├── agent/              # ReAct agent, stop controller, profile evolution
+    ├── api/                # FastAPI routes, run manager, colleague routes
+    ├── config/             # Feature flags
+    ├── db/                 # ORM models, database session, data service
+    ├── rag/                # Pinecone client, embeddings, retriever
+    └── tools/              # 20+ LangChain tools (fetch, score, email, etc.)
+```
 
 ---
 
-## Contributing
+## 📜 License
+
+MIT - see [LICENSE](LICENSE) for details.
+
+## 🤝 Contributing
 
 Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before contributing.
+
+---
