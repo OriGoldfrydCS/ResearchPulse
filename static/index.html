@@ -3178,12 +3178,50 @@
             <div class="tab-panel" id="tab-shares">
                 <div class="dashboard-header">
                     <h2>📤 Shares with Colleagues</h2>
-                    <button onclick="refreshShares()" class="action-btn primary">🔄 Refresh</button>
+                    <div class="dashboard-actions">
+                        <input type="text" id="shares-search" placeholder="Search shares..." class="search-input"
+                            oninput="debouncedShareSearch()" />
+                        <select id="shares-filter-status" class="filter-select" onchange="refreshShares()">
+                            <option value="">All Status</option>
+                            <option value="sent">Sent</option>
+                            <option value="pending">Pending</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <button onclick="refreshShares()" class="action-btn primary">🔄 Refresh</button>
+                    </div>
                 </div>
-                <div id="shares-list" class="data-list">
-                    <div class="empty-state">
-                        <div class="emoji">📤</div>
-                        <div>No papers shared with colleagues yet.</div>
+
+                <!-- Share Bulk Action Bar -->
+                <div id="share-bulk-action-bar" class="bulk-action-bar">
+                    <span class="bulk-selection-info" id="share-bulk-selection-count">0 selected</span>
+                    <button class="bulk-action-btn danger" onclick="bulkDeleteShares()">🗑️ Delete</button>
+                    <button class="bulk-clear-btn" onclick="clearShareSelection()">✕ Clear</button>
+                </div>
+
+                <div class="data-list" style="padding: 0;" id="shares-container">
+                    <div class="paper-list-header" id="share-list-header" style="display: none;">
+                        <input type="checkbox" class="select-all-checkbox" id="select-all-shares-checkbox"
+                            onclick="toggleSelectAllShares()" title="Select all shares" />
+                        <span>Select All</span>
+                        <div class="sort-controls">
+                            <span style="font-weight: normal;">Sort by:</span>
+                            <button class="sort-btn active" onclick="setShareSortOrder('created_at', this)"
+                                data-sort="created_at">Date</button>
+                            <button class="sort-btn" onclick="setShareSortOrder('colleague_name', this)"
+                                data-sort="colleague_name">Colleague</button>
+                            <button class="sort-btn" onclick="setShareSortOrder('paper_title', this)"
+                                data-sort="paper_title">Paper</button>
+                            <button class="sort-btn" onclick="setShareSortOrder('status', this)"
+                                data-sort="status">Status</button>
+                            <button class="sort-dir-btn" id="share-sort-dir-btn" onclick="toggleShareSortDirection()"
+                                title="Toggle sort direction">↓</button>
+                        </div>
+                    </div>
+                    <div id="shares-list">
+                        <div class="empty-state">
+                            <div class="emoji">📤</div>
+                            <div>No papers shared with colleagues yet.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -5984,35 +6022,239 @@
             });
         }
 
+        // ========== Shares Tab State Management ==========
+        let selectedShareIds = new Set();
+        let allShareIds = [];
+        let allSharesData = [];
+        let currentShareSortField = 'created_at';
+        let currentShareSortDir = 'desc';
+        let shareSearchTimeout = null;
+
+        function debouncedShareSearch() {
+            clearTimeout(shareSearchTimeout);
+            shareSearchTimeout = setTimeout(() => {
+                refreshShares();
+            }, 250);
+        }
+
+        function setShareSortOrder(field, btn) {
+            currentShareSortField = field;
+            document.querySelectorAll('#share-list-header .sort-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            refreshShares();
+        }
+
+        function toggleShareSortDirection() {
+            currentShareSortDir = currentShareSortDir === 'asc' ? 'desc' : 'asc';
+            const btn = document.getElementById('share-sort-dir-btn');
+            if (btn) btn.textContent = currentShareSortDir === 'asc' ? '↑' : '↓';
+            refreshShares();
+        }
+
+        function toggleSelectAllShares() {
+            const cb = document.getElementById('select-all-shares-checkbox');
+            if (cb && cb.checked) {
+                allShareIds.forEach(id => selectedShareIds.add(id));
+            } else {
+                selectedShareIds.clear();
+            }
+            renderSharesList();
+            updateShareBulkActionBar();
+        }
+
+        function toggleShareSelection(id) {
+            if (selectedShareIds.has(id)) {
+                selectedShareIds.delete(id);
+            } else {
+                selectedShareIds.add(id);
+            }
+            const row = document.getElementById(`share-row-${id}`);
+            if (row) row.classList.toggle('selected', selectedShareIds.has(id));
+            updateShareBulkActionBar();
+            updateSelectAllSharesCheckbox();
+        }
+
+        function clearShareSelection() {
+            selectedShareIds.clear();
+            renderSharesList();
+            updateShareBulkActionBar();
+            updateSelectAllSharesCheckbox();
+        }
+
+        function updateShareBulkActionBar() {
+            const bar = document.getElementById('share-bulk-action-bar');
+            const count = document.getElementById('share-bulk-selection-count');
+            if (bar) bar.style.display = selectedShareIds.size > 0 ? 'flex' : 'none';
+            if (count) count.textContent = `${selectedShareIds.size} selected`;
+        }
+
+        function updateSelectAllSharesCheckbox() {
+            const cb = document.getElementById('select-all-shares-checkbox');
+            if (cb) {
+                cb.checked = allShareIds.length > 0 && allShareIds.every(id => selectedShareIds.has(id));
+                cb.indeterminate = selectedShareIds.size > 0 && !cb.checked;
+            }
+        }
+
+        async function deleteShare(shareId) {
+            if (!confirm('Are you sure you want to delete this share record?')) return;
+            try {
+                const response = await fetch(`/api/shares/${shareId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to delete share');
+                showToast('Share deleted');
+                refreshShares();
+            } catch (err) {
+                alert('Failed to delete share: ' + err.message);
+            }
+        }
+
+        async function bulkDeleteShares() {
+            if (selectedShareIds.size === 0) return;
+            if (!confirm(`Delete ${selectedShareIds.size} share(s)? This cannot be undone.`)) return;
+            try {
+                const response = await fetch('/api/bulk/shares/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(Array.from(selectedShareIds))
+                });
+                if (!response.ok) throw new Error('Failed to delete shares');
+                const result = await response.json();
+                showToast(`Deleted ${result.deleted || selectedShareIds.size} shares`);
+                clearShareSelection();
+                refreshShares();
+            } catch (err) {
+                alert('Failed to delete shares: ' + err.message);
+            }
+        }
+
         async function refreshShares() {
             const list = document.getElementById('shares-list');
+            const header = document.getElementById('share-list-header');
+
+            list.innerHTML = Array(3).fill(0).map(() => `
+                <div class="skeleton-row">
+                    <div class="skeleton-box skeleton-checkbox"></div>
+                    <div class="skeleton-content">
+                        <div class="skeleton-box skeleton-title"></div>
+                        <div class="skeleton-box skeleton-meta"></div>
+                    </div>
+                </div>
+            `).join('');
+
             try {
+                const q = document.getElementById('shares-search')?.value || '';
+                const statusFilter = document.getElementById('shares-filter-status')?.value || '';
+
                 const response = await fetch('/api/shares');
                 if (!response.ok) throw new Error('Failed to fetch shares');
                 const data = await response.json();
 
-                if (!data.shares || data.shares.length === 0) {
-                    list.innerHTML = '<div class="empty-state"><div class="emoji">📤</div><div>No papers shared with colleagues yet.</div></div>';
+                let shares = data.shares || [];
+
+                // Client-side filtering
+                if (q) {
+                    const query = q.toLowerCase();
+                    shares = shares.filter(s =>
+                        (s.colleague_name || '').toLowerCase().includes(query) ||
+                        (s.paper_title || '').toLowerCase().includes(query) ||
+                        (s.reason || '').toLowerCase().includes(query)
+                    );
+                }
+                if (statusFilter) {
+                    shares = shares.filter(s => s.status === statusFilter);
+                }
+
+                // Client-side sorting
+                shares.sort((a, b) => {
+                    let aVal = a[currentShareSortField] || '';
+                    let bVal = b[currentShareSortField] || '';
+                    if (currentShareSortField === 'created_at') {
+                        aVal = new Date(aVal).getTime();
+                        bVal = new Date(bVal).getTime();
+                    } else {
+                        aVal = String(aVal).toLowerCase();
+                        bVal = String(bVal).toLowerCase();
+                    }
+                    if (currentShareSortDir === 'asc') {
+                        return aVal > bVal ? 1 : -1;
+                    } else {
+                        return aVal < bVal ? 1 : -1;
+                    }
+                });
+
+                allSharesData = shares;
+                allShareIds = shares.map(s => s.id);
+
+                // Clean up selection
+                const visibleIds = new Set(allShareIds);
+                selectedShareIds.forEach(id => {
+                    if (!visibleIds.has(id)) selectedShareIds.delete(id);
+                });
+
+                if (shares.length === 0) {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <div class="emoji">📤</div>
+                            <div>${q || statusFilter ? 'No shares match your filters.' : 'No papers shared with colleagues yet.'}</div>
+                            ${q || statusFilter ? '<button class="clear-filters-btn" onclick="clearShareFilters()">Clear Filters</button>' : ''}
+                        </div>
+                    `;
+                    if (header) header.style.display = 'none';
+                    updateShareBulkActionBar();
                     return;
                 }
 
-                list.innerHTML = data.shares.map(s => `
-                    <div class="data-item">
-                        <div class="data-info">
-                            <div class="data-title">📄 Paper shared with ${escapeHtml(s.colleague_name || 'Unknown')}</div>
-                            <div class="data-meta">
-                                <span>📅 ${new Date(s.created_at).toLocaleString()}</span>
-                                <span>🎯 Match: ${(s.match_score * 100).toFixed(0)}%</span>
-                                <span class="importance-badge importance-${s.status === 'sent' ? 'high' : 'medium'}">${s.status}</span>
-                            </div>
-                            ${s.reason ? `<div style="font-size:0.85rem;color:var(--text-muted);margin-top:4px;">${escapeHtml(s.reason)}</div>` : ''}
-                        </div>
-                    </div>
-                `).join('');
+                if (header) header.style.display = 'flex';
+                renderSharesList();
+                updateShareBulkActionBar();
+                updateSelectAllSharesCheckbox();
             } catch (err) {
                 console.error('Error fetching shares:', err);
                 list.innerHTML = '<div class="empty-state"><div class="emoji">❌</div><div>Failed to load shares.</div></div>';
             }
+        }
+
+        function clearShareFilters() {
+            const search = document.getElementById('shares-search');
+            const status = document.getElementById('shares-filter-status');
+            if (search) search.value = '';
+            if (status) status.value = '';
+            refreshShares();
+        }
+
+        function renderSharesList() {
+            const list = document.getElementById('shares-list');
+
+            list.innerHTML = allSharesData.map(s => {
+                const isSelected = selectedShareIds.has(s.id);
+                const statusClass = s.status === 'sent' ? 'sent' : s.status === 'failed' ? 'failed' : 'pending';
+                const colleagueName = s.colleague_name || (s.colleague && s.colleague.name) || 'Unknown';
+                const paperTitle = s.paper_title || (s.paper && s.paper.title) || 'Untitled';
+                const paperUrl = s.paper_url || (s.paper && s.paper.url) || '';
+
+                return `
+                <div class="email-row ${isSelected ? 'selected' : ''}" id="share-row-${s.id}">
+                    <input type="checkbox"
+                           class="email-checkbox"
+                           ${isSelected ? 'checked' : ''}
+                           onclick="event.stopPropagation(); toggleShareSelection('${s.id}')"
+                           title="Select share" />
+                    <div class="email-content" style="flex:1;min-width:0;">
+                        <div class="email-subject">
+                            📄 ${paperUrl ? `<a href="${escapeHtml(paperUrl)}" target="_blank" style="color:var(--text-primary);text-decoration:none;">${escapeHtml(paperTitle)}</a>` : escapeHtml(paperTitle)}
+                        </div>
+                        <div class="email-meta">
+                            <span>👤 Shared with <strong>${escapeHtml(colleagueName)}</strong></span>
+                            <span>📅 ${new Date(s.created_at).toLocaleString()}</span>
+                            <span class="importance-badge importance-${statusClass === 'sent' ? 'high' : 'medium'}">${s.status}</span>
+                        </div>
+                    </div>
+                    <div class="email-actions" style="display:flex;gap:4px;align-items:center;">
+                        <button class="icon-btn" onclick="event.stopPropagation(); deleteShare('${s.id}')" title="Delete share">🗑️</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
         }
 
         // ========== Colleagues Tab State Management ==========

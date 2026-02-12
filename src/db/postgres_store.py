@@ -1670,6 +1670,16 @@ class PostgresStore(Store):
             ).first()
             return result is not None
     
+    def delete_share(self, share_id: UUID) -> bool:
+        """Delete a share record."""
+        with get_db_session() as db:
+            share = db.query(Share).filter(Share.id == share_id).first()
+            if not share:
+                return False
+            db.delete(share)
+            db.commit()
+            return True
+    
     # =========================================================================
     # Delivery Policy Operations
     # =========================================================================

@@ -1242,8 +1242,18 @@ def share_to_dict(share: Share, include_details: bool = False) -> Dict[str, Any]
     if include_details:
         if share.colleague:
             result["colleague"] = colleague_to_dict(share.colleague)
+            result["colleague_name"] = share.colleague.name or "Unknown"
+        else:
+            result["colleague_name"] = "Unknown"
         if share.paper:
             result["paper"] = paper_to_dict(share.paper)
+            result["paper_title"] = share.paper.title or "Untitled"
+            result["paper_arxiv_id"] = share.paper.external_id or (share.paper.url or "").split("/")[-1]
+            result["paper_url"] = share.paper.url or ""
+        else:
+            result["paper_title"] = "Untitled"
+            result["paper_arxiv_id"] = ""
+            result["paper_url"] = ""
     return result
 
 

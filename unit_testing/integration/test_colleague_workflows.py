@@ -446,6 +446,303 @@ class TestColleagueAddedByTracking:
         assert colleague.added_by == "email"
 
 
+class TestOwnerAndColleagueIdenticalInterests:
+    """
+    Regression test: when owner and colleague share the exact same interests,
+    a matching paper must be delivered to BOTH and a share record must be
+    created for the colleague.
+    """
+
+    @pytest.fixture
+    def shared_interests_paper(self):
+        """A paper that matches the shared interests."""
+        return {
+            "arxiv_id": "2401.99999",
+            "title": "Advances in Machine Learning and Transformer Models",
+            "abstract": "We propose a novel transformer architecture for machine learning tasks.",
+            "relevance_score": 0.92,
+            "novelty_score": 0.85,
+            "importance": "high",
+            "categories": ["cs.LG", "cs.CL"],
+            "authors": ["Alice Researcher", "Bob Scientist"],
+            "link": "https://arxiv.org/abs/2401.99999",
+            "explanation": "Directly relevant to machine learning and transformers.",
+        }
+
+    @pytest.fixture
+    def identical_colleague(self):
+        """A colleague with the same interests as the owner."""
+        return {
+            "id": "c-identical",
+            "name": "Identical Colleague",
+            "email": get_colleague_test_email("identical"),
+            "topics": ["machine learning", "transformers", "NLP"],
+            "sharing_preference": "immediate",
+            "arxiv_categories_interest": ["cs.LG", "cs.CL"],
+            "added_by": "manual",
+            "auto_send_emails": True,
+        }
+
+    @pytest.fixture
+    def sharing_policy(self):
+        return {
+            "importance_policies": {
+                "high": {
+                    "send_email": True,
+                    "create_calendar_entry": False,
+                    "add_to_reading_list": True,
+                    "allow_colleague_sharing": True,
+                    "priority_label": "urgent",
+                },
+            },
+            "email_settings": {"enabled": True, "simulate_output": True,
+                               "include_abstract": True, "digest_mode": False},
+            "reading_list_settings": {"enabled": True},
+            "colleague_sharing_settings": {
+                "enabled": True,
+                "respect_sharing_preferences": True,
+                "simulate_output": True,
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # 1. process_colleague_surplus: colleague gets a share action
+    # ------------------------------------------------------------------
+    def test_surplus_creates_share_action_for_identical_colleague(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """When owner and colleague have identical interests, the colleague
+        must receive a non-skip share action for the matching paper."""
+        result = process_colleague_surplus(
+            all_scored_papers=[shared_interests_paper],
+            owner_paper_ids=[shared_interests_paper["arxiv_id"]],
+            colleagues=[identical_colleague],
+            delivery_policy=sharing_policy,
+            researcher_name="Dr. Owner",
+        )
+
+        assert result["success"] is True
+
+        actions = result["colleague_actions"]
+        colleague_action = [
+            a for a in actions
+            if a["colleague_id"] == "c-identical"
+            and a["paper_id"] == "2401.99999"
+        ]
+        assert len(colleague_action) == 1, "Colleague must have exactly one action for the paper"
+        assert colleague_action[0]["action_type"] == "share_immediate", (
+            f"Expected share_immediate, got {colleague_action[0]['action_type']}"
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Share file artifact carries paper_id and colleague_id
+    # ------------------------------------------------------------------
+    def test_surplus_share_file_has_paper_and_colleague_ids(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """The generated share FileToWrite must contain paper_id and
+        colleague_id so the DB handler can create a Share record."""
+        result = process_colleague_surplus(
+            all_scored_papers=[shared_interests_paper],
+            owner_paper_ids=[shared_interests_paper["arxiv_id"]],
+            colleagues=[identical_colleague],
+            delivery_policy=sharing_policy,
+            researcher_name="Dr. Owner",
+        )
+
+        share_files = [
+            f for f in result["files_to_write"]
+            if f["file_type"] == "share"
+        ]
+        assert len(share_files) >= 1, "At least one share file must be generated"
+
+        sf = share_files[0]
+        assert sf["paper_id"] == "2401.99999", "Share file must carry paper_id"
+        assert sf["colleague_id"] == "c-identical", "Share file must carry colleague_id"
+        assert sf["colleague_email"] == identical_colleague["email"], (
+            "Share file must carry colleague_email"
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Owner email is generated via decide_delivery_action
+    # ------------------------------------------------------------------
+    def test_owner_email_triggered(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """decide_delivery_action must produce an email action for the owner
+        (the owner's paper delivery is handled per-paper, not via surplus)."""
+        from src.tools.decide_delivery import decide_delivery_action
+
+        result = decide_delivery_action(
+            scored_paper=shared_interests_paper,
+            delivery_policy=sharing_policy,
+            colleagues=[identical_colleague],
+            researcher_name="Dr. Owner",
+            researcher_email="owner@example.com",
+            skip_colleague_sharing=True,  # Normal agent flow
+        )
+
+        email_actions = [
+            a for a in result.researcher_actions if a.action_type == "email"
+        ]
+        assert len(email_actions) >= 1, "Owner must receive an email action"
+
+    # ------------------------------------------------------------------
+    # 4. Colleague email is triggered (share artifact written)
+    # ------------------------------------------------------------------
+    def test_colleague_email_triggered_via_share_artifact(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """After surplus processing, a share artifact must exist that will
+        trigger an email to the colleague when saved to the DB."""
+        result = process_colleague_surplus(
+            all_scored_papers=[shared_interests_paper],
+            owner_paper_ids=[shared_interests_paper["arxiv_id"]],
+            colleagues=[identical_colleague],
+            delivery_policy=sharing_policy,
+            researcher_name="Dr. Owner",
+        )
+
+        share_files = [
+            f for f in result["files_to_write"]
+            if f["file_type"] == "share"
+            and f.get("colleague_email") == identical_colleague["email"]
+        ]
+        assert len(share_files) >= 1, (
+            "A share artifact targeting the colleague email must be generated"
+        )
+
+    # ------------------------------------------------------------------
+    # 5. save_artifact_to_db creates Share record and sends email
+    # ------------------------------------------------------------------
+    def test_save_share_artifact_records_share_and_sends_email(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """Mock the DB and SMTP layers and verify that save_artifact_to_db
+        creates a Share record and attempts to send an email."""
+        from src.db.data_service import save_artifact_to_db
+
+        # Build a share artifact the same way process_colleague_surplus does
+        result = process_colleague_surplus(
+            all_scored_papers=[shared_interests_paper],
+            owner_paper_ids=[shared_interests_paper["arxiv_id"]],
+            colleagues=[identical_colleague],
+            delivery_policy=sharing_policy,
+            researcher_name="Dr. Owner",
+        )
+        share_files = [f for f in result["files_to_write"] if f["file_type"] == "share"]
+        assert share_files, "Pre-condition: share file must exist"
+        artifact = share_files[0]
+
+        # Patch DB availability and SMTP to avoid real side effects
+        with patch("src.db.data_service.is_db_available", return_value=True), \
+             patch("src.db.data_service._get_default_user_id", return_value="00000000-0000-0000-0000-000000000001"), \
+             patch("src.db.data_service.get_or_create_default_user", return_value={"email": "owner@test.com", "name": "Owner"}), \
+             patch("src.db.data_service.get_db_session") as mock_session_ctx, \
+             patch("src.db.postgres_store.PostgresStore") as MockStore:
+
+            # Setup mock DB session and store
+            mock_db = MagicMock()
+            mock_session_ctx.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_session_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            # Mock paper lookup — the first query().filter_by().first() returns the paper,
+            # subsequent ones for Colleague lookup should return a colleague mock
+            mock_paper = MagicMock()
+            mock_paper.id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+            mock_paper.title = shared_interests_paper["title"]
+            mock_paper.url = shared_interests_paper.get("link", "")
+
+            mock_colleague_row = MagicMock()
+            mock_colleague_row.id = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+            mock_colleague_row.email = identical_colleague["email"]
+            mock_colleague_row.name = identical_colleague["name"]
+
+            # Make filter_by return different mocks based on call order
+            mock_db.query.return_value.filter_by.return_value.first.side_effect = [
+                mock_paper,        # Paper lookup
+                MagicMock(importance="high"),  # PaperView lookup
+                mock_colleague_row,  # Colleague lookup
+            ]
+
+            mock_store = MockStore.return_value
+            mock_store.create_share.return_value = {"id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}
+
+            # Patch _send_email_smtp at the import location used by data_service
+            with patch("src.tools.decide_delivery._send_email_smtp", return_value=True) as mock_send:
+                save_result = save_artifact_to_db(
+                    file_type=artifact["file_type"],
+                    file_path=artifact["file_path"],
+                    content=artifact["content"],
+                    paper_id=artifact.get("paper_id"),
+                    colleague_id=artifact.get("colleague_id"),
+                    description=artifact.get("description"),
+                    triggered_by="agent",
+                    colleague_email=artifact.get("colleague_email"),
+                    colleague_name=artifact.get("colleague_name"),
+                )
+
+                assert save_result["success"] is True, f"save_artifact_to_db failed: {save_result}"
+                assert save_result["type"] == "share"
+
+                # Verify email was sent to the colleague
+                mock_send.assert_called_once()
+                call_kwargs = mock_send.call_args
+                assert call_kwargs[1]["to_email"] == identical_colleague["email"], (
+                    "Email must be sent to colleague's address"
+                )
+
+    # ------------------------------------------------------------------
+    # 6. Full end-to-end: both owner and colleague receive deliveries
+    # ------------------------------------------------------------------
+    def test_end_to_end_both_receive_paper(
+        self, shared_interests_paper, identical_colleague, sharing_policy
+    ):
+        """Simulate the full agent flow:
+        1. decide_delivery_action for owner (per-paper call)
+        2. process_colleague_surplus after owner selection
+        Assert that owner has an email action AND colleague has a share action.
+        """
+        from src.tools.decide_delivery import decide_delivery_action
+
+        # Step 1: Owner delivery (skip_colleague_sharing=True, as in agent)
+        owner_result = decide_delivery_action(
+            scored_paper=shared_interests_paper,
+            delivery_policy=sharing_policy,
+            colleagues=[identical_colleague],
+            researcher_name="Dr. Owner",
+            researcher_email="owner@example.com",
+            skip_colleague_sharing=True,
+        )
+        owner_email_actions = [
+            a for a in owner_result.researcher_actions if a.action_type == "email"
+        ]
+        assert len(owner_email_actions) >= 1, "Owner must get an email action"
+
+        # Step 2: Colleague surplus
+        surplus_result = process_colleague_surplus(
+            all_scored_papers=[shared_interests_paper],
+            owner_paper_ids=[shared_interests_paper["arxiv_id"]],
+            colleagues=[identical_colleague],
+            delivery_policy=sharing_policy,
+            researcher_name="Dr. Owner",
+        )
+        colleague_shares = [
+            a for a in surplus_result["colleague_actions"]
+            if a["colleague_id"] == "c-identical"
+            and a["action_type"] != "skip"
+        ]
+        assert len(colleague_shares) >= 1, "Colleague must get a share action"
+
+        share_files = [
+            f for f in surplus_result["files_to_write"]
+            if f["file_type"] == "share"
+            and f.get("colleague_id") == "c-identical"
+        ]
+        assert len(share_files) >= 1, "A share artifact must exist for the colleague"
+        assert share_files[0]["paper_id"] == shared_interests_paper["arxiv_id"]
+
+
 class TestColleagueWorkflowNegativeCases:
     """Test error handling in colleague workflows."""
     

@@ -1743,6 +1743,36 @@ async def list_shares(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/shares/{share_id}")
+async def delete_share(share_id: UUID):
+    """Delete a single share record."""
+    try:
+        store = get_default_store()
+        deleted = store.delete_share(share_id)
+        return {"deleted": deleted, "share_id": str(share_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk/shares/delete")
+async def bulk_delete_shares(share_ids: List[str] = Body(embed=False)):
+    """Delete multiple share records at once."""
+    try:
+        store = get_default_store()
+        deleted_count = 0
+        for sid in share_ids:
+            try:
+                share_uuid = UUID(sid)
+                deleted = store.delete_share(share_uuid)
+                if deleted:
+                    deleted_count += 1
+            except (ValueError, Exception):
+                continue
+        return {"deleted": deleted_count, "total": len(share_ids)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # Colleague Endpoints
 # =============================================================================

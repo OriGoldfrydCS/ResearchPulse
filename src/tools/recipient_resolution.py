@@ -117,11 +117,12 @@ def resolve_recipients(
     paper_categories = paper_metadata.get("categories", [])
 
     # Build coarse topic tokens from title + abstract
+    # Use >= 3 chars to include short research acronyms (VLM, NLP, LLM, etc.)
     combined_text = f"{paper_title} {paper_abstract}".lower()
     paper_topic_tokens = [
         w.strip(".,!?;:()[]{}\"'")
         for w in combined_text.split()
-        if len(w.strip(".,!?;:()[]{}\"'")) > 4
+        if len(w.strip(".,!?;:()[]{}\"'")) >= 3
     ]
 
     # --- owner match ---

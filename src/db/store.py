@@ -298,6 +298,11 @@ class Store(ABC):
         """Check if share already exists (idempotency)."""
         pass
     
+    @abstractmethod
+    def delete_share(self, share_id: UUID) -> bool:
+        """Delete a share record. Returns True if deleted."""
+        pass
+    
     # =========================================================================
     # Delivery Policy Operations
     # =========================================================================

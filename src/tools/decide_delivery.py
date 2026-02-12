@@ -38,7 +38,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Import unified outbound email module
 try:
@@ -103,6 +103,21 @@ class ColleagueInfo(BaseModel):
         True, description="Whether to automatically send research update emails to this colleague"
     )
 
+    @model_validator(mode='before')
+    @classmethod
+    def _map_db_fields(cls, data):
+        """Map DB dict field names to model field names.
+
+        colleague_to_dict() returns 'categories' but this model expects
+        'arxiv_categories_interest'.  Accept both so the model works with
+        raw DB dicts AND explicit test fixtures.
+        """
+        if isinstance(data, dict):
+            if 'categories' in data and 'arxiv_categories_interest' not in data:
+                data = dict(data)  # avoid mutating caller's dict
+                data['arxiv_categories_interest'] = data['categories']
+        return data
+
 
 class ResearcherAction(BaseModel):
     """An action to take for the researcher."""
@@ -138,6 +153,9 @@ class FileToWrite(BaseModel):
     content: str = Field(..., description="File content")
     description: str = Field("", description="Description of the file")
     paper_id: Optional[str] = Field(None, description="arXiv paper ID (for associating artifact with paper)")
+    colleague_id: Optional[str] = Field(None, description="Colleague ID (for share artifacts)")
+    colleague_email: Optional[str] = Field(None, description="Colleague email (for share email delivery)")
+    colleague_name: Optional[str] = Field(None, description="Colleague name (for share email personalization)")
 
 
 class DeliveryDecisionResult(BaseModel):
@@ -1552,12 +1570,13 @@ def decide_delivery_action(
         colleague_sharing_settings.get("enabled", True)):
         
         # Extract paper topics from title and abstract for matching
+        # Use >= 3 chars to include short research acronyms (VLM, NLP, LLM, etc.)
         paper_text = f"{paper.title} {paper.abstract}".lower()
         paper_topics = []
         # Simple keyword extraction from paper
         for word in paper_text.split():
             word = word.strip(".,!?;:()[]{}\"'")
-            if len(word) > 4:
+            if len(word) >= 3:
                 paper_topics.append(word)
         
         for colleague in colleague_objs:
@@ -1646,6 +1665,10 @@ def decide_delivery_action(
                     file_path=file_path,
                     content=share_content,
                     description=f"Share notification to {colleague.name} for paper {paper.arxiv_id}",
+                    paper_id=paper.arxiv_id,
+                    colleague_id=colleague.id,
+                    colleague_email=colleague.email,
+                    colleague_name=colleague.name,
                 ))
     
     # =================================
@@ -1833,11 +1856,12 @@ def process_colleague_surplus(
         also_for_owner = paper.arxiv_id in owner_ids_set  # Track if also in owner's results
         
         # Extract paper topics from title and abstract for matching
+        # Use >= 3 chars to include short research acronyms (VLM, NLP, LLM, etc.)
         paper_text = f"{paper.title} {paper.abstract}".lower()
         paper_topics = []
         for word in paper_text.split():
             word = word.strip(".,!?;:()[]{}\"'")
-            if len(word) > 4:
+            if len(word) >= 3:
                 paper_topics.append(word)
         
         for colleague in auto_send_colleagues:
@@ -1922,9 +1946,9 @@ def process_colleague_surplus(
                 }
             ))
             
-            # Generate share file for immediate shares
-            if (action_type == "share_immediate" and 
-                colleague_sharing_settings.get("simulate_output", True)):
+            # Generate share artifact for ALL non-skip actions (not just immediate)
+            # This records the share in the DB and triggers colleague email
+            if action_type != "skip":
                 share_content = _generate_share_content(
                     paper, colleague, relevance_reason, owner_name=researcher_name
                 )
@@ -1935,6 +1959,10 @@ def process_colleague_surplus(
                     file_path=file_path,
                     content=share_content,
                     description=f"Paper share to {colleague.name} for {paper.arxiv_id}",
+                    paper_id=paper.arxiv_id,
+                    colleague_id=colleague.id,
+                    colleague_email=colleague.email,
+                    colleague_name=colleague.name,
                 ))
     
     # Generate summary

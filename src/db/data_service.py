@@ -1090,6 +1090,8 @@ def save_artifact_to_db(
     colleague_id: Optional[str] = None,
     description: Optional[str] = None,
     triggered_by: str = "agent",
+    colleague_email: Optional[str] = None,
+    colleague_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Save an artifact (calendar event, reading list entry, email, share) to the database.
@@ -1102,6 +1104,8 @@ def save_artifact_to_db(
         colleague_id: Colleague ID for shares (optional)
         description: Description of the artifact (optional)
         triggered_by: Who triggered this action - 'agent' or 'user' (default: 'agent')
+        colleague_email: Colleague email for sending share notifications (optional)
+        colleague_name: Colleague name for email personalization (optional)
         
     Returns:
         Result dictionary with success status
@@ -1468,23 +1472,196 @@ def save_artifact_to_db(
         elif file_type == "share":
             # Get colleague DB ID
             db_colleague_id = None
+            resolved_colleague_email = colleague_email
+            resolved_colleague_name = colleague_name
             if colleague_id:
                 with get_db_session() as db:
                     from .orm_models import Colleague as ColleagueORM
-                    colleague = db.query(ColleagueORM).filter_by(id=colleague_id).first()
-                    if colleague:
-                        db_colleague_id = colleague.id
+                    try:
+                        colleague_uuid = uuid.UUID(colleague_id)
+                        colleague_row = db.query(ColleagueORM).filter_by(id=colleague_uuid).first()
+                    except (ValueError, AttributeError):
+                        colleague_row = None
+                    if colleague_row:
+                        db_colleague_id = colleague_row.id
+                        # Resolve email/name from DB if not provided
+                        if not resolved_colleague_email:
+                            resolved_colleague_email = colleague_row.email
+                        if not resolved_colleague_name:
+                            resolved_colleague_name = colleague_row.name
             
+            share_id = None
             if db_paper_id and db_colleague_id:
+                # Compute a basic match score from the content (topic overlap indicator)
+                _match_score = 0.75  # Default for matched shares
+                import re as _re
+                _score_match = _re.search(r'match_score[=:]\s*([\d.]+)', content)
+                if _score_match:
+                    try:
+                        _match_score = float(_score_match.group(1))
+                    except (ValueError, TypeError):
+                        pass
                 result = store.create_share(
                     user_id=uuid.UUID(user_id),
                     paper_id=db_paper_id,
                     colleague_id=db_colleague_id,
                     reason=description or "Matched research interests",
+                    match_score=_match_score,
                 )
-                return {"success": True, "type": "share", "id": str(result.get("id", ""))}
+                share_id = result.get("id", "")
+                logger.info(f"[ARTIFACT] Created share record {share_id} for colleague {resolved_colleague_name}")
             else:
-                return {"success": False, "error": "Missing paper or colleague ID for share"}
+                logger.warning(f"[ARTIFACT] Could not create share record: paper_id={db_paper_id}, colleague_id={db_colleague_id}")
+            
+            # Send share email to colleague regardless of DB record success
+            if resolved_colleague_email:
+                try:
+                    try:
+                        from ..tools.decide_delivery import _send_email_smtp
+                        from ..tools.outbound_email import EmailType
+                    except (ImportError, ValueError):
+                        import sys as _sys
+                        from pathlib import Path as _Path
+                        tools_path = str(_Path(__file__).parent.parent / "tools")
+                        if tools_path not in _sys.path:
+                            _sys.path.insert(0, tools_path)
+                        from decide_delivery import _send_email_smtp
+                        from outbound_email import EmailType
+                    
+                    # Extract subject from share content
+                    share_subject = "ResearchPulse: Paper recommendation"
+                    for line in content.split("\n"):
+                        if line.startswith("Subject:"):
+                            share_subject = line.replace("Subject:", "").strip()
+                            break
+                    
+                    # Generate HTML email using the colleague paper email template
+                    share_html_body = None
+                    try:
+                        try:
+                            from ..tools.email_templates import render_colleague_paper_email
+                        except (ImportError, ValueError):
+                            from email_templates import render_colleague_paper_email
+                        
+                        # Parse paper info from content for template
+                        import re as _re2
+                        _title = "Research Paper"
+                        _arxiv_id = paper_id or ""
+                        _authors = []
+                        _categories = []
+                        _abstract = ""
+                        _relevance_reason = description or "Matched research interests"
+                        _link = ""
+                        _pub_date = ""
+                        
+                        for _line in content.split("\n"):
+                            if _line.startswith("Title:"):
+                                _title = _line.replace("Title:", "").strip()
+                            elif _line.startswith("arXiv ID:"):
+                                _arxiv_id = _line.replace("arXiv ID:", "").strip()
+                            elif _line.startswith("Authors:"):
+                                _authors = [a.strip() for a in _line.replace("Authors:", "").split(",")]
+                            elif _line.startswith("Link:"):
+                                _link = _line.replace("Link:", "").strip()
+                            elif _line.startswith("Categories:"):
+                                _categories = [c.strip() for c in _line.replace("Categories:", "").split(",")]
+                            elif _line.startswith("Why this might be relevant:"):
+                                _relevance_reason = _line.replace("Why this might be relevant:", "").strip()
+                        
+                        # Try to get richer info from DB
+                        if db_paper_id:
+                            with get_db_session() as _db:
+                                _paper_row = _db.query(Paper).filter_by(id=db_paper_id).first()
+                                if _paper_row:
+                                    _title = _paper_row.title or _title
+                                    _arxiv_id = _paper_row.external_id or _paper_row.arxiv_id if hasattr(_paper_row, 'arxiv_id') else _arxiv_id
+                                    _authors = _paper_row.authors.split(", ") if isinstance(_paper_row.authors, str) else (_paper_row.authors or _authors)
+                                    _abstract = _paper_row.abstract or _abstract
+                                    _categories = _paper_row.categories.split(", ") if isinstance(_paper_row.categories, str) else (_paper_row.categories or _categories)
+                                    _link = _paper_row.url or _link
+                                    _pub_date = _paper_row.published_at.strftime("%Y-%m-%d") if hasattr(_paper_row, 'published_at') and _paper_row.published_at else _pub_date
+                        
+                        if not _link and _arxiv_id:
+                            _link = f"https://arxiv.org/abs/{_arxiv_id}"
+                        
+                        # Get owner name
+                        _owner_name = "a researcher"
+                        with get_db_session() as _db:
+                            _user_obj = _db.query(User).filter_by(id=uuid.UUID(user_id)).first()
+                            if _user_obj and _user_obj.name:
+                                _owner_name = _user_obj.name
+                        
+                        # Get colleague interests
+                        _matched_interests = []
+                        if db_colleague_id:
+                            with get_db_session() as _db:
+                                from .orm_models import Colleague as _ColleagueORM
+                                _coll = _db.query(_ColleagueORM).filter_by(id=db_colleague_id).first()
+                                if _coll and _coll.topics:
+                                    _matched_interests = _coll.topics[:5]
+                                elif _coll and _coll.keywords:
+                                    _matched_interests = _coll.keywords[:5]
+                        
+                        _paper_data = {
+                            "title": _title,
+                            "arxiv_id": _arxiv_id,
+                            "authors": _authors,
+                            "categories": _categories,
+                            "publication_date": _pub_date,
+                            "abstract": _abstract,
+                            "link": _link,
+                        }
+                        
+                        _subj, _plain, share_html_body = render_colleague_paper_email(
+                            paper=_paper_data,
+                            colleague_name=resolved_colleague_name or "Colleague",
+                            relevance_reason=_relevance_reason,
+                            matched_interests=_matched_interests,
+                            owner_name=_owner_name,
+                        )
+                        # Use the template's subject line
+                        share_subject = _subj
+                        logger.info(f"[ARTIFACT] Generated HTML share email ({len(share_html_body)} chars)")
+                    except Exception as _html_err:
+                        logger.warning(f"[ARTIFACT] Could not generate HTML share email: {_html_err}")
+                    
+                    logger.info(f"[ARTIFACT] Sending share email to colleague {resolved_colleague_name} <{resolved_colleague_email}>")
+                    email_sent = _send_email_smtp(
+                        to_email=resolved_colleague_email,
+                        subject=share_subject,
+                        body=content,
+                        html_body=share_html_body,
+                        email_type=EmailType.UPDATE,
+                    )
+                    
+                    # Update share status based on send result
+                    if share_id and db_paper_id and db_colleague_id:
+                        if email_sent:
+                            store.update_share_status(
+                                share_id=uuid.UUID(str(share_id)),
+                                status="sent",
+                            )
+                            logger.info(f"[ARTIFACT] Share email sent successfully to {resolved_colleague_email}")
+                        else:
+                            store.update_share_status(
+                                share_id=uuid.UUID(str(share_id)),
+                                status="failed",
+                                error="SMTP send failed",
+                            )
+                            logger.warning(f"[ARTIFACT] Share email SMTP send failed for {resolved_colleague_email}")
+                except Exception as send_err:
+                    logger.error(f"[ARTIFACT] Error sending share email to {resolved_colleague_email}: {send_err}")
+                    if share_id and db_paper_id and db_colleague_id:
+                        try:
+                            store.update_share_status(
+                                share_id=uuid.UUID(str(share_id)),
+                                status="failed",
+                                error=str(send_err),
+                            )
+                        except Exception:
+                            pass
+            
+            return {"success": True, "type": "share", "id": str(share_id) if share_id else ""}
         
         else:
             return {"success": False, "error": f"Unknown artifact type: {file_type}"}
@@ -1524,6 +1701,8 @@ def save_artifacts_to_db(artifacts: List[Dict[str, Any]], triggered_by: str = "a
             colleague_id=artifact.get("colleague_id"),
             description=artifact.get("description"),
             triggered_by=triggered_by,
+            colleague_email=artifact.get("colleague_email"),
+            colleague_name=artifact.get("colleague_name"),
         )
         
         if result.get("success"):
