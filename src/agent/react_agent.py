@@ -45,10 +45,12 @@ from agent.prompt_controller import (
     PromptController,
     ParsedPrompt,
     PromptTemplate,
-    MAX_RETRIEVAL_RESULTS,
+    DEFAULT_ARXIV_FETCH_COUNT,
+    MAX_RETRIEVAL_RESULTS,  # backward compat alias
     DEFAULT_OUTPUT_COUNT,
     prompt_controller,
-    get_retrieval_max_results,
+    get_arxiv_fetch_count,
+    get_retrieval_max_results,  # backward compat alias
 )
 
 
@@ -607,22 +609,23 @@ class ResearchReActAgent:
         5. Terminate
         
         SYSTEM CONTROLLER INTEGRATION:
-        - Prompt is parsed to standardized template with output constraints
-        - Internal retrieval uses MAX_RETRIEVAL_RESULTS for ranking
+        - Dashboard "Papers per Run" controls how many papers to fetch from arXiv
+        - Pinecone retrieval is automatic (output_count + buffer)
         - Final output is truncated to EXACTLY user's requested count (K)
         """
         self._log("INFO", f"Starting workflow for: {user_message[:100]}...")
         
-        # Load DB-backed retrieval limit for this run
-        db_retrieval_limit = get_retrieval_max_results()
+        # Load DB-backed arXiv fetch count (dashboard "Papers per Run" setting)
+        db_arxiv_fetch_count = get_arxiv_fetch_count()
         
         # Parse prompt for template matching and output constraints (CRITICAL)
         # Also saves prompt to database for audit/compliance tracking
         self._parsed_prompt, self._prompt_id = self._prompt_controller.parse_and_save(
             user_message, run_id=self.run_id
         )
-        # Inject DB-backed retrieval limit into parsed prompt
-        self._parsed_prompt._retrieval_max = db_retrieval_limit
+        # Inject DB-backed arXiv fetch count into parsed prompt
+        self._parsed_prompt._arxiv_fetch_count = db_arxiv_fetch_count
+        self._parsed_prompt._retrieval_max = db_arxiv_fetch_count  # backward compat
         
         self._log("INFO", f"Detected prompt template: {self._parsed_prompt.template.value}")
         if self._prompt_id:
@@ -681,9 +684,8 @@ class ResearchReActAgent:
             "fetch_arxiv_papers",
             categories_include=categories_include,
             categories_exclude=categories_exclude,
-            # Use parsed prompt's retrieval count (MAX_RETRIEVAL_RESULTS) for internal ranking
-            # This is separate from user's requested output count which is enforced later
-            max_results=self._parsed_prompt.retrieval_count if self._parsed_prompt else MAX_RETRIEVAL_RESULTS,
+            # Use dashboard "Papers per Run" setting to control arXiv fetch count
+            max_results=self._parsed_prompt.arxiv_fetch_count if self._parsed_prompt else DEFAULT_ARXIV_FETCH_COUNT,
         )
         
         if not success or not fetch_result.get("success"):
@@ -824,6 +826,14 @@ class ResearchReActAgent:
                 }
                 self._decisions.append(decision)
             
+            # Derive agent email/calendar decisions from delivery actions
+            agent_email_decision = None
+            agent_calendar_decision = None
+            if success and researcher_actions:
+                action_types = [a.get("action_type") for a in researcher_actions]
+                agent_email_decision = "email" in action_types
+                agent_calendar_decision = "calendar" in action_types
+
             # 3d: Persist state
             persist_result, success, error = self._invoke_tool(
                 "persist_state",
@@ -836,6 +846,15 @@ class ResearchReActAgent:
                     "embedded_in_pinecone": False,
                     "relevance_score": score_result.get("relevance_score"),
                     "novelty_score": score_result.get("novelty_score"),
+                    # Paper metadata for DB storage
+                    "abstract": paper.get("abstract"),
+                    "authors": paper.get("authors", []),
+                    "categories": paper.get("categories", []),
+                    "link": paper.get("link"),
+                    "published": paper.get("published"),
+                    # Agent delivery decisions
+                    "agent_email_decision": agent_email_decision,
+                    "agent_calendar_decision": agent_calendar_decision,
                 }
             )
             
@@ -858,9 +877,9 @@ class ResearchReActAgent:
         # ==================================================================
         # OUTPUT ENFORCEMENT (CRITICAL - SYSTEM CONTROLLER RULE)
         # ==================================================================
-        # The agent may retrieve up to MAX_RETRIEVAL_RESULTS internally for
-        # ranking and filtering. However, the FINAL OUTPUT must contain
-        # EXACTLY the number of papers requested by the user (K).
+        # The agent fetches papers from arXiv (controlled by dashboard
+        # "Papers per Run"). The FINAL OUTPUT must contain EXACTLY the
+        # number of papers requested by the user (K).
         # 
         # If user asks for "top 5 papers", output MUST have EXACTLY 5 papers.
         # This is a critical failure if violated.

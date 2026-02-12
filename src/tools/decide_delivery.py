@@ -1121,6 +1121,143 @@ def send_digest_email(
     )
 
 
+def estimate_reading_time_for_paper(paper: ScoredPaper) -> int:
+    """
+    Estimate how long a researcher will need to read a paper.
+
+    Uses ResearchPulse reasoning based on:
+    - **Full-paper page count** (fetched from the arXiv PDF when available)
+    - Importance level (high-importance papers warrant deep reading)
+    - Novelty score (novel work takes longer to digest)
+    - Category heuristics (math-heavy fields take longer)
+
+    Falls back to abstract-length heuristic when the PDF cannot be reached.
+
+    Returns estimated reading time in minutes, rounded to nearest 5.
+    """
+    page_count = _fetch_pdf_page_count(paper.pdf_url or paper.link)
+
+    if page_count and page_count > 0:
+        return _estimate_from_pages(page_count, paper)
+
+    # ---------- fallback: abstract-length heuristic ----------
+    return _estimate_from_abstract(paper)
+
+
+# ---------- internal helpers ----------
+
+def _fetch_pdf_page_count(url: Optional[str]) -> Optional[int]:
+    """
+    Download the PDF from *url* and return the number of pages.
+
+    Works with arXiv abstract URLs (auto-converts to PDF URL) and direct
+    PDF links.  Returns ``None`` on any error so the caller can fall back
+    to the abstract-based estimator.
+    """
+    if not url:
+        return None
+
+    # Normalise arXiv URLs to the PDF endpoint
+    pdf_url = url
+    if "arxiv.org/abs/" in pdf_url:
+        pdf_url = pdf_url.replace("/abs/", "/pdf/")
+    if not pdf_url.endswith(".pdf") and "arxiv.org/pdf/" in pdf_url:
+        pdf_url += ".pdf"  # some arXiv links omit the extension
+
+    try:
+        import io
+        import httpx
+        from pypdf import PdfReader
+
+        # Stream the PDF (timeout 12 s; most arXiv PDFs are < 2 MB)
+        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+            resp = client.get(pdf_url)
+            resp.raise_for_status()
+            reader = PdfReader(io.BytesIO(resp.content))
+            return len(reader.pages)
+    except Exception:
+        return None
+
+
+# Reading-speed constants (minutes per page)
+_SPEED_DEEP   = 6   # high-importance: thorough, note-taking reading
+_SPEED_NORMAL = 4   # medium-importance: standard attentive reading
+_SPEED_SKIM   = 2.5 # low-importance: quick skim
+
+
+def _estimate_from_pages(pages: int, paper: ScoredPaper) -> int:
+    """Estimate reading time from actual page count + paper metadata."""
+
+    # Base speed depends on importance
+    speed = {
+        "high":   _SPEED_DEEP,
+        "medium": _SPEED_NORMAL,
+        "low":    _SPEED_SKIM,
+    }.get(paper.importance, _SPEED_NORMAL)
+
+    base = pages * speed
+
+    # Novelty adjustment (novel work requires more careful reading)
+    if paper.novelty_score >= 0.85:
+        base *= 1.20
+    elif paper.novelty_score >= 0.65:
+        base *= 1.10
+
+    # Category difficulty adjustment
+    hard_categories = {
+        "math.", "math-ph", "hep-th", "gr-qc", "quant-ph",
+        "stat.TH", "cs.CC", "cs.LO", "cs.DS",
+    }
+    if any(
+        any(cat.startswith(h) or cat == h for h in hard_categories)
+        for cat in (paper.categories or [])
+    ):
+        base *= 1.15  # mathematically heavy fields
+
+    # Clamp & round to nearest 5
+    minutes = max(10, min(int(base), 180))
+    return ((minutes + 2) // 5) * 5
+
+
+def _estimate_from_abstract(paper: ScoredPaper) -> int:
+    """Fallback estimator when PDF page count is unavailable."""
+    abstract_len = len(paper.abstract) if paper.abstract else 0
+
+    # Base time from importance (minutes)
+    base_map = {"high": 30, "medium": 20, "low": 12}
+    base = base_map.get(paper.importance, 20)
+
+    # Abstract-length adjustment (proxy for density)
+    if abstract_len > 2500:
+        base += 15
+    elif abstract_len > 1800:
+        base += 10
+    elif abstract_len > 1200:
+        base += 5
+    elif abstract_len < 400:
+        base -= 5
+
+    # Novelty adjustment
+    if paper.novelty_score >= 0.85:
+        base += 10
+    elif paper.novelty_score >= 0.65:
+        base += 5
+
+    # Category difficulty adjustment
+    hard_categories = {
+        "math.", "math-ph", "hep-th", "gr-qc", "quant-ph",
+        "stat.TH", "cs.CC", "cs.LO", "cs.DS",
+    }
+    if any(
+        any(cat.startswith(h) or cat == h for h in hard_categories)
+        for cat in (paper.categories or [])
+    ):
+        base += 5
+
+    base = max(10, min(base, 90))
+    return ((base + 2) // 5) * 5
+
+
 def _generate_calendar_ics(
     paper: ScoredPaper,
     event_duration_minutes: int = 30,
@@ -1486,6 +1623,8 @@ def decide_delivery_action(
     
     # 2. Calendar entry
     if policy.get("create_calendar_entry", False) and calendar_settings.get("enabled", True):
+        # Use intelligent reading-time estimation instead of a fixed 30 minutes
+        estimated_duration = estimate_reading_time_for_paper(paper)
         action = ResearcherAction(
             action_type="calendar",
             paper_id=paper.arxiv_id,
@@ -1493,7 +1632,7 @@ def decide_delivery_action(
             priority=priority_label,
             details={
                 "event_title": f"Read: {paper.title[:50]}",
-                "duration_minutes": calendar_settings.get("event_duration_minutes", 30),
+                "duration_minutes": estimated_duration,
             }
         )
         researcher_actions.append(action)
@@ -1502,7 +1641,7 @@ def decide_delivery_action(
         if calendar_settings.get("simulate_output", True):
             ics_content = _generate_calendar_ics(
                 paper,
-                event_duration_minutes=calendar_settings.get("event_duration_minutes", 30),
+                event_duration_minutes=estimated_duration,
                 reminder_minutes=calendar_settings.get("default_reminder_minutes", 60),
                 schedule_within_days=calendar_settings.get("schedule_within_days", 7),
             )

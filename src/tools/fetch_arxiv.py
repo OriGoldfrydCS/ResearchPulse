@@ -27,6 +27,9 @@ from pydantic import BaseModel, Field
 # Add parent to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Default max papers to fetch from arXiv API (configurable via ARXIV_MAX_RESULTS env var)
+ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "20"))
+
 
 # =============================================================================
 # Input/Output Models
@@ -43,10 +46,10 @@ class FetchArxivInput(BaseModel):
         description="arXiv categories to exclude"
     )
     max_results: int = Field(
-        default=20,
+        default=ARXIV_MAX_RESULTS,
         ge=1,
         le=100,
-        description="Maximum number of papers to fetch (default: 20)"
+        description="Maximum number of papers to fetch (from ARXIV_MAX_RESULTS env var, default: 20)"
     )
     query: Optional[str] = Field(
         None,
@@ -187,7 +190,7 @@ MOCK_PAPERS = [
 def fetch_arxiv_papers(
     categories_include: List[str] = None,
     categories_exclude: List[str] = None,
-    max_results: int = 20,
+    max_results: int = ARXIV_MAX_RESULTS,
     query: Optional[str] = None,
     days_back: int = 7,
     use_mock: bool = True,
@@ -444,7 +447,7 @@ def _fetch_real_papers(
 def fetch_arxiv_papers_json(
     categories_include: List[str] = None,
     categories_exclude: List[str] = None,
-    max_results: int = 20,
+    max_results: int = ARXIV_MAX_RESULTS,
     query: Optional[str] = None,
     days_back: int = 7,
     use_mock: bool = True,

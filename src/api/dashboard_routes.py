@@ -744,6 +744,92 @@ async def update_paper_view(paper_id: UUID, data: PaperViewUpdate):
 
 
 # =============================================================================
+# Paper Summarisation Endpoints
+# =============================================================================
+
+@router.post("/papers/{paper_id}/summarize")
+async def summarize_paper_endpoint(paper_id: UUID, force: bool = Query(False, description="Regenerate even if cached")):
+    """
+    Generate an AI summary for a paper by downloading its PDF and using OpenAI.
+    
+    - Returns cached summary if one exists (unless force=True).
+    - Summary is persisted in the paper_views table.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+
+        # Get the paper view with paper data
+        view = store.get_paper_view(user_id, paper_id)
+        if not view:
+            raise HTTPException(status_code=404, detail="Paper not found")
+
+        paper_view_id = UUID(view["id"])
+        paper_data = view.get("paper", {})
+        external_id = paper_data.get("external_id", "")
+        pdf_url = paper_data.get("pdf_url") or (f"https://arxiv.org/pdf/{external_id}.pdf" if external_id else "")
+        title = paper_data.get("title", "")
+
+        if not pdf_url:
+            raise HTTPException(status_code=400, detail="No PDF URL available for this paper")
+
+        from ..tools.summarize_paper import summarize_paper
+        result = summarize_paper(
+            paper_view_id=paper_view_id,
+            pdf_url=pdf_url,
+            title=title,
+            force=force,
+        )
+
+        if result["success"]:
+            return {
+                "success": True,
+                "summary": result["summary"],
+                "cached": result.get("cached", False),
+                "generated_at": result.get("generated_at"),
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Summarisation failed"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/papers/{paper_id}/summary")
+async def get_paper_summary(paper_id: UUID):
+    """
+    Get the stored summary for a paper (if any).
+    
+    Returns the cached summary without generating a new one.
+    """
+    try:
+        store = get_default_store()
+        user = store.get_or_create_default_user()
+        user_id = UUID(user["id"])
+
+        view = store.get_paper_view(user_id, paper_id)
+        if not view:
+            raise HTTPException(status_code=404, detail="Paper not found")
+
+        summary = view.get("summary")
+        generated_at = view.get("summary_generated_at")
+
+        return {
+            "success": True,
+            "has_summary": summary is not None,
+            "summary": summary,
+            "generated_at": generated_at,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # Paper Toggle Endpoints (Single Item)
 # =============================================================================
 
@@ -2090,7 +2176,7 @@ async def get_colleague_email_history(
                         "subject": e.subject,
                         "snippet": e.snippet,
                         "email_type": e.email_type,
-                        "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+                        "sent_at": e.sent_at.isoformat() + "Z" if e.sent_at else None,
                         "paper_arxiv_id": e.paper_arxiv_id
                     }
                     for e in emails
@@ -3026,7 +3112,7 @@ async def bulk_create_reminder(paper_ids: List[str] = Body(...)):
             "email_sent": email_sent,
             "papers_count": len(papers_data),
             "estimated_reading_time_minutes": estimated_minutes,
-            "scheduled_for": start_date.isoformat(),
+            "scheduled_for": start_date.isoformat() + "Z",
             "message": f"Reading reminder created for {start_date.strftime('%B %d, %Y at %I:%M %p')}" + 
                        (f" and calendar invite sent to {user_email}" if email_sent else "")
         }
@@ -3185,42 +3271,55 @@ def _generate_invite_email_html(
 
 def _estimate_reading_time(papers: List[Dict[str, Any]]) -> int:
     """
-    ResearchPulse agent estimates reading time based on:
-    - Number of papers
-    - Paper importance (critical/high papers need more attention)
-    - Abstract length as proxy for paper complexity
-    
+    ResearchPulse agent estimates reading time based on the **actual full paper**
+    (PDF page count) when available, falling back to heuristics otherwise.
+
+    Factors considered:
+    - Full-paper page count (fetched from arXiv PDF)
+    - Paper importance (critical/high papers need deep reading)
+    - Novelty score (novel work takes longer to digest)
+    - Category difficulty (math-heavy fields take longer)
+
     Returns estimated time in minutes.
     """
+    from src.tools.decide_delivery import (
+        _fetch_pdf_page_count,
+        _estimate_from_pages,
+        _estimate_from_abstract,
+        ScoredPaper,
+    )
+
     total_minutes = 0
-    
+
     for paper in papers:
+        pdf_url = paper.get("pdf_url") or paper.get("url") or ""
         importance = paper.get("importance", "medium")
-        abstract_length = paper.get("abstract_length", 1000)
-        
-        # Base reading time per paper (in minutes)
         if importance == "critical":
-            base_time = 30  # Critical papers: deep reading
-        elif importance == "high":
-            base_time = 25  # High importance: thorough reading
-        elif importance == "medium":
-            base_time = 20  # Medium: standard reading
+            importance = "high"  # ScoredPaper only allows high/medium/low
+
+        scored = ScoredPaper(
+            arxiv_id=paper.get("external_id", paper.get("arxiv_id", "")),
+            title=paper.get("title", ""),
+            abstract=paper.get("abstract", ""),
+            link=paper.get("url"),
+            pdf_url=paper.get("pdf_url"),
+            categories=paper.get("categories", []),
+            relevance_score=paper.get("relevance_score", 0.5),
+            novelty_score=paper.get("novelty_score", 0.5),
+            importance=importance,
+        )
+
+        page_count = _fetch_pdf_page_count(pdf_url)
+        if page_count and page_count > 0:
+            total_minutes += _estimate_from_pages(page_count, scored)
         else:
-            base_time = 15  # Low: quick skim
-        
-        # Adjust for abstract length (proxy for paper complexity)
-        if abstract_length > 2000:
-            base_time += 10  # Complex/long paper
-        elif abstract_length > 1500:
-            base_time += 5   # Moderately complex
-        
-        total_minutes += base_time
-    
+            total_minutes += _estimate_from_abstract(scored)
+
     # Round to nearest 5 minutes
-    total_minutes = ((total_minutes + 4) // 5) * 5
-    
-    # Minimum 15 minutes, maximum 4 hours
-    return max(15, min(total_minutes, 240))
+    total_minutes = ((total_minutes + 2) // 5) * 5
+
+    # Minimum 10 minutes, maximum 4 hours
+    return max(10, min(total_minutes, 240))
 
 
 def _generate_reminder_description(papers: List[Dict[str, Any]], estimated_minutes: int, agent_note: Optional[str] = None) -> str:

@@ -142,6 +142,10 @@ class PaperView(Base):
     agent_calendar_decision = Column(Boolean, nullable=True)  # Did agent recommend calendar?
     agent_decision_notes = Column(Text)  # Agent's reasoning summary
     
+    # Paper summary (AI-generated)
+    summary = Column(Text, nullable=True)  # AI-generated summary of the paper
+    summary_generated_at = Column(DateTime, nullable=True)  # When summary was generated
+    
     __table_args__ = (
         UniqueConstraint('user_id', 'paper_id', name='uq_paper_view_user_paper'),
         Index('ix_paper_view_user_id', 'user_id'),
@@ -763,8 +767,8 @@ class SavedPrompt(Base):
             "topics": self.topics or [],
             "time_period": self.time_period,
             "paper_count": self.paper_count,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
 
 
@@ -835,8 +839,8 @@ class TopicCategoryMapping(Base):
             "confidence": self.confidence,
             "source": self.source,
             "usage_count": self.usage_count,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
 
 
@@ -872,8 +876,8 @@ class PromptTemplate(Base):
             "name": self.name,
             "text": self.text,
             "is_builtin": self.is_builtin,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
 
 
@@ -933,17 +937,17 @@ class UserSettings(Base):
             "user_id": str(self.user_id),
             "inbox_check_frequency_seconds": self.inbox_check_frequency_seconds,
             "inbox_check_enabled": self.inbox_check_enabled,
-            "last_inbox_check_at": self.last_inbox_check_at.isoformat() if self.last_inbox_check_at else None,
+            "last_inbox_check_at": self.last_inbox_check_at.isoformat() + "Z" if self.last_inbox_check_at else None,
             "has_join_code": self.colleague_join_code_hash is not None or self.colleague_join_code_encrypted is not None,
-            "colleague_join_code_updated_at": self.colleague_join_code_updated_at.isoformat() if self.colleague_join_code_updated_at else None,
+            "colleague_join_code_updated_at": self.colleague_join_code_updated_at.isoformat() + "Z" if self.colleague_join_code_updated_at else None,
             "retrieval_max_results": self.retrieval_max_results if self.retrieval_max_results is not None else 7,
             "execution_mode": self.execution_mode or "manual",
             "scheduled_frequency": self.scheduled_frequency,
             "scheduled_every_x_days": self.scheduled_every_x_days,
-            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
-            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_run_at": self.last_run_at.isoformat() + "Z" if self.last_run_at else None,
+            "next_run_at": self.next_run_at.isoformat() + "Z" if self.next_run_at else None,
+            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
 
 
@@ -991,12 +995,12 @@ class ProcessedInboundEmail(Base):
             "user_id": str(self.user_id),
             "gmail_message_id": self.gmail_message_id,
             "email_type": self.email_type,
-            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            "processed_at": self.processed_at.isoformat() + "Z" if self.processed_at else None,
             "processing_result": self.processing_result,
             "error_message": self.error_message,
             "from_email": self.from_email,
             "subject": self.subject,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
         }
 
 
@@ -1008,7 +1012,7 @@ def arxiv_category_to_dict(cat: ArxivCategoryDB) -> Dict[str, Any]:
         "group": cat.group_name,
         "description": cat.description,
         "source": cat.source,
-        "last_updated": cat.last_updated.isoformat() if cat.last_updated else None,
+        "last_updated": cat.last_updated.isoformat() + "Z" if cat.last_updated else None,
     }
 
 
@@ -1028,8 +1032,8 @@ def paper_to_dict(paper: Paper) -> Dict[str, Any]:
         "categories": paper.categories or [],
         "url": paper.url,
         "pdf_url": paper.pdf_url,
-        "published_at": paper.published_at.isoformat() if paper.published_at else None,
-        "created_at": paper.created_at.isoformat() if paper.created_at else None,
+        "published_at": paper.published_at.isoformat() + "Z" if paper.published_at else None,
+        "created_at": paper.created_at.isoformat() + "Z" if paper.created_at else None,
     }
 
 
@@ -1039,8 +1043,8 @@ def paper_view_to_dict(view: PaperView, include_paper: bool = False) -> Dict[str
         "id": str(view.id),
         "user_id": str(view.user_id),
         "paper_id": str(view.paper_id),
-        "first_seen_at": view.first_seen_at.isoformat() if view.first_seen_at else None,
-        "last_seen_at": view.last_seen_at.isoformat() if view.last_seen_at else None,
+        "first_seen_at": view.first_seen_at.isoformat() + "Z" if view.first_seen_at else None,
+        "last_seen_at": view.last_seen_at.isoformat() + "Z" if view.last_seen_at else None,
         "seen_count": view.seen_count,
         "decision": view.decision,
         "importance": view.importance,
@@ -1058,13 +1062,16 @@ def paper_view_to_dict(view: PaperView, include_paper: bool = False) -> Dict[str
         # Extended feedback fields
         "relevance_state": view.relevance_state if hasattr(view, 'relevance_state') else None,
         "feedback_reason": view.feedback_reason if hasattr(view, 'feedback_reason') else None,
-        "feedback_timestamp": view.feedback_timestamp.isoformat() if hasattr(view, 'feedback_timestamp') and view.feedback_timestamp else None,
-        "read_at": view.read_at.isoformat() if hasattr(view, 'read_at') and view.read_at else None,
-        "starred_at": view.starred_at.isoformat() if hasattr(view, 'starred_at') and view.starred_at else None,
+        "feedback_timestamp": view.feedback_timestamp.isoformat() + "Z" if hasattr(view, 'feedback_timestamp') and view.feedback_timestamp else None,
+        "read_at": view.read_at.isoformat() + "Z" if hasattr(view, 'read_at') and view.read_at else None,
+        "starred_at": view.starred_at.isoformat() + "Z" if hasattr(view, 'starred_at') and view.starred_at else None,
         # Agent decision tracking
         "agent_email_decision": view.agent_email_decision if hasattr(view, 'agent_email_decision') else None,
         "agent_calendar_decision": view.agent_calendar_decision if hasattr(view, 'agent_calendar_decision') else None,
         "agent_decision_notes": view.agent_decision_notes if hasattr(view, 'agent_decision_notes') else None,
+        # Paper summary
+        "summary": view.summary if hasattr(view, 'summary') else None,
+        "summary_generated_at": view.summary_generated_at.isoformat() + "Z" if hasattr(view, 'summary_generated_at') and view.summary_generated_at else None,
     }
     if include_paper and view.paper:
         result["paper"] = paper_to_dict(view.paper)
@@ -1082,7 +1089,7 @@ def feedback_history_to_dict(history: PaperFeedbackHistory) -> Dict[str, Any]:
         "old_value": history.old_value,
         "new_value": history.new_value,
         "note": history.note,
-        "created_at": history.created_at.isoformat() if history.created_at else None,
+        "created_at": history.created_at.isoformat() + "Z" if history.created_at else None,
     }
 
 
@@ -1105,8 +1112,8 @@ def colleague_to_dict(colleague: Colleague) -> Dict[str, Any]:
         "added_by": colleague.added_by or "manual",  # 'manual' (owner) or 'email' (self-signup)
         "auto_send_emails": colleague.auto_send_emails if colleague.auto_send_emails is not None else True,
         "notes": colleague.notes,
-        "created_at": colleague.created_at.isoformat() if colleague.created_at else None,
-        "updated_at": colleague.updated_at.isoformat() if colleague.updated_at else None,
+        "created_at": colleague.created_at.isoformat() + "Z" if colleague.created_at else None,
+        "updated_at": colleague.updated_at.isoformat() + "Z" if colleague.updated_at else None,
     }
 
 
@@ -1117,8 +1124,8 @@ def run_to_dict(run: Run) -> Dict[str, Any]:
         "run_id": run.run_id,
         "user_id": str(run.user_id),
         "user_prompt": run.user_prompt,
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+        "started_at": run.started_at.isoformat() + "Z" if run.started_at else None,
+        "ended_at": run.ended_at.isoformat() + "Z" if run.ended_at else None,
         "status": run.status,
         "stop_reason": run.stop_reason,
         "error_message": run.error_message,
@@ -1141,8 +1148,8 @@ def email_to_dict(email: Email) -> Dict[str, Any]:
         "body_text": email.body_text,
         "status": email.status,
         "error": email.error,
-        "sent_at": email.sent_at.isoformat() if email.sent_at else None,
-        "created_at": email.created_at.isoformat() if email.created_at else None,
+        "sent_at": email.sent_at.isoformat() + "Z" if email.sent_at else None,
+        "created_at": email.created_at.isoformat() + "Z" if email.created_at else None,
         # Attribution field
         "triggered_by": email.triggered_by or 'agent',
         "paper_ids": email.paper_ids or [],
@@ -1157,15 +1164,15 @@ def calendar_event_to_dict(event: CalendarEvent) -> Dict[str, Any]:
         "paper_id": str(event.paper_id) if event.paper_id else None,
         "title": event.title,
         "description": event.description,
-        "start_time": event.start_time.isoformat() if event.start_time else None,
+        "start_time": event.start_time.isoformat() + "Z" if event.start_time else None,
         "duration_minutes": event.duration_minutes,
         "reminder_minutes": event.reminder_minutes or 15,
         "ics_text": event.ics_text,
         "ics_uid": event.ics_uid,
         "status": event.status,
         "error": event.error,
-        "created_at": event.created_at.isoformat() if event.created_at else None,
-        "updated_at": event.updated_at.isoformat() if event.updated_at else None,
+        "created_at": event.created_at.isoformat() + "Z" if event.created_at else None,
+        "updated_at": event.updated_at.isoformat() + "Z" if event.updated_at else None,
         # Attribution field
         "triggered_by": event.triggered_by or 'agent',
         "paper_ids": event.paper_ids or [],
@@ -1195,8 +1202,8 @@ def calendar_invite_email_to_dict(invite: CalendarInviteEmail) -> Dict[str, Any]
         "triggered_by": invite.triggered_by or 'agent',
         "status": invite.status,
         "is_latest": invite.is_latest,
-        "sent_at": invite.sent_at.isoformat() if invite.sent_at else None,
-        "created_at": invite.created_at.isoformat() if invite.created_at else None,
+        "sent_at": invite.sent_at.isoformat() + "Z" if invite.sent_at else None,
+        "created_at": invite.created_at.isoformat() + "Z" if invite.created_at else None,
     }
 
 
@@ -1212,17 +1219,17 @@ def inbound_email_reply_to_dict(reply: InboundEmailReply) -> Dict[str, Any]:
         "subject": reply.subject,
         "body_text": reply.body_text,
         "intent": reply.intent,
-        "extracted_datetime": reply.extracted_datetime.isoformat() if reply.extracted_datetime else None,
+        "extracted_datetime": reply.extracted_datetime.isoformat() + "Z" if reply.extracted_datetime else None,
         "extracted_datetime_text": reply.extracted_datetime_text,
         "confidence_score": reply.confidence_score,
         "processed": reply.processed,
-        "processed_at": reply.processed_at.isoformat() if reply.processed_at else None,
+        "processed_at": reply.processed_at.isoformat() + "Z" if reply.processed_at else None,
         "processing_result": reply.processing_result,
         "processing_error": reply.processing_error,
         "action_taken": reply.action_taken,
         "new_event_id": str(reply.new_event_id) if reply.new_event_id else None,
-        "received_at": reply.received_at.isoformat() if reply.received_at else None,
-        "created_at": reply.created_at.isoformat() if reply.created_at else None,
+        "received_at": reply.received_at.isoformat() + "Z" if reply.received_at else None,
+        "created_at": reply.created_at.isoformat() + "Z" if reply.created_at else None,
     }
 
 
@@ -1237,7 +1244,7 @@ def share_to_dict(share: Share, include_details: bool = False) -> Dict[str, Any]
         "match_score": share.match_score,
         "status": share.status,
         "error": share.error,
-        "created_at": share.created_at.isoformat() if share.created_at else None,
+        "created_at": share.created_at.isoformat() + "Z" if share.created_at else None,
     }
     if include_details:
         if share.colleague:
@@ -1277,8 +1284,8 @@ def user_to_dict(user: User) -> Dict[str, Any]:
         "keywords_exclude": user.keywords_exclude or [],
         "preferred_time_period": user.preferred_time_period or "last two weeks",
         "stop_policy": user.stop_policy or {},
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "created_at": user.created_at.isoformat() + "Z" if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() + "Z" if user.updated_at else None,
     }
 
 
@@ -1291,7 +1298,7 @@ def policy_to_dict(policy: DeliveryPolicy) -> Dict[str, Any]:
         "colleague_share_enabled": policy.colleague_share_enabled,
         "colleague_share_min_score": policy.colleague_share_min_score,
         "digest_mode": policy.digest_mode,
-        "updated_at": policy.updated_at.isoformat() if policy.updated_at else None,
+        "updated_at": policy.updated_at.isoformat() + "Z" if policy.updated_at else None,
     }
 
 
@@ -1321,5 +1328,5 @@ def prompt_request_to_dict(prompt: PromptRequest) -> Dict[str, Any]:
         "compliance_message": prompt.compliance_message,
         "papers_retrieved": prompt.papers_retrieved,
         "papers_returned": prompt.papers_returned,
-        "created_at": prompt.created_at.isoformat() if prompt.created_at else None,
+        "created_at": prompt.created_at.isoformat() + "Z" if prompt.created_at else None,
     }

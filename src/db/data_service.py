@@ -873,6 +873,20 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                         external_id=paper_id
                     ).first()
                     
+                    # Parse published date if available
+                    published_at = None
+                    raw_pub = paper_record.get("published") or paper_record.get("published_at") or paper_record.get("publication_date")
+                    if raw_pub:
+                        try:
+                            from datetime import datetime as _dt
+                            if isinstance(raw_pub, str):
+                                raw_pub = raw_pub.replace("Z", "+00:00")
+                                published_at = _dt.fromisoformat(raw_pub).replace(tzinfo=None)
+                            else:
+                                published_at = raw_pub
+                        except Exception:
+                            pass
+
                     if not paper:
                         paper = Paper(
                             source="arxiv",
@@ -881,11 +895,25 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                             abstract=paper_record.get("abstract"),
                             authors=paper_record.get("authors", []),
                             categories=paper_record.get("categories", []),
-                            url=paper_record.get("arxiv_url"),
+                            url=paper_record.get("arxiv_url") or paper_record.get("link"),
                             pdf_url=paper_record.get("pdf_url"),
+                            published_at=published_at,
                         )
                         db.add(paper)
                         db.flush()
+                    else:
+                        # Update existing paper with any new metadata
+                        if published_at and not paper.published_at:
+                            paper.published_at = published_at
+                        if paper_record.get("abstract") and not paper.abstract:
+                            paper.abstract = paper_record.get("abstract")
+                        if paper_record.get("authors") and not paper.authors:
+                            paper.authors = paper_record.get("authors")
+                        if paper_record.get("categories") and not paper.categories:
+                            paper.categories = paper_record.get("categories")
+                        url = paper_record.get("arxiv_url") or paper_record.get("link")
+                        if url and not paper.url:
+                            paper.url = url
                     
                     # Find or create PaperView
                     view = db.query(PaperView).filter_by(
@@ -900,6 +928,11 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                         view.relevance_score = paper_record.get("relevance_score", view.relevance_score)
                         view.novelty_score = paper_record.get("novelty_score", view.novelty_score)
                         view.embedded_in_pinecone = paper_record.get("embedded_in_pinecone", view.embedded_in_pinecone)
+                        # Update agent delivery decisions if provided
+                        if paper_record.get("agent_email_decision") is not None:
+                            view.agent_email_decision = paper_record["agent_email_decision"]
+                        if paper_record.get("agent_calendar_decision") is not None:
+                            view.agent_calendar_decision = paper_record["agent_calendar_decision"]
                         view.seen_count += 1
                     else:
                         view = PaperView(
@@ -911,6 +944,8 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                             relevance_score=paper_record.get("relevance_score"),
                             novelty_score=paper_record.get("novelty_score"),
                             embedded_in_pinecone=paper_record.get("embedded_in_pinecone", False),
+                            agent_email_decision=paper_record.get("agent_email_decision"),
+                            agent_calendar_decision=paper_record.get("agent_calendar_decision"),
                         )
                         db.add(view)
                     
@@ -1167,13 +1202,26 @@ def save_artifact_to_db(
                 except ValueError:
                     pass
             
+            # Extract duration from ICS DTSTART/DTEND instead of hardcoding 30
+            duration_minutes = 30  # fallback default
+            dtend_match = re.search(r'DTEND[^:]*:(\d{8}T\d{6})', content)
+            if dtstart_match and dtend_match:
+                try:
+                    dt_start_parsed = datetime.strptime(dtstart_match.group(1), "%Y%m%dT%H%M%S")
+                    dt_end_parsed = datetime.strptime(dtend_match.group(1), "%Y%m%dT%H%M%S")
+                    computed_dur = int((dt_end_parsed - dt_start_parsed).total_seconds() / 60)
+                    if 5 <= computed_dur <= 480:
+                        duration_minutes = computed_dur
+                except ValueError:
+                    pass
+            
             # Extract title from ICS
             title = description or "Reading scheduled"
             summary_match = re.search(r'SUMMARY:(.+?)(?:\r?\n|$)', content)
             if summary_match:
                 title = summary_match.group(1).strip()
             
-            logger.info(f"[ARTIFACT] Creating calendar event: '{title}' at {start_time} (triggered_by={triggered_by})")
+            logger.info(f"[ARTIFACT] Creating calendar event: '{title}' at {start_time}, duration={duration_minutes}m (triggered_by={triggered_by})")
             
             # Store the DB UUID in paper_ids (not arXiv external ID)
             db_paper_id_str = str(db_paper_id) if db_paper_id else None
@@ -1182,7 +1230,7 @@ def save_artifact_to_db(
                 paper_id=db_paper_id,
                 title=title,
                 start_time=start_time,
-                duration_minutes=30,
+                duration_minutes=duration_minutes,
                 ics_text=content,
                 triggered_by=triggered_by,
                 paper_ids=[db_paper_id_str] if db_paper_id_str else None,
@@ -1212,7 +1260,7 @@ def save_artifact_to_db(
                         user_name=user_name,
                         papers=papers_for_invite,
                         start_time=start_time,
-                        duration_minutes=30,
+                        duration_minutes=duration_minutes,
                         reminder_minutes=15,
                         triggered_by=triggered_by,
                         agent_note=agent_note,

@@ -1820,7 +1820,7 @@
             box-shadow: 0 2px 8px rgba(168, 67, 112, 0.25);
         }
 
-        /* Paper Details Drawer */
+        /* Paper Details Modal */
         .paper-drawer-overlay {
             display: none;
             position: fixed;
@@ -1835,39 +1835,53 @@
         }
 
         .paper-drawer-overlay.visible {
-            display: block;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .paper-drawer {
+            display: none;
             position: fixed;
-            top: 0;
-            right: -450px;
-            width: 450px;
-            max-width: 90vw;
-            height: 100%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 70vh;
+            min-width: 360px;
+            min-height: 300px;
+            max-width: 95vw;
+            max-height: 95vh;
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-left: 1px solid var(--glass-border);
-            box-shadow: -8px 0 32px rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
             z-index: 1001;
-            overflow-y: auto;
-            transition: right 0.3s ease;
+            overflow: hidden;
+            resize: both;
+            flex-direction: column;
         }
 
         .paper-drawer.visible {
-            right: 0;
+            display: flex;
         }
 
         .drawer-header {
-            padding: 20px;
+            padding: 16px 20px;
             background: rgba(168, 67, 112, 0.05);
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            position: sticky;
-            top: 0;
+            flex-shrink: 0;
+            border-radius: 16px 16px 0 0;
+            cursor: grab;
+        }
+
+        .drawer-header:active {
+            cursor: grabbing;
         }
 
         html.dark .drawer-header {
@@ -1885,18 +1899,22 @@
             border: none;
             font-size: 1.5rem;
             cursor: pointer;
-            padding: 4px;
+            padding: 4px 8px;
             line-height: 1;
             color: var(--text-muted);
-            transition: color 0.2s ease;
+            transition: all 0.2s ease;
+            border-radius: 6px;
         }
 
         .drawer-close-btn:hover {
             color: var(--primary);
+            background: rgba(168, 67, 112, 0.1);
         }
 
         .drawer-content {
             padding: 20px;
+            overflow-y: auto;
+            flex: 1;
         }
 
         .drawer-section {
@@ -1950,6 +1968,90 @@
 
         .drawer-link.secondary:hover {
             background: rgba(239, 68, 68, 0.2);
+        }
+
+        .drawer-link.summarize {
+            background: rgba(99, 102, 241, 0.1);
+            color: #6366f1;
+            box-shadow: none;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
+
+        .drawer-link.summarize:hover {
+            background: rgba(99, 102, 241, 0.2);
+        }
+
+        .drawer-link.summarize.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .summary-container {
+            margin-top: 12px;
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: var(--text);
+            white-space: pre-wrap;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .summary-container h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 12px 0 6px 0;
+            color: var(--primary);
+        }
+
+        .summary-container h2:first-child {
+            margin-top: 0;
+        }
+
+        .summary-container ul {
+            margin: 4px 0 8px 0;
+            padding-left: 20px;
+        }
+
+        .summary-container li {
+            margin-bottom: 4px;
+        }
+
+        .summary-container p {
+            margin: 6px 0;
+        }
+
+        .summary-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .summary-action-btn {
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            background: transparent;
+            color: #6366f1;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .summary-action-btn:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .summary-status {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-style: italic;
+            margin-top: 8px;
         }
 
         .drawer-tags {
@@ -3527,9 +3629,9 @@
                         <!-- Papers per Run -->
                         <div class="settings-section">
                             <h3>📊 Papers per Run</h3>
-                            <p class="section-desc">Control how many papers to retrieve per run.</p>
+                            <p class="section-desc">How many papers to fetch from arXiv each run.</p>
                             <div class="form-row" style="margin-bottom: 8px;">
-                                <label>Papers per run:</label>
+                                <label>Papers to fetch:</label>
                                 <input type="number" id="exec-retrieval-max" min="1" max="50" value="7"
                                     style="width: 80px;" />
                             </div>
@@ -4588,6 +4690,22 @@
                     <div class="drawer-links">
                         <a href="${escapeHtml(arxivUrl)}" target="_blank" class="drawer-link">🔗 View on arXiv</a>
                         ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="drawer-link secondary">📄 Download PDF</a>` : ''}
+                        ${pdfUrl ? `<button class="drawer-link summarize" onclick="summarizePaper('${paperId}', this)" id="summarize-btn-${paperId}">📝 Summarize Paper</button>` : ''}
+                    </div>
+                </div>
+
+                <div class="drawer-section" id="summary-section-${paperId}" style="${paper.summary ? '' : 'display:none;'}">
+                    <h4>AI Summary
+                        <span style="font-weight: 400; font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;">
+                            ${paper.summary_generated_at ? '(Generated ' + new Date(paper.summary_generated_at).toLocaleDateString() + ')' : ''}
+                        </span>
+                    </h4>
+                    <div class="summary-container" id="summary-content-${paperId}">
+                        ${paper.summary ? renderMarkdownBasic(paper.summary) : ''}
+                    </div>
+                    <div class="summary-actions">
+                        <button class="summary-action-btn" onclick="downloadSummary('${paperId}')">💾 Download Summary</button>
+                        <button class="summary-action-btn" onclick="summarizePaper('${paperId}', document.getElementById('summarize-btn-${paperId}'), true)">🔄 Regenerate</button>
                     </div>
                 </div>
 
@@ -4639,13 +4757,141 @@
                 ` : ''}
             `;
 
+            // Restore saved size from localStorage
+            const modal = document.getElementById('paper-drawer');
+            const savedW = localStorage.getItem('paperModalWidth');
+            const savedH = localStorage.getItem('paperModalHeight');
+            if (savedW) modal.style.width = savedW;
+            if (savedH) modal.style.height = savedH;
+
             document.getElementById('paper-drawer-overlay').classList.add('visible');
-            document.getElementById('paper-drawer').classList.add('visible');
+            modal.classList.add('visible');
         }
 
         function closePaperDrawer() {
+            const modal = document.getElementById('paper-drawer');
+            // Save current size before closing
+            if (modal.offsetWidth > 0) localStorage.setItem('paperModalWidth', modal.style.width || modal.offsetWidth + 'px');
+            if (modal.offsetHeight > 0) localStorage.setItem('paperModalHeight', modal.style.height || modal.offsetHeight + 'px');
             document.getElementById('paper-drawer-overlay').classList.remove('visible');
-            document.getElementById('paper-drawer').classList.remove('visible');
+            modal.classList.remove('visible');
+        }
+
+        // Track resize via ResizeObserver so we persist even CSS resize: both changes
+        (function () {
+            const modal = document.getElementById('paper-drawer');
+            if (modal && typeof ResizeObserver !== 'undefined') {
+                let resizeTimer;
+                new ResizeObserver(() => {
+                    if (!modal.classList.contains('visible')) return;
+                    clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(() => {
+                        localStorage.setItem('paperModalWidth', modal.offsetWidth + 'px');
+                        localStorage.setItem('paperModalHeight', modal.offsetHeight + 'px');
+                    }, 300);
+                }).observe(modal);
+            }
+        })();
+
+        // ========== Paper Summary Functions ==========
+        function renderMarkdownBasic(md) {
+            // Simple markdown → HTML: headers, bold, italic, bullets, paragraphs
+            if (!md) return '';
+            let html = escapeHtml(md);
+            // Headers ## → <h2>
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            // Bold **text**
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // Italic *text*
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Bullet lists
+            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+            // Line breaks → paragraphs
+            html = html.replace(/\n{2,}/g, '</p><p>');
+            html = '<p>' + html + '</p>';
+            // Clean up empty paragraphs around elements
+            html = html.replace(/<p>\s*<(h2|ul|li)/g, '<$1');
+            html = html.replace(/<\/(h2|ul|li)>\s*<\/p>/g, '</$1>');
+            html = html.replace(/<p>\s*<\/p>/g, '');
+            return html;
+        }
+
+        async function summarizePaper(paperId, btnElement, force = false) {
+            if (!btnElement) return;
+
+            const originalText = btnElement.textContent;
+            btnElement.textContent = '⏳ Summarizing...';
+            btnElement.classList.add('loading');
+
+            try {
+                const url = `/api/papers/${paperId}/summarize${force ? '?force=true' : ''}`;
+                const response = await fetch(url, { method: 'POST' });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Summarisation failed');
+                }
+
+                if (result.success && result.summary) {
+                    // Update local data cache
+                    const paper = allPapersData.find(p => (p.paper_id || p.paper?.id || p.id) === paperId);
+                    if (paper) {
+                        paper.summary = result.summary;
+                        paper.summary_generated_at = result.generated_at;
+                    }
+
+                    // Show the summary section
+                    const section = document.getElementById(`summary-section-${paperId}`);
+                    const content = document.getElementById(`summary-content-${paperId}`);
+                    if (section && content) {
+                        content.innerHTML = renderMarkdownBasic(result.summary);
+                        section.style.display = '';
+                        // Update header date
+                        const h4 = section.querySelector('h4');
+                        if (h4 && result.generated_at) {
+                            const dateStr = new Date(result.generated_at).toLocaleDateString();
+                            h4.innerHTML = `AI Summary <span style="font-weight: 400; font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;">(Generated ${dateStr})</span>`;
+                        }
+                    }
+
+                    btnElement.textContent = '✅ Summary Ready';
+                    btnElement.classList.remove('loading');
+                    showToast(result.cached ? 'Loaded cached summary' : 'Summary generated successfully');
+                } else {
+                    throw new Error('No summary returned');
+                }
+            } catch (err) {
+                console.error('Summarisation error:', err);
+                btnElement.textContent = originalText;
+                btnElement.classList.remove('loading');
+                showToast('Failed to summarize: ' + err.message, 'error');
+            }
+        }
+
+        function downloadSummary(paperId) {
+            const paper = allPapersData.find(p => (p.paper_id || p.paper?.id || p.id) === paperId);
+            if (!paper || !paper.summary) {
+                showToast('No summary available to download', 'error');
+                return;
+            }
+
+            const paperData = paper.paper || {};
+            const title = paperData.title || paper.title || 'Untitled';
+            const externalId = paperData.external_id || '';
+            const header = `# Summary: ${title}\n\narXiv: ${externalId}\nGenerated: ${paper.summary_generated_at ? new Date(paper.summary_generated_at).toLocaleString() : 'N/A'}\n\n---\n\n`;
+            const fullContent = header + paper.summary;
+
+            const blob = new Blob([fullContent], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `summary_${externalId || paperId}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Summary downloaded');
         }
 
         // ========== Bulk Actions ==========
@@ -6247,6 +6493,7 @@
                             <span>👤 Shared with <strong>${escapeHtml(colleagueName)}</strong></span>
                             <span>📅 ${new Date(s.created_at).toLocaleString()}</span>
                             <span class="importance-badge importance-${statusClass === 'sent' ? 'high' : 'medium'}">${s.status}</span>
+                            <span style="color:var(--text-secondary);font-size:0.85em;">🤖 Sent by ResearchPulse</span>
                         </div>
                     </div>
                     <div class="email-actions" style="display:flex;gap:4px;align-items:center;">

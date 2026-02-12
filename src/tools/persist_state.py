@@ -293,6 +293,11 @@ def persist_paper_decision(
         "notes": _build_notes(decision, include_scores_in_notes),
         "embedded_in_pinecone": decision.embedded_in_pinecone,
     }
+    # Forward optional paper metadata from the input dict
+    for meta_key in ["abstract", "authors", "categories", "link", "published", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
+        val = paper_decision.get(meta_key)
+        if val is not None:
+            paper_record[meta_key] = val
     
     # Persist using upsert (handles atomic write and stats)
     try:
@@ -416,6 +421,11 @@ def persist_paper_decisions_batch(
                 "notes": _build_notes(decision, include_scores_in_notes),
                 "embedded_in_pinecone": decision.embedded_in_pinecone,
             }
+            # Forward optional paper metadata from the input dict
+            for meta_key in ["abstract", "authors", "categories", "link", "published", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
+                val = paper_dict.get(meta_key)
+                if val is not None:
+                    paper_record[meta_key] = val
             
             records_to_upsert.append(paper_record)
             _run_tracker.mark_persisted(decision.paper_id)

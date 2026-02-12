@@ -27,27 +27,37 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-# Maximum papers to retrieve internally for ranking/filtering
+# Default number of papers to fetch from arXiv per run.
 # NOTE: This constant is a fallback default only.
-# Production reads from DB via get_retrieval_max_results().
-MAX_RETRIEVAL_RESULTS = 7
+# Production reads from DB via get_arxiv_fetch_count() (dashboard "Papers per Run").
+DEFAULT_ARXIV_FETCH_COUNT = 7
 
-# Default number of papers if user doesn't specify
+# Backward-compatible alias (used by tests and legacy references)
+MAX_RETRIEVAL_RESULTS = DEFAULT_ARXIV_FETCH_COUNT
+
+# Default number of papers to show the user if they don't specify
 DEFAULT_OUTPUT_COUNT = 5
 
+# Extra papers to retrieve from Pinecone beyond what the user requested,
+# so the agent has a small buffer for ranking/filtering.
+PINECONE_RETRIEVAL_BUFFER = 2
 
-def get_retrieval_max_results(user_id=None) -> int:
+
+def get_arxiv_fetch_count(user_id=None) -> int:
     """
-    Load retrieval_max_results from DB (preferred) or fall back to constant.
+    Load the arXiv fetch count from DB (preferred) or fall back to constant.
+
+    This is the dashboard "Papers per Run" setting — it controls how many
+    papers to fetch from the arXiv API each run.
 
     Returns:
-        int: The max papers to retrieve per run.
+        int: The max papers to fetch from arXiv per run.
     """
     try:
         from db.database import is_database_configured
         if not is_database_configured():
-            logger.info("[SETTINGS] retrieval_max_results=%d source=default (no DB)", MAX_RETRIEVAL_RESULTS)
-            return MAX_RETRIEVAL_RESULTS
+            logger.info("[SETTINGS] arxiv_fetch_count=%d source=default (no DB)", DEFAULT_ARXIV_FETCH_COUNT)
+            return DEFAULT_ARXIV_FETCH_COUNT
 
         from db.store import get_default_store
         store = get_default_store()
@@ -61,11 +71,17 @@ def get_retrieval_max_results(user_id=None) -> int:
         from uuid import UUID
         uid = UUID(str(user_id_val)) if not isinstance(user_id_val, UUID) else user_id_val
         value = store.get_retrieval_max_results(uid)
-        logger.info("[SETTINGS] retrieval_max_results=%d source=db", value)
+        logger.info("[SETTINGS] arxiv_fetch_count=%d source=db", value)
         return value
     except Exception as e:
-        logger.warning("[SETTINGS] retrieval_max_results=%d source=default (error: %s)", MAX_RETRIEVAL_RESULTS, e)
-        return MAX_RETRIEVAL_RESULTS
+        logger.warning("[SETTINGS] arxiv_fetch_count=%d source=default (error: %s)", DEFAULT_ARXIV_FETCH_COUNT, e)
+        return DEFAULT_ARXIV_FETCH_COUNT
+
+
+# Backward-compatible alias
+def get_retrieval_max_results(user_id=None) -> int:
+    """Deprecated alias for get_arxiv_fetch_count()."""
+    return get_arxiv_fetch_count(user_id)
 
 
 # =============================================================================
@@ -118,18 +134,38 @@ class ParsedPrompt:
         """
         return self.requested_count if self.requested_count else DEFAULT_OUTPUT_COUNT
     
-    _retrieval_max: Optional[int] = None  # Injected DB value
+    _arxiv_fetch_count: Optional[int] = None  # Injected DB value (dashboard "Papers per Run")
+
+    @property
+    def arxiv_fetch_count(self) -> int:
+        """
+        How many papers to fetch from the arXiv API.
+        
+        Uses DB-loaded value (dashboard setting) if set, else DEFAULT_ARXIV_FETCH_COUNT.
+        """
+        if self._arxiv_fetch_count is not None:
+            return self._arxiv_fetch_count
+        return DEFAULT_ARXIV_FETCH_COUNT
+
+    # Backward-compatible alias
+    _retrieval_max: Optional[int] = None
 
     @property
     def retrieval_count(self) -> int:
-        """
-        Get the number of papers to retrieve internally.
-        
-        Uses DB-loaded value if set, else falls back to MAX_RETRIEVAL_RESULTS.
-        """
+        """Deprecated alias for arxiv_fetch_count (backward compat)."""
         if self._retrieval_max is not None:
             return self._retrieval_max
-        return MAX_RETRIEVAL_RESULTS
+        return self.arxiv_fetch_count
+
+    @property
+    def pinecone_retrieval_count(self) -> int:
+        """
+        How many papers to retrieve from Pinecone for ranking.
+        
+        Automatically set to output_count + PINECONE_RETRIEVAL_BUFFER
+        so the agent has a small surplus for ranking/filtering.
+        """
+        return self.output_count + PINECONE_RETRIEVAL_BUFFER
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/serialization."""
@@ -141,7 +177,8 @@ class ParsedPrompt:
             "time_days": self.time_days,
             "requested_count": self.requested_count,
             "output_count": self.output_count,
-            "retrieval_count": self.retrieval_count,
+            "arxiv_fetch_count": self.arxiv_fetch_count,
+            "pinecone_retrieval_count": self.pinecone_retrieval_count,
             "method_or_approach": self.method_or_approach,
             "application_domain": self.application_domain,
             "is_survey_request": self.is_survey_request,
@@ -527,13 +564,13 @@ class PromptController:
         """Parse a user prompt into structured parameters."""
         return self.parser.parse(prompt)
     
+    def get_arxiv_fetch_count(self, parsed: ParsedPrompt) -> int:
+        """Get the number of papers to fetch from arXiv (dashboard setting)."""
+        return parsed.arxiv_fetch_count
+
     def get_retrieval_count(self, parsed: ParsedPrompt) -> int:
-        """
-        Get the number of papers to retrieve internally.
-        
-        Returns the DB-backed value if set on parsed prompt, else MAX_RETRIEVAL_RESULTS.
-        """
-        return parsed.retrieval_count
+        """Deprecated alias for get_arxiv_fetch_count."""
+        return parsed.arxiv_fetch_count
     
     def get_output_count(self, parsed: ParsedPrompt) -> int:
         """Get the number of papers to show to the user."""
@@ -600,7 +637,8 @@ class PromptController:
                 "time_days": parsed.time_days,
                 "requested_count": parsed.requested_count,
                 "output_count": parsed.output_count,
-                "retrieval_count": parsed.retrieval_count,
+                "arxiv_fetch_count": parsed.arxiv_fetch_count,
+            "pinecone_retrieval_count": parsed.pinecone_retrieval_count,
                 "method_or_approach": parsed.method_or_approach,
                 "application_domain": parsed.application_domain,
                 "is_survey_request": parsed.is_survey_request,

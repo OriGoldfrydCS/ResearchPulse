@@ -118,8 +118,8 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    # Import retrieval limits for logging
-    from src.agent.prompt_controller import get_retrieval_max_results
+    # Import settings for logging
+    from src.agent.prompt_controller import get_arxiv_fetch_count
     from src.agent.stop_controller import StopPolicy
     
     print("=" * 60)
@@ -128,8 +128,8 @@ async def startup_event():
     print(f"Server starting on http://{APP_HOST}:{APP_PORT}")
     print(f"API documentation: http://{APP_HOST}:{APP_PORT}/docs")
     print(f"Web UI: http://{APP_HOST}:{APP_PORT}/")
-    retrieval_limit = get_retrieval_max_results()
-    print(f"ResearchPulse retrieval_limit={retrieval_limit}")
+    arxiv_fetch = get_arxiv_fetch_count()
+    print(f"ResearchPulse arxiv_fetch_count={arxiv_fetch}")
     print(f"ResearchPulse max_papers_checked={StopPolicy().max_papers_checked}")
     print("=" * 60)
     

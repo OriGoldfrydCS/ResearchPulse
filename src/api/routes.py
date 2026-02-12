@@ -625,6 +625,26 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
         })
         run_manager.update_status(run_id, RunStatus.DONE)
         
+        # Auto-summarize high-priority papers in background
+        try:
+            from tools.summarize_paper import auto_summarize_high_priority
+            from db.postgres_store import PostgresStore
+            store = PostgresStore()
+            user = store.get_or_create_default_user()
+            if user:
+                from uuid import UUID as _UUID
+                user_id = _UUID(user["id"])
+                _executor.submit(auto_summarize_high_priority, user_id)
+                import logging as _logging
+                _logging.getLogger(__name__).info(
+                    f"[AUTO_SUMMARIZE] Queued auto-summarization for high-priority papers"
+                )
+        except Exception as auto_sum_err:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                f"[AUTO_SUMMARIZE] Failed to queue auto-summarization: {auto_sum_err}"
+            )
+        
         return ExecuteResponse(
             status="ok",
             error=None,

@@ -22,15 +22,12 @@ class TestRetrievalMaxResults:
     """Test DB-backed retrieval limit with fallback."""
 
     def test_default_when_no_store(self):
-        """Should return MAX_RETRIEVAL_RESULTS when store is unavailable."""
+        """Should return DEFAULT_ARXIV_FETCH_COUNT when store is unavailable."""
         from src.agent.prompt_controller import get_retrieval_max_results, MAX_RETRIEVAL_RESULTS
 
         with patch("src.agent.prompt_controller.logger"):
-            # Simulate DB not configured
-            with patch.dict("sys.modules", {}):
-                # Force an import error by patching the lazy import target
-                with patch("src.db.database.is_database_configured", side_effect=Exception("no DB")):
-                    result = get_retrieval_max_results()
+            with patch("db.database.is_database_configured", side_effect=Exception("no DB")):
+                result = get_retrieval_max_results()
         
         assert result == MAX_RETRIEVAL_RESULTS
 
@@ -43,8 +40,8 @@ class TestRetrievalMaxResults:
         mock_store.get_or_create_default_user.return_value = {"id": str(uuid4())}
 
         with patch("src.agent.prompt_controller.logger"):
-            with patch("src.db.database.is_database_configured", return_value=True):
-                with patch("src.db.store.get_default_store", return_value=mock_store):
+            with patch("db.database.is_database_configured", return_value=True):
+                with patch("db.store.get_default_store", return_value=mock_store):
                     result = get_retrieval_max_results()
 
         assert result == 15
@@ -58,8 +55,8 @@ class TestRetrievalMaxResults:
         mock_store.get_or_create_default_user.return_value = {"id": str(uuid4())}
 
         with patch("src.agent.prompt_controller.logger"):
-            with patch("src.db.database.is_database_configured", return_value=True):
-                with patch("src.db.store.get_default_store", return_value=mock_store):
+            with patch("db.database.is_database_configured", return_value=True):
+                with patch("db.store.get_default_store", return_value=mock_store):
                     result = get_retrieval_max_results()
 
         assert result == 7
@@ -69,7 +66,7 @@ class TestRetrievalMaxResults:
         """ParsedPrompt should use _retrieval_max when set."""
         from src.agent.prompt_controller import ParsedPrompt, MAX_RETRIEVAL_RESULTS
 
-        parsed = ParsedPrompt(raw="test", user_query="test")
+        parsed = ParsedPrompt(raw_prompt="test")
 
         # Default: should return MAX_RETRIEVAL_RESULTS
         assert parsed.retrieval_count == MAX_RETRIEVAL_RESULTS
@@ -82,7 +79,7 @@ class TestRetrievalMaxResults:
         """ParsedPrompt with _retrieval_max=None should fall back to constant."""
         from src.agent.prompt_controller import ParsedPrompt, MAX_RETRIEVAL_RESULTS
 
-        parsed = ParsedPrompt(raw="test", user_query="test")
+        parsed = ParsedPrompt(raw_prompt="test")
         parsed._retrieval_max = None
         assert parsed.retrieval_count == MAX_RETRIEVAL_RESULTS
 
