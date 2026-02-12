@@ -99,11 +99,11 @@ Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the age
 
 <p align="center">
   <a href="static/public/decision_graph.svg" target="_blank">
-    <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" width="100%" />
+    <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" height="800" />
   </a>
 </p>
 
-<p align="center"><em>👆 Click the diagram to open full-size — use <kbd>Ctrl</kbd>+<kbd>Scroll</kbd> to zoom, click & drag to pan</em></p>
+<p align="center"><em>👆 Click the diagram to open full-size &amp; zoomable view</em></p>
 
 #### 🗺️ Legend
 
