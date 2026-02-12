@@ -276,7 +276,6 @@ class ExecuteRequest(BaseModel):
     """Request body for POST /api/execute endpoint (per Course Project requirements)."""
     prompt: str = Field(
         ...,
-        min_length=1,
         max_length=2000,
         description="The user's prompt to trigger an agent run",
         examples=["Find recent papers on transformer architectures"]
@@ -656,6 +655,15 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
     import logging
+
+    # --- Validate prompt is not empty (return spec-compliant error JSON) ---
+    if not request.prompt or not request.prompt.strip():
+        return ExecuteResponse(
+            status="error",
+            error="Prompt cannot be empty. Please provide a research query.",
+            response=None,
+            steps=[],
+        )
 
     # --- Scope Gate: classify before running the heavy agent pipeline ---
     scope_result = classify_user_request(request.prompt)
