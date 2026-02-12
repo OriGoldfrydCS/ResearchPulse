@@ -52,7 +52,7 @@ The agent observes the research landscape by pulling fresh data from external so
 | **Profile Loader** | Reads your research interests, exclusions, and delivery preferences |
 
 > [!NOTE]
-> Perception is **bounded** - the agent only fetches papers matching your configured arXiv categories and time window, avoiding information overload from the start.
+> In the current version, perception is **focused** — the agent fetches papers matching your configured arXiv categories and time window, while also drawing context from your user profile, colleague interests, and past feedback stored in the database. This keeps discovery targeted without information overload.
 
 ---
 

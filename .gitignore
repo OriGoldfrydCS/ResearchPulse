@@ -74,6 +74,8 @@ summary.md
 Course Project.txt
 Course Project.pdf
 Course Project.txt
+static\public\decision_graph_dark.png
+static\public\decision_graph.mmd
 
 # ── uv lock file (optional — remove this line if you want to pin deps) ──────
 # uv.lock
