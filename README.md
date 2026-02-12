@@ -97,31 +97,13 @@ Once reasoning is complete, the agent executes real-world actions:
 
 Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the agent reaches **20+ autonomous junctions** where it chooses different paths based on context, scores, policies, and feature flags:
 
-<div style="position:relative; border:1px solid #d1d5db; border-radius:12px; padding:12px; margin:16px 0; background:#fafafa;">
-  <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
-    <button onclick="dgZoom(0.25)" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Zoom In">🔍+</button>
-    <button onclick="dgZoom(-0.25)" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Zoom Out">🔍−</button>
-    <button onclick="dgReset()" style="padding:4px 12px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; font-size:15px;" title="Reset Zoom">↺ Reset</button>
-    <span id="dg-zoom-label" style="font-size:13px; color:#64748b; margin-left:4px;">100%</span>
-  </div>
-  <div style="overflow:auto; max-height:600px; border:1px solid #e2e8f0; border-radius:8px; background:#fff;">
-    <img id="dg-img" src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" style="transform-origin:top left; transition:transform 0.2s ease;" />
-  </div>
-</div>
+<p align="center">
+  <a href="static/public/decision_graph.svg" target="_blank">
+    <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" width="100%" />
+  </a>
+</p>
 
-<script>
-  var dgScale = 1;
-  function dgZoom(delta) {
-    dgScale = Math.min(Math.max(dgScale + delta, 0.25), 3);
-    document.getElementById('dg-img').style.transform = 'scale(' + dgScale + ')';
-    document.getElementById('dg-zoom-label').textContent = Math.round(dgScale * 100) + '%';
-  }
-  function dgReset() {
-    dgScale = 1;
-    document.getElementById('dg-img').style.transform = 'scale(1)';
-    document.getElementById('dg-zoom-label').textContent = '100%';
-  }
-</script>
+<p align="center"><em>👆 Click the diagram to open full-size — use <kbd>Ctrl</kbd>+<kbd>Scroll</kbd> to zoom, click & drag to pan</em></p>
 
 #### 🗺️ Legend
 
