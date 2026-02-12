@@ -2567,6 +2567,11 @@
         .autonomous-modal {
             max-width: 800px;
             width: 95%;
+            transition: max-width 0.3s ease, max-height 0.3s ease;
+        }
+
+        .autonomous-modal.expanded {
+            max-width: 95vw;
         }
 
         .autonomous-modal-header {
@@ -2603,6 +2608,11 @@
         .autonomous-modal-content {
             max-height: 60vh;
             overflow-y: auto;
+            transition: max-height 0.3s ease;
+        }
+
+        .autonomous-modal.expanded .autonomous-modal-content {
+            max-height: 80vh;
         }
 
         .autonomous-loading {
@@ -3227,7 +3237,7 @@
             </div>
             <div class="header-title-group">
                 <h1>ResearchPulse</h1>
-                <p class="header-subtitle">Your AI-powered research assistant</p>
+                <p class="header-subtitle">Your autonomous AI-powered research assistant</p>
             </div>
             <div class="header-right">
                 <div class="theme-toggle-container">
@@ -8377,6 +8387,7 @@
 
         function closeAutonomousModal() {
             document.getElementById('autonomous-modal').classList.remove('active');
+            document.querySelector('.autonomous-modal')?.classList.remove('expanded');
         }
 
         // Close modal when clicking overlay
@@ -8389,10 +8400,14 @@
             const contentEl = document.getElementById('autonomous-modal-content');
 
             try {
-                const response = await fetch('/api/live-document?format=markdown');
+                // Fetch both: HTML for display, markdown for download
+                const [htmlResp, mdResp] = await Promise.all([
+                    fetch('/api/live-document?format=html'),
+                    fetch('/api/live-document?format=markdown')
+                ]);
 
-                if (response.status === 404) {
-                    const data = await response.json();
+                if (htmlResp.status === 404) {
+                    const data = await htmlResp.json();
                     contentEl.innerHTML = `
                         <div class="autonomous-empty">
                             <p>${data.detail || 'No live document found. Run a research pulse first to generate one.'}</p>
@@ -8401,21 +8416,48 @@
                     return;
                 }
 
-                if (!response.ok) throw new Error('Failed to fetch live document');
+                if (!htmlResp.ok) throw new Error('Failed to fetch live document');
 
-                const mdText = await response.text();
-                // Store for download
+                const rawHtml = await htmlResp.text();
+                const mdText = await mdResp.text();
                 window._liveDocText = mdText;
+
+                // Extract just the body content from the full HTML page
+                const bodyMatch = rawHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                const htmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
+                // Extract scoped styles
+                const styleMatch = rawHtml.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+                const scopedStyle = styleMatch ? styleMatch[1].replace(/body\s*\{/g, '.live-doc-rendered {') : '';
+
                 contentEl.innerHTML = `
                     <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
                         <strong>What is this?</strong> This is your <em>Live Research Briefing</em> — an auto-generated document
                         that summarises your top papers, trending topics, and category breakdown across all research runs.
                         It updates automatically after every run.
                     </div>
-                    <div class="live-doc-content" style="white-space: pre-wrap; font-size: 0.88rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; line-height: 1.6;">${escapeHtml(mdText)}</div>
-                    <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
-                        <button onclick="downloadLiveDocument()" class="action-btn">⬇️ Download .txt</button>
-                        <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset Live Document</button>
+                    <style>.live-doc-rendered { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; line-height: 1.6; font-size: 0.9rem; }
+                    .live-doc-rendered h1 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 8px; font-size: 1.4rem; }
+                    .live-doc-rendered h2 { color: #1e40af; margin-top: 24px; font-size: 1.15rem; }
+                    .live-doc-rendered h3 { color: #1e3a8a; font-size: 1rem; }
+                    .live-doc-rendered p { margin: 6px 0; }
+                    .live-doc-rendered blockquote { background: rgba(37,99,235,0.06); padding: 12px 16px; border-left: 4px solid #2563eb; margin: 10px 0; border-radius: 4px; }
+                    .live-doc-rendered table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+                    .live-doc-rendered th, .live-doc-rendered td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+                    .live-doc-rendered th { background: var(--surface); font-weight: 600; }
+                    .live-doc-rendered a { color: #2563eb; text-decoration: none; }
+                    .live-doc-rendered a:hover { text-decoration: underline; }
+                    .live-doc-rendered ul { padding-left: 24px; }
+                    .live-doc-rendered li { margin: 4px 0; }
+                    .live-doc-rendered hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+                    .live-doc-rendered code { background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; }
+                    </style>
+                    <div class="live-doc-rendered">${htmlContent}</div>
+                    <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                        <button id="toggle-modal-size" onclick="toggleModalSize()" class="action-btn" style="font-size: 0.82rem;">↔️ Expand / Collapse</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="doDownloadLiveDoc()" class="action-btn">⬇️ Download .txt</button>
+                            <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset</button>
+                        </div>
                     </div>
                 `;
             } catch (error) {
@@ -8425,6 +8467,10 @@
                     </div>
                 `;
             }
+        }
+
+        function toggleModalSize() {
+            document.querySelector('.autonomous-modal').classList.toggle('expanded');
         }
 
         async function resetLiveDocument() {
@@ -8438,18 +8484,21 @@
             }
         }
 
-        function downloadLiveDocument() {
-            const text = window._liveDocText;
-            if (!text) return;
-            const blob = new Blob([text], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'research_briefing.txt';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+        function doDownloadLiveDoc() {
+            try {
+                const text = window._liveDocText || '';
+                if (!text) { alert('No document content to download.'); return; }
+                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.txt';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+            } catch (e) {
+                alert('Download failed: ' + e.message);
+            }
         }
 
         async function viewProfileSuggestions() {
@@ -8475,6 +8524,11 @@
 
                 if (!data.suggestions || data.suggestions.length === 0) {
                     contentEl.innerHTML = `
+                        <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
+                            <strong>What is this?</strong> These are <em>Profile Evolution Suggestions</em> — intelligent recommendations
+                            to refine your research profile based on the papers you discover. Accept or reject each suggestion,
+                            and your profile categories, topics, and interests will update automatically.
+                        </div>
                         <div class="autonomous-empty">
                             <p>No profile suggestions yet.</p>
                             <p>Run more research sessions to receive personalized recommendations.</p>
@@ -8593,7 +8647,15 @@
                     return;
                 }
 
-                let html = data.audit_logs.map(log => {
+                let html = `
+                    <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
+                        <strong>What is this?</strong> These are your <em>History Logs</em> — a complete audit trail of every
+                        research run, showing how many papers were retrieved, scored, shared, and discarded,
+                        along with timing and stop-reason details.
+                    </div>
+                `;
+
+                html += data.audit_logs.map(log => {
                     const createdAt = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
                     const durationSec = log.execution_time_ms ? (log.execution_time_ms / 1000).toFixed(1) : '0.0';
                     return `

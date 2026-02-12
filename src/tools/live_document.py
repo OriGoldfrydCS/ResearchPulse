@@ -179,7 +179,7 @@ class LiveDocumentManager:
             arxiv_id=arxiv_id,
             title=paper.get("title", "Untitled"),
             authors=paper.get("authors", [])[:3],
-            abstract_snippet=(paper.get("abstract", "")[:200] + "..." if paper.get("abstract") else ""),
+            abstract_snippet=paper.get("abstract", ""),
             relevance_score=paper.get("relevance_score", 0),
             novelty_score=paper.get("novelty_score", 0),
             llm_novelty_score=paper.get("llm_novelty_score"),
@@ -474,35 +474,131 @@ class LiveDocumentManager:
         
         return "\n".join(lines)
     
+    def _md_to_html(self, md: str) -> str:
+        """Convert markdown text to HTML using regex-based parsing."""
+        import re
+        lines = md.split('\n')
+        html_lines = []
+        in_table = False
+        in_blockquote = False
+        in_ul = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Close blockquote if no longer in one
+            if in_blockquote and not stripped.startswith('>'):
+                html_lines.append('</blockquote>')
+                in_blockquote = False
+
+            # Close list if no longer in one
+            if in_ul and not stripped.startswith('- ') and not stripped.startswith('* '):
+                html_lines.append('</ul>')
+                in_ul = False
+
+            # Table rows
+            if stripped.startswith('|') and stripped.endswith('|'):
+                cells = [c.strip() for c in stripped.strip('|').split('|')]
+                # Skip separator rows like |---|---|
+                if all(re.match(r'^[-:]+$', c) for c in cells):
+                    continue
+                if not in_table:
+                    in_table = True
+                    html_lines.append('<table>')
+                    # First row is header
+                    html_lines.append('<tr>' + ''.join(f'<th>{self._inline_md(c)}</th>' for c in cells) + '</tr>')
+                else:
+                    html_lines.append('<tr>' + ''.join(f'<td>{self._inline_md(c)}</td>' for c in cells) + '</tr>')
+                continue
+            elif in_table:
+                html_lines.append('</table>')
+                in_table = False
+
+            # Headers
+            if stripped.startswith('### '):
+                html_lines.append(f'<h3>{self._inline_md(stripped[4:])}</h3>')
+            elif stripped.startswith('## '):
+                html_lines.append(f'<h2>{self._inline_md(stripped[3:])}</h2>')
+            elif stripped.startswith('# '):
+                html_lines.append(f'<h1>{self._inline_md(stripped[2:])}</h1>')
+            elif stripped.startswith('> '):
+                if not in_blockquote:
+                    html_lines.append('<blockquote>')
+                    in_blockquote = True
+                html_lines.append(f'<p>{self._inline_md(stripped[2:])}</p>')
+            elif stripped.startswith('- ') or stripped.startswith('* '):
+                if not in_ul:
+                    html_lines.append('<ul>')
+                    in_ul = True
+                html_lines.append(f'<li>{self._inline_md(stripped[2:])}</li>')
+            elif stripped.startswith('---') or stripped.startswith('***'):
+                html_lines.append('<hr>')
+            elif stripped == '':
+                html_lines.append('')
+            else:
+                html_lines.append(f'<p>{self._inline_md(stripped)}</p>')
+
+        # Close any open tags
+        if in_table:
+            html_lines.append('</table>')
+        if in_blockquote:
+            html_lines.append('</blockquote>')
+        if in_ul:
+            html_lines.append('</ul>')
+
+        return '\n'.join(html_lines)
+
+    def _inline_md(self, text: str) -> str:
+        """Convert inline markdown (bold, italic, links, code) to HTML."""
+        import re
+        # Escape HTML
+        text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        # Bold: **text** or __text__
+        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+        # Italic: *text* or _text_
+        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+        text = re.sub(r'(?<!\w)_(.+?)_(?!\w)', r'<em>\1</em>', text)
+        # Inline code: `text`
+        text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+        # Links: [text](url)
+        text = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2" target="_blank">\1</a>', text)
+        return text
+
     def render_html(self, doc: LiveDocumentData) -> str:
-        """Render the document as HTML."""
-        # Simple HTML wrapper around markdown structure
+        """Render the document as properly formatted HTML."""
         markdown = self.render_markdown(doc)
-        
+        body_html = self._md_to_html(markdown)
+
         html = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>{doc.title}</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; color: #1a1a2e; }}
         h1 {{ color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }}
         h2 {{ color: #1e40af; margin-top: 30px; }}
         h3 {{ color: #1e3a8a; }}
-        blockquote {{ background: #f3f4f6; padding: 15px; border-left: 4px solid #2563eb; margin: 10px 0; }}
+        p {{ margin: 6px 0; }}
+        blockquote {{ background: #f3f4f6; padding: 15px; border-left: 4px solid #2563eb; margin: 10px 0; border-radius: 4px; }}
+        blockquote p {{ margin: 4px 0; }}
+        ul {{ padding-left: 24px; }}
+        li {{ margin: 4px 0; }}
         table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
         th, td {{ border: 1px solid #e5e7eb; padding: 10px; text-align: left; }}
-        th {{ background: #f3f4f6; }}
-        a {{ color: #2563eb; }}
-        .metadata {{ color: #6b7280; font-style: italic; }}
+        th {{ background: #f3f4f6; font-weight: 600; }}
+        a {{ color: #2563eb; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        code {{ background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }}
+        hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }}
+        strong {{ color: #111827; }}
     </style>
 </head>
 <body>
-<pre style="white-space: pre-wrap; font-family: inherit;">
-{markdown}
-</pre>
+{body_html}
 </body>
 </html>"""
-        
+
         return html
 
 
