@@ -123,18 +123,30 @@ def extract_join_code_from_email(body: str, subject: str) -> Optional[str]:
 
 def extract_signup_template_fields(body: str, subject: str) -> Dict[str, Optional[str]]:
     """
-    Extract name and interests from the structured signup template format.
+    Extract name, interests, and instruction from the structured template format.
     
     Expected format (as given in our instruction email):
         Code: ABC123
         Name: Jane Smith
         Research interests: machine learning, NLP, transformers
     
+    Or for removal:
+        Code: ABC123
+        Instruction: Remove
+    
     Returns:
-        Dict with 'name' and 'interests' (either can be None if not found)
+        Dict with 'name', 'interests', and 'instruction' (any can be None if not found)
     """
     text = f"{subject}\n{body}"
-    result = {"name": None, "interests": None}
+    result = {"name": None, "interests": None, "instruction": None}
+    
+    # Extract Instruction: field (e.g., "Remove")
+    instruction_match = re.search(r'instruction[:\s]+([^\n\r]+)', text, re.IGNORECASE)
+    if instruction_match:
+        instruction = instruction_match.group(1).strip()
+        if instruction:  # Only set if non-empty
+            result["instruction"] = instruction
+            logger.info(f"[TEMPLATE_PARSE] Extracted instruction: {instruction}")
     
     # Extract Name: field
     name_match = re.search(r'name[:\s]+([^\n\r]+)', text, re.IGNORECASE)
@@ -155,6 +167,19 @@ def extract_signup_template_fields(body: str, subject: str) -> Dict[str, Optiona
             logger.info(f"[TEMPLATE_PARSE] Extracted interests: {interests}")
     
     return result
+
+
+def is_removal_request(template_fields: Dict[str, Optional[str]]) -> bool:
+    """
+    Check if the email is a removal/unsubscribe request.
+    
+    Returns True if the 'instruction' field contains 'remove', 'unsubscribe', 'delete', etc.
+    """
+    instruction = template_fields.get("instruction", "") or ""
+    instruction_lower = instruction.lower().strip()
+    
+    removal_keywords = ["remove", "unsubscribe", "delete", "opt out", "opt-out", "cancel"]
+    return any(kw in instruction_lower for kw in removal_keywords)
 
 
 def is_colleague_join_request(subject: str, body: str) -> bool:
@@ -1029,6 +1054,26 @@ class InboundEmailProcessor:
             template_fields = extract_signup_template_fields(body, subject)
             template_name = template_fields.get("name")
             template_interests = template_fields.get("interests")
+            
+            # ── Check for removal request (Instruction: Remove) ──
+            if is_removal_request(template_fields):
+                logger.info(f"[JOIN_PROC][{corr_id}] REMOVAL REQUEST detected - processing unsubscribe")
+                removal_success = self._process_colleague_removal(from_email, from_name, corr_id)
+                
+                self.store.mark_email_processed(
+                    user_id=self.user_id,
+                    gmail_message_id=message_id,
+                    email_type="colleague_removal",
+                    processing_result="removed" if removal_success else "removal_not_found",
+                    from_email=from_email,
+                    subject=subject,
+                )
+                
+                if removal_success:
+                    results["succeeded"] += 1
+                else:
+                    results["rejected"] += 1
+                continue
             
             if template_name or template_interests:
                 logger.info(f"[JOIN_PROC][{corr_id}] Template extraction found: name={template_name}, interests={template_interests}")
@@ -2134,6 +2179,96 @@ EXTRACTED INTERESTS:"""
         except Exception as e:
             logger.error(f"[DB_WRITE_V2] Error creating colleague: {e}", exc_info=True)
             return (None, "error")
+    
+    def _process_colleague_removal(self, from_email: str, from_name: str, corr_id: str) -> bool:
+        """
+        Process a colleague removal/unsubscribe request.
+        
+        Finds the colleague by email and deletes them from the database.
+        Sends a confirmation email upon success.
+        
+        Args:
+            from_email: The email address of the colleague to remove
+            from_name: The name from the email header
+            corr_id: Correlation ID for logging
+            
+        Returns:
+            True if removal was successful, False if colleague not found
+        """
+        from uuid import UUID
+        
+        logger.info(f"[REMOVAL][{corr_id}] Processing removal for {from_email}")
+        
+        try:
+            # Find colleague by email in the user's colleague list
+            colleagues = self.store.list_colleagues(self.user_id)
+            matching_colleague = None
+            for c in colleagues:
+                if c.get("email", "").lower() == from_email.lower():
+                    matching_colleague = c
+                    break
+            
+            if not matching_colleague:
+                logger.warning(f"[REMOVAL][{corr_id}] Colleague not found: {from_email}")
+                # Send a "not found" reply
+                self._send_removal_not_found_reply(from_email, from_name)
+                return False
+            
+            colleague_name = matching_colleague.get("name") or from_name or from_email.split("@")[0]
+            colleague_id = matching_colleague.get("id")
+            
+            if isinstance(colleague_id, str):
+                colleague_id = UUID(colleague_id)
+            
+            # Delete the colleague
+            success = self.store.delete_colleague(colleague_id)
+            
+            if success:
+                logger.info(f"[REMOVAL][{corr_id}] Successfully removed colleague {colleague_id} ({from_email})")
+                # Send confirmation email
+                self._send_removal_confirmation_reply(from_email, colleague_name)
+                return True
+            else:
+                logger.error(f"[REMOVAL][{corr_id}] Failed to delete colleague {colleague_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"[REMOVAL][{corr_id}] Error removing colleague: {e}", exc_info=True)
+            return False
+    
+    def _send_removal_confirmation_reply(self, to_email: str, name: str):
+        """Send a confirmation that the colleague was removed."""
+        from .email_templates import render_colleague_removed_email
+        logger.info(f"[REPLY] Sending removal confirmation to {to_email}")
+        subject, plain, html = render_colleague_removed_email(colleague_name=name or "")
+        self._send_join_reply(
+            to_email=to_email,
+            subject=subject,
+            body=plain,
+            email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=html,
+        )
+    
+    def _send_removal_not_found_reply(self, to_email: str, name: str):
+        """Send a reply when removal is requested but colleague is not found."""
+        logger.info(f"[REPLY] Sending removal not found reply to {to_email}")
+        first_name = (name or to_email.split("@")[0]).split()[0]
+        subject = "ResearchPulse: Unsubscribe request"
+        plain = (
+            f"Hi {first_name},\n\n"
+            "We received your unsubscribe request, but we couldn't find your email in our system.\n\n"
+            "You may have already been removed, or you might be using a different email address "
+            "than the one originally subscribed.\n\n"
+            "If you believe this is an error, please contact the ResearchPulse owner.\n\n"
+            "Best regards,\nResearchPulse\n"
+        )
+        self._send_join_reply(
+            to_email=to_email,
+            subject=subject,
+            body=plain,
+            email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=None,
+        )
     
     def _send_join_code_required_reply(self, to_email: str, name: str):
         """Send a reply requesting the join code with HTML template."""
