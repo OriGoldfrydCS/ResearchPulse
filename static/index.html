@@ -386,6 +386,39 @@
             box-shadow: 0 4px 12px rgba(168, 67, 112, 0.3);
         }
 
+        /* ---- Home tab: always visually distinct as the "main" tab ---- */
+        .nav-tab[data-tab="chat"] {
+            font-weight: 700;
+            border: 1.5px solid rgba(79, 18, 94, 0.25);
+            background: rgba(79, 18, 94, 0.06);
+        }
+
+        .nav-tab[data-tab="chat"]:hover {
+            background: rgba(79, 18, 94, 0.13);
+        }
+
+        .nav-tab[data-tab="chat"].active {
+            border-color: transparent;
+            background: linear-gradient(135deg, #4f125e 0%, #a84370 100%);
+            box-shadow: 0 6px 18px rgba(79, 18, 94, 0.35);
+        }
+
+        /* Dark-mode overrides for the Home tab */
+        html.dark .nav-tab[data-tab="chat"] {
+            border-color: rgba(169, 75, 212, 0.3);
+            background: rgba(169, 75, 212, 0.08);
+        }
+
+        html.dark .nav-tab[data-tab="chat"]:hover {
+            background: rgba(169, 75, 212, 0.18);
+        }
+
+        html.dark .nav-tab[data-tab="chat"].active {
+            border-color: transparent;
+            background: linear-gradient(135deg, #9333ea 0%, #db2777 100%);
+            box-shadow: 0 6px 18px rgba(147, 51, 234, 0.4);
+        }
+
         .nav-tab .tab-icon {
             margin-right: 6px;
         }
@@ -891,6 +924,13 @@
             border: 1px solid var(--border);
             border-radius: 6px;
             font-size: 0.9rem;
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: var(--text-muted);
         }
 
         .form-actions {
@@ -2689,6 +2729,8 @@
             max-width: 800px;
             width: 95%;
             transition: max-width 0.3s ease, max-height 0.3s ease;
+            display: flex;
+            flex-direction: column;
         }
 
         .autonomous-modal.expanded {
@@ -2730,10 +2772,24 @@
             max-height: 60vh;
             overflow-y: auto;
             transition: max-height 0.3s ease;
+            flex: 1 1 auto;
+            min-height: 0;
         }
 
         .autonomous-modal.expanded .autonomous-modal-content {
             max-height: 80vh;
+        }
+
+        /* Sticky action bar at the bottom of the live-doc modal */
+        .live-doc-actions {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0 0 0;
+            margin-top: 12px;
+            border-top: 1px solid var(--border);
+            background: transparent;
         }
 
         .autonomous-loading {
@@ -4144,200 +4200,201 @@
 
                 </div>
             </div>
-    </div>
 
-    <!-- Settings Tab Panel -->
-    <div class="tab-panel" id="tab-settings">
-        <div class="dashboard-header">
-            <h2>⚙️ Research Profile & Personal Settings </h2>
-        </div>
-        <div class="settings-grid">
-            <!-- Research Profile Section -->
-            <div class="settings-section profile-section">
-                <h3>👤 Research Profile</h3>
-                <p class="section-desc">Update your research areas and preferences to get better paper
-                    recommendations.</p>
-                <div class="profile-form">
-                    <div class="form-row">
-                        <label>Name:</label>
-                        <input type="text" id="profile-name" placeholder="Your name" />
-                    </div>
-                    <div class="form-row">
-                        <label>Email:</label>
-                        <input type="email" id="profile-email" placeholder="your.email@example.com" />
-                    </div>
-                    <div class="form-row">
-                        <label>Affiliation:</label>
-                        <input type="text" id="profile-affiliation" placeholder="Your institution" />
-                    </div>
-                    <div class="form-row">
-                        <label>Research Interests:</label>
-                        <textarea id="profile-interests-include"
-                            placeholder="Describe your research areas (free text)&#10;e.g. machine learning, natural language processing, biology, AI agents"
-                            rows="4"></textarea>
-                    </div>
-                    <div class="form-row">
-                        <label>Topics to Exclude:</label>
-                        <textarea id="profile-interests-exclude" placeholder="Topics to filter out (free text)&#10;"
-                            rows="2"></textarea>
-                    </div>
-                    <div class="form-row">
-                        <label>Preferred Search Time Period:</label>
-                        <select id="profile-time-period">
-                            <option value="last week">Last week</option>
-                            <option value="last two weeks" selected>Last two weeks</option>
-                            <option value="last month">Last month</option>
-                            <option value="last 3 months">Last 3 months</option>
-                            <option value="last 6 months">Last 6 months</option>
-                        </select>
-                    </div>
+            <!-- Settings Tab Panel -->
+            <div class="tab-panel" id="tab-settings">
+                <div class="dashboard-header">
+                    <h2>⚙️ Research Profile & Personal Settings </h2>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
-                    <button onclick="clearProfile()" class="action-btn">🗑️ Clear Details</button>
-                    <span id="profile-save-status" class="save-status"></span>
+                <div class="settings-grid">
+                    <!-- Research Profile Section -->
+                    <div class="settings-section profile-section">
+                        <h3>👤 Research Profile</h3>
+                        <p class="section-desc">Update your research areas and preferences to get better paper
+                            recommendations.</p>
+                        <div class="profile-form">
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="profile-name" placeholder="Your name" />
+                            </div>
+                            <div class="form-row">
+                                <label>Email:</label>
+                                <input type="email" id="profile-email" placeholder="your.email@example.com" />
+                            </div>
+                            <div class="form-row">
+                                <label>Affiliation:</label>
+                                <input type="text" id="profile-affiliation" placeholder="Your institution" />
+                            </div>
+                            <div class="form-row">
+                                <label>Research Interests:</label>
+                                <textarea id="profile-interests-include"
+                                    placeholder="Describe your research areas (free text)&#10;e.g. machine learning, natural language processing, biology, AI agents"
+                                    rows="4"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label>Topics to Exclude:</label>
+                                <textarea id="profile-interests-exclude"
+                                    placeholder="Topics to filter out (free text)&#10;" rows="2"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label>Preferred Search Time Period:</label>
+                                <select id="profile-time-period">
+                                    <option value="last week">Last week</option>
+                                    <option value="last two weeks" selected>Last two weeks</option>
+                                    <option value="last month">Last month</option>
+                                    <option value="last 3 months">Last 3 months</option>
+                                    <option value="last 6 months">Last 6 months</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button onclick="saveProfile()" class="action-btn primary">💾 Save Profile</button>
+                            <button onclick="clearProfile()" class="action-btn">🗑️ Clear Details</button>
+                            <span id="profile-save-status" class="save-status"></span>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🔗 System Health</h3>
+                        <div id="health-status" class="health-status">
+                            <div class="health-item"><span class="health-label">Database:</span><span id="health-db"
+                                    class="health-value">Checking...</span></div>
+                            <div class="health-item"><span class="health-label">Pinecone:</span><span
+                                    id="health-pinecone" class="health-value">Checking...</span></div>
+                            <div class="health-item"><span class="health-label">Email Provider:</span><span
+                                    id="health-email" class="health-value">Checking...</span></div>
+                        </div>
+                        <button onclick="checkHealth()" class="action-btn">🔍 Check Health</button>
+                    </div>
+
+                    <!-- Inbox Check Settings -->
+                    <div class="settings-section">
+                        <h3>📬 Inbox Check Settings</h3>
+                        <p class="section-desc">Configure automatic inbox monitoring for email replies and colleague
+                            join requests.</p>
+                        <div class="inbox-settings-form">
+                            <div class="form-row">
+                                <label>Inbox Check Frequency:</label>
+                                <select id="inbox-check-frequency">
+                                    <option value="">Disabled (power saving)</option>
+                                    <option value="10">Every 10 seconds</option>
+                                    <option value="30">Every 30 seconds</option>
+                                    <option value="60">Every 1 minute</option>
+                                    <option value="300">Every 5 minutes</option>
+                                    <option value="900">Every 15 minutes</option>
+                                    <option value="3600">Every 1 hour</option>
+                                </select>
+                            </div>
+                            <div class="form-row" style="margin-top: 8px;">
+                                <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
+                                Settings</button>
+                            <button onclick="checkInboxNow()" class="action-btn">📥 Check Now</button>
+                        </div>
+                        <span id="inbox-save-status" class="save-status"></span>
+                    </div>
+
+                    <!-- Bottom row: 3 boxes side by side -->
+                    <div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                        <!-- Colleague Join Code -->
+                        <div class="settings-section">
+                            <h3>🔐 Colleague Join Code</h3>
+                            <p class="section-desc">Set a join code that colleagues must provide when requesting to join
+                                via
+                                email. Share this code privately with trusted colleagues.</p>
+                            <div class="join-code-form">
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <label>Current Code:</label>
+                                    <span id="current-join-code-display"
+                                        style="font-weight: bold; color: var(--accent);">Loading...</span>
+                                </div>
+                                <div class="form-row">
+                                    <label>Set New Code:</label>
+                                    <input type="text" id="colleague-join-code"
+                                        placeholder="Enter a secret code (4-32 chars)" maxlength="32" />
+                                </div>
+                                <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                </div>
+                            </div>
+                            <div
+                                style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Code</button>
+                                <button onclick="clearJoinCode()" class="action-btn">🗑️ Clear</button>
+                            </div>
+                            <span id="join-code-save-status" class="save-status"></span>
+                        </div>
+
+                        <!-- Papers per Run -->
+                        <div class="settings-section">
+                            <h3>📊 Papers per Run</h3>
+                            <p class="section-desc">How many papers to fetch from arXiv each run.</p>
+                            <div class="form-row" style="margin-bottom: 8px;">
+                                <label>Papers to fetch:</label>
+                                <input type="number" id="exec-retrieval-max" min="1" max="50" value="7"
+                                    style="width: 80px;" />
+                            </div>
+                            <p style="font-size: 0.8em; color: #888; margin: 0 0 12px 0;">
+                                ⚠️ Increasing this will consume more tokens, cost more, and be slower.
+                            </p>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="savePapersPerRunSettings()" class="action-btn primary">💾 Save
+                                    Settings</button>
+                                <button onclick="setDefaultPapersPerRun()" class="action-btn">🔄 Default</button>
+                            </div>
+                            <span id="exec-save-status" class="save-status"></span>
+                        </div>
+
+                        <!-- Execution Mode -->
+                        <div class="settings-section">
+                            <h3>⚙️ Execution Mode</h3>
+                            <p class="section-desc">Configure whether runs happen manually or on a schedule.</p>
+                            <div class="form-row" style="margin-bottom: 8px;">
+                                <label>Execution Mode:</label>
+                                <select id="exec-mode" onchange="toggleScheduleOptions()">
+                                    <option value="manual">Manual only</option>
+                                    <option value="scheduled">Keep alive (scheduled)</option>
+                                </select>
+                            </div>
+
+                            <!-- Schedule Options (shown only when scheduled) -->
+                            <div id="schedule-options"
+                                style="display: none; margin-left: 16px; padding: 12px; border-left: 3px solid var(--accent); margin-bottom: 12px;">
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <label>Frequency:</label>
+                                    <select id="exec-frequency" onchange="toggleEveryXDays()">
+                                        <option value="daily">Daily</option>
+                                        <option value="every_x_days">Every X days</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div id="every-x-days-input" style="display: none;" class="form-row">
+                                    <label>Every how many days?</label>
+                                    <input type="number" id="exec-every-x-days" min="1" max="30" value="3"
+                                        style="width: 80px;" />
+                                </div>
+                            </div>
+
+                            <!-- Run timestamps (read-only) -->
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
+                                <div>Last run: <span id="exec-last-run">—</span></div>
+                                <div>Next run: <span id="exec-next-run">—</span></div>
+                            </div>
+
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button onclick="saveExecutionModeSettings()" class="action-btn primary">💾 Save
+                                    Schedule</button>
+                                <button onclick="setDefaultExecutionMode()" class="action-btn">🔄 Default</button>
+                            </div>
+                            <span id="exec-save-status-mode" class="save-status"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            <div class="settings-section">
-                <h3>🔗 System Health</h3>
-                <div id="health-status" class="health-status">
-                    <div class="health-item"><span class="health-label">Database:</span><span id="health-db"
-                            class="health-value">Checking...</span></div>
-                    <div class="health-item"><span class="health-label">Pinecone:</span><span id="health-pinecone"
-                            class="health-value">Checking...</span></div>
-                    <div class="health-item"><span class="health-label">Email Provider:</span><span id="health-email"
-                            class="health-value">Checking...</span></div>
-                </div>
-                <button onclick="checkHealth()" class="action-btn">🔍 Check Health</button>
-            </div>
-
-            <!-- Inbox Check Settings -->
-            <div class="settings-section">
-                <h3>📬 Inbox Check Settings</h3>
-                <p class="section-desc">Configure automatic inbox monitoring for email replies and colleague
-                    join requests.</p>
-                <div class="inbox-settings-form">
-                    <div class="form-row">
-                        <label>Inbox Check Frequency:</label>
-                        <select id="inbox-check-frequency">
-                            <option value="">Disabled (power saving)</option>
-                            <option value="10">Every 10 seconds</option>
-                            <option value="30">Every 30 seconds</option>
-                            <option value="60">Every 1 minute</option>
-                            <option value="300">Every 5 minutes</option>
-                            <option value="900">Every 15 minutes</option>
-                            <option value="3600">Every 1 hour</option>
-                        </select>
-                    </div>
-                    <div class="form-row" style="margin-top: 8px;">
-                        <span id="inbox-last-check" style="font-size: 0.85em; color: #666;"></span>
-                    </div>
-                </div>
-                <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <button onclick="saveInboxSettings()" class="action-btn primary">💾 Save Inbox
-                        Settings</button>
-                    <button onclick="checkInboxNow()" class="action-btn">📥 Check Now</button>
-                </div>
-                <span id="inbox-save-status" class="save-status"></span>
-            </div>
-
-            <!-- Bottom row: 3 boxes side by side -->
-            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-                <!-- Colleague Join Code -->
-                <div class="settings-section">
-                    <h3>🔐 Colleague Join Code</h3>
-                    <p class="section-desc">Set a join code that colleagues must provide when requesting to join
-                        via
-                        email. Share this code privately with trusted colleagues.</p>
-                    <div class="join-code-form">
-                        <div class="form-row" style="margin-bottom: 8px;">
-                            <label>Current Code:</label>
-                            <span id="current-join-code-display"
-                                style="font-weight: bold; color: var(--accent);">Loading...</span>
-                        </div>
-                        <div class="form-row">
-                            <label>Set New Code:</label>
-                            <input type="text" id="colleague-join-code" placeholder="Enter a secret code (4-32 chars)"
-                                maxlength="32" />
-                        </div>
-                        <div id="join-code-status" style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                        </div>
-                    </div>
-                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <button onclick="setJoinCode()" class="action-btn primary">🔑 Set Code</button>
-                        <button onclick="clearJoinCode()" class="action-btn">🗑️ Clear</button>
-                    </div>
-                    <span id="join-code-save-status" class="save-status"></span>
-                </div>
-
-                <!-- Papers per Run -->
-                <div class="settings-section">
-                    <h3>📊 Papers per Run</h3>
-                    <p class="section-desc">How many papers to fetch from arXiv each run.</p>
-                    <div class="form-row" style="margin-bottom: 8px;">
-                        <label>Papers to fetch:</label>
-                        <input type="number" id="exec-retrieval-max" min="1" max="50" value="7" style="width: 80px;" />
-                    </div>
-                    <p style="font-size: 0.8em; color: #888; margin: 0 0 12px 0;">
-                        ⚠️ Increasing this will consume more tokens, cost more, and be slower.
-                    </p>
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <button onclick="savePapersPerRunSettings()" class="action-btn primary">💾 Save
-                            Settings</button>
-                        <button onclick="setDefaultPapersPerRun()" class="action-btn">🔄 Default</button>
-                    </div>
-                    <span id="exec-save-status" class="save-status"></span>
-                </div>
-
-                <!-- Execution Mode -->
-                <div class="settings-section">
-                    <h3>⚙️ Execution Mode</h3>
-                    <p class="section-desc">Configure whether runs happen manually or on a schedule.</p>
-                    <div class="form-row" style="margin-bottom: 8px;">
-                        <label>Execution Mode:</label>
-                        <select id="exec-mode" onchange="toggleScheduleOptions()">
-                            <option value="manual">Manual only</option>
-                            <option value="scheduled">Keep alive (scheduled)</option>
-                        </select>
-                    </div>
-
-                    <!-- Schedule Options (shown only when scheduled) -->
-                    <div id="schedule-options"
-                        style="display: none; margin-left: 16px; padding: 12px; border-left: 3px solid var(--accent); margin-bottom: 12px;">
-                        <div class="form-row" style="margin-bottom: 8px;">
-                            <label>Frequency:</label>
-                            <select id="exec-frequency" onchange="toggleEveryXDays()">
-                                <option value="daily">Daily</option>
-                                <option value="every_x_days">Every X days</option>
-                                <option value="weekly">Weekly</option>
-                                <option value="monthly">Monthly</option>
-                            </select>
-                        </div>
-                        <div id="every-x-days-input" style="display: none;" class="form-row">
-                            <label>Every how many days?</label>
-                            <input type="number" id="exec-every-x-days" min="1" max="30" value="3"
-                                style="width: 80px;" />
-                        </div>
-                    </div>
-
-                    <!-- Run timestamps (read-only) -->
-                    <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
-                        <div>Last run: <span id="exec-last-run">—</span></div>
-                        <div>Next run: <span id="exec-next-run">—</span></div>
-                    </div>
-
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <button onclick="saveExecutionModeSettings()" class="action-btn primary">💾 Save
-                            Schedule</button>
-                        <button onclick="setDefaultExecutionMode()" class="action-btn">🔄 Default</button>
-                    </div>
-                    <span id="exec-save-status-mode" class="save-status"></span>
-                </div>
-            </div>
-        </div>
-    </div>
-    </main>
+        </main>
     </div>
 
     <script>
@@ -8719,7 +8776,9 @@
 
         function closeAutonomousModal() {
             document.getElementById('autonomous-modal').classList.remove('active');
-            document.querySelector('.autonomous-modal')?.classList.remove('expanded');
+            const modal = document.querySelector('.autonomous-modal');
+            modal?.classList.remove('expanded');
+            modal?.querySelector('.live-doc-actions')?.remove();
         }
 
         // Close modal when clicking overlay
@@ -8784,12 +8843,19 @@
                     .live-doc-rendered code { background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; }
                     </style>
                     <div class="live-doc-rendered">${htmlContent}</div>
-                    <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                        <button id="toggle-modal-size" onclick="toggleModalSize()" class="action-btn" style="font-size: 0.82rem;">↔️ Expand / Collapse</button>
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="doDownloadLiveDoc()" class="action-btn">⬇️ Download .txt</button>
-                            <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset</button>
-                        </div>
+                `;
+                // Render the sticky action bar outside the scrollable content
+                let actionsBar = contentEl.parentElement.querySelector('.live-doc-actions');
+                if (!actionsBar) {
+                    actionsBar = document.createElement('div');
+                    actionsBar.className = 'live-doc-actions';
+                    contentEl.parentElement.appendChild(actionsBar);
+                }
+                actionsBar.innerHTML = `
+                    <button id="toggle-modal-size" onclick="toggleModalSize()" class="action-btn" style="font-size: 0.82rem;">↔️ Expand / Collapse</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="doDownloadLiveDoc()" class="action-btn">⬇️ Download .txt</button>
+                        <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset</button>
                     </div>
                 `;
             } catch (error) {
@@ -9001,7 +9067,6 @@
                                 <span class="audit-log-stat">📊 ${log.papers_scored_count || 0} scored</span>
                                 <span class="audit-log-stat">✉️ ${log.papers_shared_count || 0} shared</span>
                                 <span class="audit-log-stat">🗑️ ${log.papers_discarded_count || 0} discarded</span>
-                                <span class="audit-log-stat">⏱️ ${durationSec}s</span>
                             </div>
                             ${log.stop_reason ? `<div style="color: var(--text-secondary); margin-top: 6px; font-size: 0.82rem;">Stop: ${escapeHtml(log.stop_reason)}</div>` : ''}
                         </div>
