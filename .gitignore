@@ -1,15 +1,29 @@
-# Environment
+# =============================================================================
+# ResearchPulse .gitignore
+# =============================================================================
+
+# ── Environment & Secrets ────────────────────────────────────────────────────
+# .env.example is tracked as a template; real secrets stay local
 .env
+.env.*
+!.env.example
+
+# ── Python virtual environments ──────────────────────────────────────────────
 .venv/
 venv/
 env/
+.Python
 
-# Python
+# ── Python bytecode & caches ─────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
+.mypy_cache/
+.pytype/
+.ruff_cache/
+
+# ── Distribution / packaging ─────────────────────────────────────────────────
 *.egg
 *.egg-info/
 dist/
@@ -17,28 +31,48 @@ build/
 eggs/
 *.manifest
 *.spec
+sdist/
+wheels/
+pip-wheel-metadata/
 
-# IDE
+# ── Testing & coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+unit_testing/unit_testing_results.txt
+
+# ── IDE / Editor settings ────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# ── OS-generated files ───────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+Desktop.ini
+ehthumbs.db
 
-# Logs
+# ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
+logs/
 
-# Local artifacts that shouldn't be shared
+# ── Local artifacts (generated / personal) ───────────────────────────────────
 artifacts/calendar/*.ics
 artifacts/emails/*.txt
 artifacts/shares/*.txt
 MY_AGENT_EXPLANATION.md
-summary.md
 MY_AGENT_DEPLOYMENT_PLAN.md
+summary.md
 Course Project.txt
 Course Project.pdf
-.pytest_cache/
+
+# ── uv lock file (optional — remove this line if you want to pin deps) ──────
+# uv.lock
