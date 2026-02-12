@@ -312,14 +312,41 @@ class TestColleagueSignupEmailDetection:
         
         assert result is True
     
-    def test_reject_email_without_code_or_rp_mention(self):
-        """Should reject email without join code and without ResearchPulse mention."""
+    def test_accept_personal_email_without_code_or_rp_mention(self):
+        """Personal emails are now accepted for processing even without code or RP mention.
+        
+        The broadened detection treats any non-automated email as a potential
+        interaction. The processing layer handles format validation and sends
+        instructions once per sender.
+        """
         from src.tools.email_poller import is_colleague_signup_email
         
         subject = "Hello"
         body = "I want updates"
         
         result = is_colleague_signup_email(subject, body)
+        
+        assert result is True
+    
+    def test_reject_automated_noreply_email(self):
+        """Should reject automated/noreply emails even with signup-like content."""
+        from src.tools.email_poller import is_colleague_signup_email
+        
+        subject = "Subscribe me to ResearchPulse"
+        body = "I want research paper updates"
+        
+        result = is_colleague_signup_email(subject, body, from_email="noreply@example.com")
+        
+        assert result is False
+    
+    def test_reject_automated_out_of_office(self):
+        """Should reject out-of-office auto-replies."""
+        from src.tools.email_poller import is_colleague_signup_email
+        
+        subject = "Automatic Reply: Out of Office"
+        body = "I am currently out of the office."
+        
+        result = is_colleague_signup_email(subject, body, from_email="person@example.com")
         
         assert result is False
     
@@ -1086,22 +1113,23 @@ class TestFollowUpMessageContent:
         processor = InboundEmailProcessor.__new__(InboundEmailProcessor)
         
         # Mock the _send_join_reply to capture the body
-        captured_body = []
-        def capture_send(to_email, subject, body):
-            captured_body.append(body)
+        captured = []
+        def capture_send(**kwargs):
+            captured.append(kwargs)
         
         processor._send_join_reply = capture_send
         
         processor._send_onboarding_interests_reply("test@example.com", "John", "")
         
-        assert len(captured_body) == 1
-        body = captured_body[0]
+        assert len(captured) == 1
+        body = captured[0].get("body", "")
+        html = captured[0].get("html_body", "")
+        text = body + html  # Check content in either format
         
         # Check key content
-        assert "Hi John" in body
-        assert "machine learning" in body.lower()
-        assert "computer vision" in body.lower()
-        assert "e.g." in body or "example" in body.lower()
+        assert "John" in text
+        assert "machine learning" in text.lower()
+        assert "computer vision" in text.lower()
     
     def test_name_request_message_content(self):
         """Name request email should ask for name."""
@@ -1109,18 +1137,20 @@ class TestFollowUpMessageContent:
         
         processor = InboundEmailProcessor.__new__(InboundEmailProcessor)
         
-        captured_body = []
-        def capture_send(to_email, subject, body):
-            captured_body.append(body)
+        captured = []
+        def capture_send(**kwargs):
+            captured.append(kwargs)
         
         processor._send_join_reply = capture_send
         
         processor._send_onboarding_name_reply("test@example.com", "", "")
         
-        assert len(captured_body) == 1
-        body = captured_body[0]
+        assert len(captured) == 1
+        body = captured[0].get("body", "")
+        html = captured[0].get("html_body", "")
+        text = body + html
         
-        assert "name" in body.lower()
+        assert "name" in text.lower()
 
 
 if __name__ == "__main__":

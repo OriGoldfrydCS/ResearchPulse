@@ -42,9 +42,30 @@ def decode_email_subject(subject: str) -> str:
     return ''.join(result)
 
 
+def _strip_html_tags(html: str) -> str:
+    """Convert HTML to plain text by stripping tags and decoding entities."""
+    import html as html_module
+    # Replace <br>, <br/>, <p>, <div> with newlines for readability
+    text = re.sub(r'<br\s*/?\s*>', '\n', html, flags=re.IGNORECASE)
+    text = re.sub(r'</(p|div|tr|li)>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<(p|div|tr|li|h[1-6])[^>]*>', '\n', text, flags=re.IGNORECASE)
+    # Remove all remaining HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    # Decode HTML entities (&amp; &lt; &#39; etc.)
+    text = html_module.unescape(text)
+    # Collapse excessive whitespace/newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def get_email_body(msg: Message) -> str:
-    """Extract plain text body from email message."""
+    """Extract plain text body from email message.
+    
+    Prefers text/plain part; falls back to text/html (stripped of tags)
+    when no plain text part is available.
+    """
     body = ""
+    html_body = ""
     
     if msg.is_multipart():
         for part in msg.walk():
@@ -55,19 +76,36 @@ def get_email_body(msg: Message) -> str:
             if "attachment" in content_disposition:
                 continue
                 
-            if content_type == "text/plain":
+            if content_type == "text/plain" and not body:
                 try:
                     payload = part.get_payload(decode=True)
                     charset = part.get_content_charset() or 'utf-8'
                     body = payload.decode(charset, errors='replace')
-                    break
                 except Exception as e:
-                    logger.warning(f"Error decoding email part: {e}")
+                    logger.warning(f"Error decoding text/plain part: {e}")
+            elif content_type == "text/html" and not html_body:
+                try:
+                    payload = part.get_payload(decode=True)
+                    charset = part.get_content_charset() or 'utf-8'
+                    html_body = payload.decode(charset, errors='replace')
+                except Exception as e:
+                    logger.warning(f"Error decoding text/html part: {e}")
+        
+        # Prefer plain text; fall back to stripped HTML
+        if not body and html_body:
+            logger.info("[EMAIL_BODY] No text/plain part found — falling back to stripped HTML")
+            body = _strip_html_tags(html_body)
     else:
         try:
             payload = msg.get_payload(decode=True)
             charset = msg.get_content_charset() or 'utf-8'
-            body = payload.decode(charset, errors='replace')
+            raw = payload.decode(charset, errors='replace')
+            content_type = msg.get_content_type()
+            if content_type == "text/html":
+                logger.info("[EMAIL_BODY] Non-multipart HTML email — stripping tags")
+                body = _strip_html_tags(raw)
+            else:
+                body = raw
         except Exception as e:
             logger.warning(f"Error decoding email body: {e}")
     
@@ -433,15 +471,57 @@ def has_join_code_pattern(text: str) -> bool:
     return False
 
 
-def is_colleague_signup_email(subject: str, body: str) -> bool:
-    """Check if this email is a request to sign up for research updates.
+# Automated / no-reply senders that should never be treated as colleague emails
+_AUTOMATED_SENDER_PATTERNS = [
+    "noreply", "no-reply", "no_reply",
+    "mailer-daemon", "postmaster",
+    "notifications@", "notification@",
+    "donotreply", "do-not-reply", "do_not_reply",
+    "bounce", "auto-reply", "autoreply",
+    "daemon@", "system@",
+]
+
+
+def _is_automated_email(from_email: str, subject: str) -> bool:
+    """Return True if the email appears to be automated / not from a real person."""
+    addr = from_email.lower()
+    subj = subject.lower()
+
+    # Check sender patterns
+    for pat in _AUTOMATED_SENDER_PATTERNS:
+        if pat in addr:
+            return True
+
+    # Common automated subject indicators
+    auto_subjects = [
+        "auto-reply", "automatic reply", "out of office",
+        "delivery status", "undeliverable", "returned mail",
+        "newsletter", "promotion", "verify your email",
+    ]
+    for pat in auto_subjects:
+        if pat in subj:
+            return True
+
+    return False
+
+
+def is_colleague_signup_email(subject: str, body: str, from_email: str = "") -> bool:
+    """Check if this email is a potential colleague interaction.
     
-    Look for keywords indicating the sender wants to receive research paper updates.
-    An email is considered a signup if:
-    - It contains a join code pattern (primary indicator), OR
-    - It mentions ResearchPulse AND has signup intent keywords
+    Classification priority:
+    1. Contains a join code pattern → definite signup attempt
+    2. Mentions ResearchPulse + signup intent → definite signup
+    3. Any non-automated personal email → potential interaction
+       (the processing layer will check format and send instructions)
+    
+    Only filters OUT clearly automated / system-generated emails.
     """
     text = (subject + " " + body).lower()
+    
+    # FILTER OUT: Automated / no-reply / system emails
+    if from_email and _is_automated_email(from_email, subject):
+        logger.debug(f"[EMAIL_POLLER] Automated email from {from_email[:30]} - skipping")
+        return False
     
     # PRIORITY 1: If email contains a join code pattern, it's a signup attempt
     if has_join_code_pattern(text):
@@ -464,7 +544,7 @@ def is_colleague_signup_email(subject: str, body: str) -> bool:
         "recommendation",
         "colleague list",
         "add to your",
-        "colleagues list",  # Added common variant
+        "colleagues list",
     ]
     
     researchpulse_keywords = [
@@ -472,17 +552,18 @@ def is_colleague_signup_email(subject: str, body: str) -> bool:
         "research pulse",
     ]
     
-    # Check if this mentions ResearchPulse and has signup intent
+    # PRIORITY 2: Mentions ResearchPulse and has signup intent
     mentions_rp = any(kw in text for kw in researchpulse_keywords)
     has_signup_intent = any(kw in text for kw in signup_keywords)
     
-    # Log classification decision
     if mentions_rp and has_signup_intent:
         logger.info("[EMAIL_POLLER] Email matches ResearchPulse + signup intent")
         return True
     
-    logger.debug(f"[EMAIL_POLLER] Email not classified as signup (mentions_rp={mentions_rp}, has_intent={has_signup_intent})")
-    return False
+    # PRIORITY 3: Treat any non-automated email as a potential interaction
+    # The inbound processor will check the format and send instructions once
+    logger.info(f"[EMAIL_POLLER] Non-automated email detected - treating as potential interaction")
+    return True
 
 
 def extract_name_from_email_header(from_header: str) -> str:
@@ -726,6 +807,13 @@ def fetch_colleague_signup_emails(since_hours: int = 48, diagnostic_mode: bool =
                 from_match = re.search(r'[\w\.-]+@[\w\.-]+', from_addr)
                 from_email = from_match.group(0) if from_match else from_addr
                 
+                # Skip emails from ourselves (ResearchPulse's own outbound replies)
+                system_email = config["user"].lower()
+                if system_email and from_email.lower() == system_email:
+                    filtered_out += 1
+                    logger.debug(f"[MSG_ROUTE] Skipping self-sent email from {from_email}")
+                    continue
+                
                 # Create correlation ID for this message
                 corr_id = f"UID{uid}|{message_id[:12]}" if message_id else f"UID{uid}|idx{eid_str}"
                 
@@ -737,10 +825,10 @@ def fetch_colleague_signup_emails(since_hours: int = 48, diagnostic_mode: bool =
                 body_preview = body[:100].replace('\n', ' ') if body else "(empty)"
                 logger.debug(f"[MSG_READ][{corr_id}] body_preview={body_preview}, parse_time={time.time() - parse_start:.2f}s")
                 
-                # Check if this is a signup email
-                if not is_colleague_signup_email(subject, body):
+                # Check if this is a potential colleague interaction
+                if not is_colleague_signup_email(subject, body, from_email):
                     filtered_out += 1
-                    logger.debug(f"[MSG_ROUTE][{corr_id}] intent=NOT_SIGNUP (filtered out)")
+                    logger.debug(f"[MSG_ROUTE][{corr_id}] intent=AUTOMATED (filtered out)")
                     continue
                 
                 logger.info(f"[MSG_ROUTE][{corr_id}] intent=JOIN_REQUEST from={from_email}")

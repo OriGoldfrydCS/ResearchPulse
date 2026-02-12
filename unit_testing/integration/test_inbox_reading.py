@@ -216,23 +216,24 @@ class TestIsColleagueSignupEmail:
         assert result is True
     
     def test_non_signup_email(self):
-        """Test that unrelated email is not detected as signup."""
+        """Non-automated personal emails are now treated as potential interactions."""
         subject = "Question about your paper"
         body = "I have a question about the methodology in your recent paper."
         
         result = is_colleague_signup_email(subject, body)
         
-        assert result is False
+        # Broadened: any personal email is a potential interaction
+        assert result is True
     
     def test_signup_missing_researchpulse(self):
-        """Test that signup without ResearchPulse mention is not detected."""
+        """Emails without explicit ResearchPulse mention are still accepted."""
         subject = "Subscribe me"
         body = "I want to subscribe to your mailing list."
         
-        # Needs to mention ResearchPulse
+        # Broadened: no longer requires ResearchPulse mention
         result = is_colleague_signup_email(subject, body)
         
-        assert result is False
+        assert result is True
 
 
 class TestFetchRecentRepliesMocked:

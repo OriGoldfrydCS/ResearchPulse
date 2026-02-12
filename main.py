@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from src.api import router
 from src.api.dashboard_routes import router as dashboard_router
+from src.api.colleague_routes import router as colleague_router
 
 # =============================================================================
 # Environment Configuration
@@ -92,6 +93,7 @@ app.add_middleware(
 # Include API routes
 app.include_router(router, prefix="/api")
 app.include_router(dashboard_router)  # router already has /api prefix
+app.include_router(colleague_router)  # self-service colleague endpoints
 
 # Mount static files
 static_path = Path(__file__).parent / "static"

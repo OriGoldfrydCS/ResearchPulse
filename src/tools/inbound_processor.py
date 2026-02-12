@@ -96,6 +96,10 @@ def extract_join_code_from_email(body: str, subject: str) -> Optional[str]:
     """
     text = f"{subject}\n{body}".strip()
     
+    # Diagnostic: log what we're searching through
+    text_preview = text[:200].replace('\n', '\\n') if text else "(empty)"
+    logger.info(f"[JOIN_CODE] Searching text (length={len(text)}): {text_preview}")
+    
     # Common patterns for join codes (case-insensitive, whitespace tolerant)
     patterns = [
         r'(?:join\s*)?code[:\s=]+([A-Za-z0-9-_]{4,32})',  # code: 123456, code=123456, join code 123456
@@ -115,6 +119,42 @@ def extract_join_code_from_email(body: str, subject: str) -> Optional[str]:
     
     logger.info(f"[JOIN_CODE] No code found in email (text_length={len(text)})")
     return None
+
+
+def extract_signup_template_fields(body: str, subject: str) -> Dict[str, Optional[str]]:
+    """
+    Extract name and interests from the structured signup template format.
+    
+    Expected format (as given in our instruction email):
+        Code: ABC123
+        Name: Jane Smith
+        Research interests: machine learning, NLP, transformers
+    
+    Returns:
+        Dict with 'name' and 'interests' (either can be None if not found)
+    """
+    text = f"{subject}\n{body}"
+    result = {"name": None, "interests": None}
+    
+    # Extract Name: field
+    name_match = re.search(r'name[:\s]+([^\n\r]+)', text, re.IGNORECASE)
+    if name_match:
+        name = name_match.group(1).strip()
+        # Filter out placeholder values
+        if name.lower() not in ('your full name', 'your name', 'jane smith', ''):
+            result["name"] = name
+            logger.info(f"[TEMPLATE_PARSE] Extracted name: {name}")
+    
+    # Extract Research interests: field (or just interests:)
+    interests_match = re.search(r'(?:research\s+)?interests?[:\s]+([^\n\r]+)', text, re.IGNORECASE)
+    if interests_match:
+        interests = interests_match.group(1).strip()
+        # Filter out placeholder values
+        if interests.lower() not in ('topic1, topic2, topic3', 'your interests', ''):
+            result["interests"] = interests
+            logger.info(f"[TEMPLATE_PARSE] Extracted interests: {interests}")
+    
+    return result
 
 
 def is_colleague_join_request(subject: str, body: str) -> bool:
@@ -773,10 +813,9 @@ class InboundEmailProcessor:
         # Check if join code is configured
         join_hash = self.join_code_hash
         if not join_hash:
-            logger.warning("[INBOUND] No join code configured in DB - colleague join processing DISABLED")
-            return results
-        
-        logger.info(f"[INBOUND] Join code configured (hash_prefix={join_hash[:10]}...)")
+            logger.info("[INBOUND] No join code configured in DB - will send instructions to new senders")
+        else:
+            logger.info(f"[INBOUND] Join code configured (hash_prefix={join_hash[:10]}...)")
         
         # Fetch potential signup emails
         signups = fetch_colleague_signup_emails(since_hours=since_hours)
@@ -812,6 +851,11 @@ class InboundEmailProcessor:
         logger.info(f"[INBOUND] Found {len(onboarding_colleagues)} colleagues needing onboarding info")
         
         logger.info(f"[INBOUND] Processing {len(signups)} potential colleague join emails")
+        
+        # Per-batch dedup: track senders we've already sent instruction
+        # replies to within THIS polling cycle to avoid duplicate replies
+        # for multiple emails from the same person in one scan.
+        instructed_this_batch: set[str] = set()
         
         for signup in signups:
             message_id = signup.get("message_id", "")
@@ -883,53 +927,130 @@ class InboundEmailProcessor:
             logger.debug(f"[IDEMPOTENT][{corr_id}] not_processed_yet=true")
             results["processed"] += 1
             
-            # Not an onboarding continuation - require join code for new signups
-            # (provided_code was already extracted above)
+            # ── Join code gating ──
+            # A join code is ALWAYS required for colleague signups.
+            # Per-batch dedup: only send one instruction email per sender per poll cycle.
+            sender_key = from_email.lower()
+            already_instructed_this_batch = sender_key in instructed_this_batch
+            
             if not provided_code:
-                # No code found - silently skip this email without replying
-                # This avoids sending confusing replies to random emails
-                logger.info(f"[JOIN_PROC][{corr_id}] No code found - skipping silently (no reply)")
+                if already_instructed_this_batch:
+                    logger.info(f"[JOIN_PROC][{corr_id}] No code & already instructed {from_email} this batch - silent skip")
+                    self.store.mark_email_processed(
+                        user_id=self.user_id,
+                        gmail_message_id=message_id,
+                        email_type="colleague_join",
+                        processing_result="repeat_ignored",
+                        from_email=from_email,
+                        subject=subject,
+                    )
+                    results["rejected"] += 1
+                    continue
+                
+                # Send instruction reply
+                logger.info(f"[JOIN_PROC][{corr_id}] No code found - sending instruction reply")
+                self._send_join_code_required_reply(from_email, from_name)
+                instructed_this_batch.add(sender_key)
                 self.store.mark_email_processed(
                     user_id=self.user_id,
                     gmail_message_id=message_id,
                     email_type="colleague_join",
-                    processing_result="rejected_no_code_silent",
+                    processing_result="rejected_no_code_replied",
                     from_email=from_email,
                     subject=subject,
                 )
                 results["rejected"] += 1
                 continue
             
-            # Verify join code
+            # Code provided but owner hasn't configured a join code yet
+            if not join_hash:
+                if already_instructed_this_batch:
+                    logger.info(f"[JOIN_PROC][{corr_id}] Code provided but no join code in DB & already instructed this batch - silent skip")
+                    self.store.mark_email_processed(
+                        user_id=self.user_id,
+                        gmail_message_id=message_id,
+                        email_type="colleague_join",
+                        processing_result="repeat_ignored",
+                        from_email=from_email,
+                        subject=subject,
+                    )
+                    results["rejected"] += 1
+                    continue
+                
+                logger.info(f"[JOIN_PROC][{corr_id}] Code provided but no join code configured - sending not-configured reply")
+                self._send_not_configured_reply(from_email, from_name)
+                instructed_this_batch.add(sender_key)
+                self.store.mark_email_processed(
+                    user_id=self.user_id,
+                    gmail_message_id=message_id,
+                    email_type="colleague_join",
+                    processing_result="rejected_not_configured_replied",
+                    from_email=from_email,
+                    subject=subject,
+                )
+                results["rejected"] += 1
+                continue
+            
+            # Code provided - validate against the stored join hash
+            # (always try, even if previously instructed - they followed instructions!)
             code_valid = verify_join_code(provided_code, join_hash)
             if not code_valid:
-                # Invalid code - silently skip this email without replying
-                # This avoids revealing whether a code exists and prevents spam
-                logger.warning(f"[JOIN_PROC][{corr_id}] Invalid code - skipping silently (no reply)")
+                if already_instructed_this_batch:
+                    logger.info(f"[JOIN_PROC][{corr_id}] Invalid code & already instructed this batch - silent skip")
+                    self.store.mark_email_processed(
+                        user_id=self.user_id,
+                        gmail_message_id=message_id,
+                        email_type="colleague_join",
+                        processing_result="repeat_ignored",
+                        from_email=from_email,
+                        subject=subject,
+                    )
+                    results["rejected"] += 1
+                    continue
+                
+                logger.warning(f"[JOIN_PROC][{corr_id}] Invalid code - sending instruction reply")
+                self._send_invalid_code_reply(from_email, from_name)
+                instructed_this_batch.add(sender_key)
                 self.store.mark_email_processed(
                     user_id=self.user_id,
                     gmail_message_id=message_id,
                     email_type="colleague_join",
-                    processing_result="rejected_invalid_code_silent",
+                    processing_result="rejected_invalid_code_replied",
                     from_email=from_email,
                     subject=subject,
                 )
                 results["rejected"] += 1
                 continue
             
-            logger.info(f"[JOIN_PROC][{corr_id}] Code VALID - analyzing email with reasoning")
+            # ── Valid code - process signup ──
+            logger.info(f"[JOIN_PROC][{corr_id}] Code VALID - analyzing email with LLM reasoning")
             
-            # Valid code - use LLM reasoning to understand the email content
+            # PRIORITY: First try direct template extraction (matches our instruction format)
+            template_fields = extract_signup_template_fields(body, subject)
+            template_name = template_fields.get("name")
+            template_interests = template_fields.get("interests")
+            
+            if template_name or template_interests:
+                logger.info(f"[JOIN_PROC][{corr_id}] Template extraction found: name={template_name}, interests={template_interests}")
+            
+            # Use LLM reasoning to understand the email content
             try:
                 # Step 1: Analyze the email with reasoning
                 analysis = self._analyze_signup_email_with_reasoning(body, subject, from_name, corr_id)
                 intent = analysis.get("intent", "unclear")
                 response_type = analysis.get("response_type", "clarify_intent")
-                extracted_name = analysis.get("name") or from_name
-                extracted_interests = analysis.get("interests")
+                extracted_name = template_name or analysis.get("name") or from_name
+                extracted_interests = template_interests or analysis.get("interests")
                 custom_message = analysis.get("custom_message")
                 
                 logger.info(f"[JOIN_PROC][{corr_id}] Reasoning analysis: intent={intent}, response_type={response_type}")
+                
+                # Override intent if we got clear data from template parsing
+                # (user followed our instruction format = clear signup intent)
+                if template_interests:
+                    logger.info(f"[JOIN_PROC][{corr_id}] Template interests found - overriding intent to clear_signup")
+                    intent = "clear_signup"
+                    response_type = "welcome_complete" if extracted_name and extracted_interests else "ask_all"
                 
                 # Step 2: Handle based on analysis result
                 if intent in ("just_code", "unclear") or response_type == "clarify_intent":
@@ -975,7 +1096,7 @@ class InboundEmailProcessor:
                     
                     # Send appropriate reply based on onboarding status
                     if onboarding_status == "complete":
-                        self._send_join_success_reply(from_email, extracted_name)
+                        self._send_join_success_reply(from_email, extracted_name, interests=extracted_interests)
                         logger.info(f"[REPLY][{corr_id}] Sent welcome email (complete)")
                     elif onboarding_status == "needs_interests":
                         self._send_onboarding_interests_reply(from_email, extracted_name, thread_id)
@@ -1180,7 +1301,8 @@ class InboundEmailProcessor:
         
         # Send appropriate response
         if new_status == "complete":
-            self._send_join_success_reply(from_email, new_name or from_name or current_name)
+            final_interests = new_interests if new_interests else None
+            self._send_join_success_reply(from_email, new_name or from_name or current_name, interests=final_interests)
             logger.info(f"[REPLY][{corr_id}] Sent onboarding complete welcome email")
         elif new_status == "needs_interests":
             self._send_onboarding_interests_reply(from_email, new_name or from_name or current_name, "")
@@ -2014,62 +2136,67 @@ EXTRACTED INTERESTS:"""
             return (None, "error")
     
     def _send_join_code_required_reply(self, to_email: str, name: str):
-        """Send a reply requesting the join code."""
+        """Send a reply requesting the join code with HTML template."""
+        from .email_templates import render_onboarding_instruction_email
+        subject, plain, html = render_onboarding_instruction_email(name or "", reason="missing_code")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: Join Code Required",
-            body=f"""Hi {name or 'there'},
-
-Thank you for your interest in receiving research paper updates from ResearchPulse!
-
-To complete your subscription, please reply with your join code. The join code should have been provided to you by the ResearchPulse owner.
-
-Format: Include "Code: YOUR_CODE" in your reply.
-
-If you don't have a join code, please contact the owner directly.
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
             email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=html,
         )
     
     def _send_invalid_code_reply(self, to_email: str, name: str):
-        """Send a reply indicating the join code was invalid."""
+        """Send a reply indicating the join code was invalid with HTML template."""
+        from .email_templates import render_onboarding_instruction_email
+        subject, plain, html = render_onboarding_instruction_email(name or "", reason="invalid_code")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: Invalid Join Code",
-            body=f"""Hi {name or 'there'},
-
-The join code you provided was not valid. This could mean:
-- The code was typed incorrectly
-- The code has been rotated/changed
-
-Please double-check your code and try again, or contact the ResearchPulse owner for a valid code.
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
             email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=html,
         )
     
-    def _send_join_success_reply(self, to_email: str, name: str):
-        """Send a confirmation that the colleague was added."""
+    def _send_not_configured_reply(self, to_email: str, name: str):
+        """Send a reply when no join code is configured yet."""
+        from .email_templates import render_onboarding_instruction_email
+        subject, plain, html = render_onboarding_instruction_email(name or "", reason="not_configured")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: Welcome! You're now subscribed",
-            body=f"""Hi {name or 'there'},
-
-Great news! You've been successfully added to ResearchPulse.
-
-You'll now receive research paper updates based on your interests. If you included any research interests in your signup email, we've noted them.
-
-To update your preferences or unsubscribe, please contact the ResearchPulse owner.
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
+            email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=html,
+        )
+    
+    def _send_join_success_reply(self, to_email: str, name: str, interests: list = None):
+        """Send a confirmation that the colleague was added, with HTML template."""
+        from .email_templates import render_colleague_confirmation_email
+        from .colleague_tokens import generate_remove_url, generate_update_url
+        import os
+        base_url = os.getenv("RESEARCHPULSE_BASE_URL", "https://researchpulse.app")
+        owner_id = str(self.user_id)
+        remove_url = generate_remove_url(base_url, owner_id, to_email)
+        update_url = generate_update_url(base_url, owner_id, to_email)
+        # Normalize interests to a list (may come as a comma-separated string)
+        if isinstance(interests, str):
+            interests_list = [i.strip() for i in interests.split(",") if i.strip()]
+        else:
+            interests_list = interests or []
+        subject, plain, html = render_colleague_confirmation_email(
+            colleague_name=name or "",
+            interests=interests_list,
+            remove_url=remove_url,
+            update_url=update_url,
+        )
+        self._send_join_reply(
+            to_email=to_email,
+            subject=subject,
+            body=plain,
             email_type=EmailType.WELCOME,
+            html_body=html,
         )
     
     def _send_clarify_intent_reply(self, to_email: str, name: str, custom_message: str = None, thread_id: str = ""):
@@ -2080,108 +2207,56 @@ ResearchPulse
         (e.g., just "GOOD MORNING" with a code).
         """
         logger.info(f"[REPLY] Sending clarify intent reply to {to_email}")
-        
-        # Build personalized intro if we have a custom message from LLM analysis
-        intro = ""
-        if custom_message:
-            intro = f"{custom_message}\n\n"
-        
+        from .email_templates import render_clarify_intent_email
+        subject, plain, html = render_clarify_intent_email(name or "", custom_message=custom_message)
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: Would you like research paper updates?",
-            body=f"""Hi {name or 'there'},
-
-{intro}I received your message with a valid join code! 🎉
-
-ResearchPulse sends personalized research paper recommendations based on your interests. To get started, I'd love to know:
-
-**What research topics interest you?**
-
-For example:
-- "I'm interested in machine learning and NLP"
-- "Computer vision and autonomous driving"
-- "Reinforcement learning and robotics"
-
-Just reply with your research interests and I'll start sending you relevant papers!
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
             email_type=EmailType.COLLEAGUE_JOIN,
+            html_body=html,
         )
     
     def _send_onboarding_questions_reply(self, to_email: str, name: str, thread_id: str = ""):
         """Send onboarding questions to collect both name and research interests."""
         logger.info(f"[REPLY] Sending full onboarding questions to {to_email}")
+        from .email_templates import render_onboarding_questions_email
+        subject, plain, html = render_onboarding_questions_email(name or "")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: Help us personalize your updates!",
-            body=f"""Hi there,
-
-Welcome to ResearchPulse! 🎉 You've been added to the system.
-
-To personalize your research paper recommendations, please reply with:
-
-1. **Your Name**: What should we call you?
-
-2. **Research Topics**: What topics interest you? (e.g., NLP, computer vision, reinforcement learning, transformers, LLMs)
-
-3. **Venues** (optional): Any preferred venues? (e.g., arXiv, NeurIPS, ACL, ICML, CVPR)
-
-Just reply to this email with your answers - no special format needed!
-
-Example reply:
-"My name is Alex. I'm interested in large language models and NLP, especially transformers and prompt engineering."
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
+            email_type=EmailType.ONBOARDING,
+            html_body=html,
         )
     
     def _send_onboarding_interests_reply(self, to_email: str, name: str, thread_id: str = ""):
         """Send onboarding question to collect only research interests."""
         logger.info(f"[REPLY] Sending interests request to {to_email}")
+        from .email_templates import render_onboarding_interests_email
+        subject, plain, html = render_onboarding_interests_email(name or "")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: What research topics interest you?",
-            body=f"""Hi {name or 'there'},
-
-Welcome to ResearchPulse! 🎉 You've been successfully added.
-
-To start sending you relevant paper recommendations, we need to know your research interests.
-
-Please reply with the topics you're interested in:
-- e.g., "machine learning, NLP, transformers"
-- e.g., "computer vision, object detection, autonomous driving"
-- e.g., "reinforcement learning, robotics, multi-agent systems"
-
-Just reply to this email with your interests - no special format needed!
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
+            email_type=EmailType.ONBOARDING,
+            html_body=html,
         )
     
     def _send_onboarding_name_reply(self, to_email: str, name: str, thread_id: str = ""):
         """Send onboarding question to collect only name."""
         logger.info(f"[REPLY] Sending name request to {to_email}")
+        from .email_templates import render_onboarding_name_email
+        subject, plain, html = render_onboarding_name_email(name or "")
         self._send_join_reply(
             to_email=to_email,
-            subject="ResearchPulse: One quick question!",
-            body=f"""Hi there,
-
-Welcome to ResearchPulse! 🎉 We've noted your research interests.
-
-One quick question: What's your name? This helps us personalize your updates.
-
-Just reply with your name and you'll be all set!
-
-Best regards,
-ResearchPulse
-""",
+            subject=subject,
+            body=plain,
+            email_type=EmailType.ONBOARDING,
+            html_body=html,
         )
     
-    def _send_join_reply(self, to_email: str, subject: str, body: str, email_type: EmailType = EmailType.ONBOARDING):
+    def _send_join_reply(self, to_email: str, subject: str, body: str, email_type: EmailType = EmailType.ONBOARDING, html_body: str = ""):
         """Send an email reply for join flow using unified outbound module."""
         try:
             # Use unified outbound email module for consistent sender name and tagging
@@ -2190,6 +2265,7 @@ ResearchPulse
                 subject=subject,
                 body=body,
                 email_type=email_type,
+                html_body=html_body or None,
             )
             
             if success:

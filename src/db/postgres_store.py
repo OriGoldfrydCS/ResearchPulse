@@ -1817,16 +1817,23 @@ class PostgresStore(Store):
                 return settings.to_dict()
             return self.get_or_create_user_settings(user_id)
     
-    def set_colleague_join_code_encrypted(self, user_id: UUID, encrypted_code: str) -> Dict[str, Any]:
-        """Set or update the colleague join code (encrypted for display-back)."""
+    def set_colleague_join_code_encrypted(self, user_id: UUID, encrypted_code: str, code_hash: Optional[str] = None) -> Dict[str, Any]:
+        """Set or update the colleague join code (encrypted for display-back).
+        
+        Args:
+            user_id: The user ID
+            encrypted_code: The AES-encrypted join code for display-back
+            code_hash: Optional bcrypt hash for verification (if not provided, existing hash is kept)
+        """
         with get_db_session() as db:
             settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
             if not settings:
                 settings = UserSettings(user_id=user_id)
                 db.add(settings)
             settings.colleague_join_code_encrypted = encrypted_code
-            # Also clear old bcrypt hash if present
-            settings.colleague_join_code_hash = None
+            # Only update hash if explicitly provided; do NOT clear it
+            if code_hash is not None:
+                settings.colleague_join_code_hash = code_hash
             settings.colleague_join_code_updated_at = datetime.utcnow()
             settings.updated_at = datetime.utcnow()
             db.commit()
@@ -2004,4 +2011,31 @@ class PostgresStore(Store):
             
             q = q.order_by(ProcessedInboundEmail.processed_at.desc()).limit(limit)
             return [p.to_dict() for p in q.all()]
+
+    def has_sent_instructions_to(
+        self,
+        user_id: UUID,
+        from_email: str,
+    ) -> bool:
+        """Check if we have already sent signup instructions to this sender.
+
+        Returns True if any processed email from this sender has a
+        processing_result that indicates an instruction reply was sent.
+        This prevents sending repeated instruction emails to the same person.
+        """
+        instruction_results = (
+            "rejected_no_code_replied",
+            "rejected_invalid_code_replied",
+            "rejected_not_configured_replied",
+            "instruction_sent",
+        )
+        with get_db_session() as db:
+            result = db.query(ProcessedInboundEmail).filter(
+                and_(
+                    ProcessedInboundEmail.user_id == user_id,
+                    ProcessedInboundEmail.from_email == from_email,
+                    ProcessedInboundEmail.processing_result.in_(instruction_results),
+                )
+            ).first()
+            return result is not None
 

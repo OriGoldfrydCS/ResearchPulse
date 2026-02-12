@@ -4425,9 +4425,8 @@ async def set_colleague_join_code(data: ColleagueJoinCodeRequest):
         encrypted = encrypt_join_code(data.code)
         code_hash = hash_join_code(data.code)
         
-        # Save both: hash for backward compat, encrypted for display-back
-        store.set_colleague_join_code(user_id, code_hash)
-        settings = store.set_colleague_join_code_encrypted(user_id, encrypted)
+        # Save both in a single call: hash for verification, encrypted for display-back
+        settings = store.set_colleague_join_code_encrypted(user_id, encrypted, code_hash=code_hash)
         
         return {
             "success": True,

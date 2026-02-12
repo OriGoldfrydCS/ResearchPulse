@@ -333,22 +333,31 @@ class TestColleagueSignupDetection:
         assert result is True
     
     def test_not_detected_unrelated_email(self):
-        """Test that unrelated emails are not detected."""
+        """Non-automated personal emails are now treated as potential interactions.
+        
+        The processing layer handles format checking and sends instructions once.
+        Only clearly automated/system emails are filtered out.
+        """
         subject = "Meeting tomorrow"
         body = "Let's discuss the project at 2pm."
         
         result = is_colleague_signup_email(subject, body)
         
-        assert result is False
+        # Personal emails are now accepted for processing
+        assert result is True
     
     def test_not_detected_without_researchpulse(self):
-        """Test that emails without ResearchPulse mention are not detected."""
+        """Emails without ResearchPulse mention are still accepted for processing.
+        
+        The broadened detection treats any non-automated email as a potential
+        interaction. Format validation happens in the processing layer.
+        """
         subject = "Newsletter subscription"
         body = "I want to subscribe to your mailing list."
         
         result = is_colleague_signup_email(subject, body)
         
-        assert result is False
+        assert result is True
 
 
 class TestColleagueEmailExtraction:
