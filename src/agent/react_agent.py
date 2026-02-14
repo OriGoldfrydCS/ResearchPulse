@@ -721,12 +721,11 @@ class ResearchReActAgent:
             categories_include = ["cs.LG", "stat.ML", "cs.AI"]
             self._log("INFO", "Using broad default categories: cs.LG, stat.ML, cs.AI")
         
-        # Merge categories derived from the INTERESTS portion of the prompt
-        # IMPORTANT: We use `self._parsed_prompt.topic` (the extracted interests
-        # text) — NOT the full user message (which also contains excluded topics
-        # like "Transformers" and "Attention" that would incorrectly add
-        # cs.CL / cs.IR to the include list).
-        prompt_interests_text = getattr(self._parsed_prompt, 'topic', '') or ''
+        # Merge categories derived from the INTERESTS portion of the prompt.
+        # IMPORTANT: We use `self._parsed_prompt.interests_only` which contains
+        # ONLY the extracted research interests (e.g. "Multi Armed Bandits, PCA,
+        # TSNE, Behavioral Economics") — NOT exclude terms or meta-text.
+        prompt_interests_text = getattr(self._parsed_prompt, 'interests_only', '') or ''
         if prompt_interests_text:
             user_categories = map_interests_to_categories(prompt_interests_text)
         else:
@@ -752,12 +751,26 @@ class ResearchReActAgent:
                 categories_exclude = [c for c in categories_exclude if c not in conflict]
                 self._log("WARN", f"Removed conflicting categories from exclude (also in include): {conflict}")
         
-        # Build a keyword query from research topics for more targeted arXiv search
+        # Build a keyword query from research topics for more targeted arXiv search.
+        # Prefer the clean interests_only text from prompt parsing, which guarantees
+        # that only the user's actual research interests are used in the query
+        # (no exclude terms, no meta-text).
         research_topics = self._research_profile.get("research_topics", [])
         topic_query = None
-        if research_topics:
+        
+        # Primary: use prompt interests (clean, exclude-free)
+        prompt_interests = getattr(self._parsed_prompt, 'interests_only', '') if self._parsed_prompt else ''
+        if prompt_interests:
+            # Split comma-separated interests into individual query terms
+            interest_terms = [t.strip() for t in prompt_interests.split(',') if t.strip()]
+            if interest_terms:
+                topic_query = " OR ".join(interest_terms)
+                self._log("INFO", f"Using interest keywords for arXiv query: {topic_query}")
+        
+        # Fallback to research_topics from profile
+        if not topic_query and research_topics:
             topic_query = " OR ".join(research_topics)
-            self._log("INFO", f"Using topic keyword query for arXiv: {topic_query}")
+            self._log("INFO", f"Using profile topics for arXiv query: {topic_query}")
         
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",
@@ -925,6 +938,26 @@ class ResearchReActAgent:
                     score_result["importance"] = "medium"
                 else:
                     score_result["importance"] = "low"
+            
+            # ==================================================================
+            # HARD RELEVANCE GATE (FUNDAMENTAL CHANGE)
+            # ==================================================================
+            # Papers must demonstrate POSITIVE relevance to the researcher's
+            # stated interests. If a paper has zero topic keyword overlap AND
+            # gets a low LLM score (or no LLM), it is DROPPED entirely — not
+            # delivered as LOW, but removed from results.
+            #
+            # This prevents the system from flooding the user with papers that
+            # happen to share a broad arXiv category (e.g., cs.LG) but have
+            # nothing to do with the user's actual interests.
+            # ==================================================================
+            HARD_RELEVANCE_THRESHOLD = 0.25
+            final_relevance = score_result.get("relevance_score", 0)
+            if final_relevance < HARD_RELEVANCE_THRESHOLD:
+                self._log("INFO",
+                    f"DROPPED paper below relevance gate ({final_relevance:.3f} < {HARD_RELEVANCE_THRESHOLD}): "
+                    f"{paper.get('title', '')[:80]}")
+                continue
             
             # Increment papers_checked now that we've actually processed (scored) this paper
             self.stop_controller.increment_papers_checked(1)

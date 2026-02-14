@@ -123,6 +123,7 @@ class ParsedPrompt:
     is_trends_request: bool = False
     is_structured_output: bool = False
     exclude_topics: List[str] = field(default_factory=list)  # Topics to exclude from results
+    interests_only: str = ""  # ONLY the research interest keywords, no exclude/meta text
     raw_prompt: str = ""
     
     @property
@@ -290,6 +291,9 @@ class PromptParser:
         # Extract application domain
         result.application_domain = self._extract_application(prompt)
         
+        # Extract clean interest keywords (ONLY the research interests, no exclude/meta text)
+        result.interests_only = self._extract_interests_only(prompt, result)
+        
         # Extract topic (what remains after removing meta-information)
         result.topic = self._extract_topic(prompt, result)
         
@@ -357,31 +361,90 @@ class PromptParser:
         return None
     
     def _extract_exclude_topics(self, prompt: str) -> List[str]:
-        """Extract topics to exclude from the prompt text."""
+        """Extract topics to exclude from the prompt text.
+        
+        Carefully handles sentence boundaries so we don't greedily
+        capture unrelated text (e.g., "Focus on papers...") as an
+        exclude topic.
+        """
         import re
-        # Match patterns like "Exclude the following topics...:\n<topics>"
+        # Match patterns like "Exclude the following topics...: <topics>"
         # or "Exclude: <topics>" or "exclude <topics>"
+        # Key fix: stop at sentence-boundary words like "Focus", "Find",
+        # newline-period, or double-newline — not just period.
+        # Use a lookahead for common follow-up phrases.
+        BOUNDARY = r'(?=\s*(?:Focus|Find|Search|Look|Priorit|Include|Published|$)|\n\n|\.$)'
         patterns = [
-            r'[Ee]xclude\s+(?:the\s+following\s+topics?\s*(?:if\s+applicable)?\s*[:\n]+)\s*(.+?)(?:\n\n|\.|$)',
-            r'[Ee]xclude\s*:\s*(.+?)(?:\n\n|\.|$)',
-            r'[Tt]opics?\s+to\s+exclude\s*[:\n]+\s*(.+?)(?:\n\n|\.|$)',
+            r'[Ee]xclude\s+(?:the\s+following\s+topics?\s*(?:if\s+applicable)?\s*[:\n]+)\s*(.+?)' + BOUNDARY,
+            r'[Ee]xclude\s*:\s*(.+?)' + BOUNDARY,
+            r'[Tt]opics?\s+to\s+exclude\s*[:\n]+\s*(.+?)' + BOUNDARY,
         ]
         for pattern in patterns:
             m = re.search(pattern, prompt, re.DOTALL)
             if m:
-                raw = m.group(1).strip()
+                raw = m.group(1).strip().rstrip('.')
                 # Split by comma, newline, or semicolon
                 topics = [t.strip() for t in re.split(r'[,;\n]+', raw) if t.strip()]
                 return topics
         return []
 
+    def _extract_interests_only(self, prompt: str, parsed: ParsedPrompt) -> str:
+        """
+        Extract ONLY the research interest keywords from the prompt.
+        
+        This specifically isolates the interest portion and strips out
+        all meta-text (exclude clauses, time instructions, etc.).
+        Returns a clean comma-separated list like:
+            "Multi Armed Bandits, PCA, TSNE, Behavioral Economics"
+            
+        This is the AUTHORITATIVE source for category mapping and
+        arXiv query construction.
+        """
+        # Strategy 1: Look for explicit "research interests:" pattern
+        interest_patterns = [
+            r'(?:research\s+)?interests?\s*:\s*(.+?)(?:\.\s*[Ee]xclude|\.\s*[Ff]ocus|\.\s*[Ff]ind|\.\s*[Pp]ublished|\.\s*$|$)',
+            r'related\s+to\s+(?:the\s+following\s+(?:research\s+)?interests?\s*:\s*)?(.+?)(?:\.\s*[Ee]xclude|\.\s*[Ff]ocus|\.\s*[Ff]ind|\.\s*[Pp]ublished|\.\s*$|$)',
+            r'(?:papers?|articles?|research)\s+(?:on|about|regarding)\s+(.+?)(?:\.\s*[Ee]xclude|\.\s*[Ff]ocus|\.\s*[Ff]ind|\.\s*[Pp]ublished|\.\s*$|$)',
+        ]
+        
+        for pattern in interest_patterns:
+            m = re.search(pattern, prompt, re.IGNORECASE | re.DOTALL)
+            if m:
+                raw = m.group(1).strip().rstrip('.')
+                # Remove any remaining meta text
+                raw = re.sub(r'\s*[Ee]xclude\s+.*$', '', raw, flags=re.DOTALL).strip()
+                if raw:
+                    return raw
+        
+        # Strategy 2: If topic is available, strip the exclude portion from it
+        # This is a fallback for prompts that don't match explicit patterns
+        topic = parsed.topic or prompt
+        # Remove everything from "Exclude" onwards
+        topic = re.sub(r'\s*[Ee]xclude\s+.*$', '', topic, flags=re.DOTALL).strip()
+        # Remove common instruction words
+        topic = re.sub(r'\s*(?:Focus on|Published|Find|Search).*$', '', topic, flags=re.IGNORECASE | re.DOTALL).strip()
+        return topic.rstrip('.')
+
     def _extract_topic(self, prompt: str, parsed: ParsedPrompt) -> str:
         """
         Extract the main topic from the prompt.
         
-        Removes meta-information (counts, time periods, etc.) to get the core topic.
+        Removes meta-information (counts, time periods, exclude clauses, etc.)
+        to get the core topic.
         """
         topic = prompt
+        
+        # ==================================================================
+        # CRITICAL: Strip the entire "Exclude..." clause FIRST so exclude
+        # terms don't leak into the topic text and contaminate downstream
+        # processing (category mapping, keyword matching, etc.)
+        # ==================================================================
+        topic = re.sub(
+            r'\s*[Ee]xclude\s+(?:the\s+following\s+)?(?:topics?\s*)?(?:if\s+applicable\s*)?[:\s].*?(?=\s*(?:Focus|Find|Search|Priorit|Published|\.\s|$))',
+            '',
+            topic,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
         
         # Remove common prefixes
         prefixes = [

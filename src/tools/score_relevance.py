@@ -686,13 +686,16 @@ def score_relevance_and_importance(
     )
     
     # CRITICAL: If a paper has ZERO topic keyword overlap with the researcher's
-    # stated interests, category match alone should NOT produce a high score.
+    # stated interests, category match alone should NOT produce a meaningful score.
     # A paper in "cs.LG" is not relevant just because the user also studies
     # topics that happen to be in cs.LG — it must actually mention those topics.
+    #
+    # This is the FUNDAMENTAL gate: positive evidence of topic relevance is
+    # REQUIRED. Without it, category-only match produces at most 0.10.
     if topic_overlap == 0 and title_topic_match == 0:
-        # Cap score so category-only match can never reach HIGH importance.
-        # Category-only papers should be LOW (exploratory at best).
-        relevance_score = min(relevance_score, 0.20)
+        # No topic keywords matched at all — this paper doesn't mention
+        # anything the researcher cares about. Cap to near-zero.
+        relevance_score = min(relevance_score, 0.10)
     
     # Apply avoid penalty — hard-exclude if an avoid topic phrase appears in the title
     if avoid_penalty > 0:
