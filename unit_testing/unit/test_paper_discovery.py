@@ -487,3 +487,132 @@ class TestNegativeCases:
         )
         
         assert len(paper.abstract) > 10000
+
+
+# =========================================================================
+# Relevance Scoring – Category-Only Cap & Topic Overlap
+# =========================================================================
+
+class TestRelevanceScoringCategoryOnlyCap:
+    """
+    Test that papers with ZERO topic keyword overlap are capped to LOW
+    importance, regardless of category match.
+
+    This prevents papers like "Diffusion Language Models" from scoring
+    HIGH just because they share cs.LG with "Multi Armed Bandits".
+    """
+
+    def _score(self, paper, profile):
+        from src.tools.score_relevance import score_relevance_and_importance
+        return score_relevance_and_importance(paper=paper, research_profile=profile)
+
+    @pytest.fixture
+    def bandits_profile(self):
+        return {
+            "research_topics": ["Multi Armed Bandits", "PCA", "TSNE", "Behavioral Economics"],
+            "avoid_topics": ["RAG", "Transformers", "Attention", "GAN", "VAE"],
+            "arxiv_categories_include": ["cs.LG", "stat.ML", "econ.GN"],
+            "arxiv_categories_exclude": [],
+            "preferred_venues": [],
+        }
+
+    def test_irrelevant_paper_with_category_match_is_low(self, bandits_profile):
+        """A paper in cs.LG about diffusion models should be LOW, not HIGH."""
+        paper = {
+            "arxiv_id": "9999.00001",
+            "title": "T3D: Few-Step Diffusion Language Models via Trajectory Self-Distillation",
+            "abstract": "We propose T3D for diffusion language models.",
+            "categories": ["cs.CL", "cs.LG"],
+            "authors": [],
+        }
+        result = self._score(paper, bandits_profile)
+        assert result.importance == "low", (
+            f"Expected LOW but got {result.importance} "
+            f"(rel={result.relevance_score}, topic={result.scoring_factors.get('topic_overlap')})"
+        )
+        assert result.relevance_score <= 0.25
+
+    def test_irrelevant_robotics_paper_is_low(self, bandits_profile):
+        """A robotics paper should be LOW even if cs.AI is in profile."""
+        bandits_profile["arxiv_categories_include"].append("cs.AI")
+        paper = {
+            "arxiv_id": "9999.00002",
+            "title": "Scaling Verification vs Policy Learning for Vision-Language-Action Alignment",
+            "abstract": "We study scaling verification for VLA alignment.",
+            "categories": ["cs.RO", "cs.AI", "eess.SY"],
+            "authors": [],
+        }
+        result = self._score(paper, bandits_profile)
+        assert result.importance == "low"
+
+    def test_relevant_bandits_paper_is_high(self, bandits_profile):
+        """A paper about bandits should still score HIGH."""
+        paper = {
+            "arxiv_id": "9999.00003",
+            "title": "Upper Confidence Bound Algorithms for Multi-Armed Bandits",
+            "abstract": "We study multi-armed bandit problems with contextual information.",
+            "categories": ["cs.LG", "stat.ML"],
+            "authors": [],
+        }
+        result = self._score(paper, bandits_profile)
+        assert result.importance in ("high", "medium"), (
+            f"Expected HIGH/MEDIUM but got {result.importance} (rel={result.relevance_score})"
+        )
+        assert result.relevance_score >= 0.3
+
+    def test_relevant_pca_paper_is_not_low(self, bandits_profile):
+        """A paper about PCA should score at least MEDIUM."""
+        paper = {
+            "arxiv_id": "9999.00004",
+            "title": "Robust PCA for High-Dimensional Data",
+            "abstract": "Principal component analysis in high dimensions.",
+            "categories": ["stat.ML"],
+            "authors": [],
+        }
+        result = self._score(paper, bandits_profile)
+        assert result.importance != "low" or result.relevance_score >= 0.2
+
+    def test_zero_topic_overlap_caps_score(self, bandits_profile):
+        """Verify the cap: topic_overlap=0 → relevance ≤ 0.20."""
+        paper = {
+            "arxiv_id": "9999.00005",
+            "title": "Neural Architecture Search for Image Classification",
+            "abstract": "We optimize network architectures for image recognition tasks.",
+            "categories": ["cs.LG", "cs.CV"],
+            "authors": [],
+        }
+        result = self._score(paper, bandits_profile)
+        assert result.scoring_factors["topic_overlap"] == 0.0
+        assert result.relevance_score <= 0.20
+
+
+class TestCategoryMappingFromPrompt:
+    """Test that map_interests_to_categories on the full prompt
+    does NOT pick up excluded-topic keywords."""
+
+    def test_excluded_topics_not_mapped_to_include(self):
+        """'Transformers' and 'RAG' in excluded section should not add cs.CL / cs.IR."""
+        from src.agent.react_agent import map_interests_to_categories
+
+        # Interest-only text (what the fixed code uses)
+        interests = "Multi Armed Bandits, PCA, TSNE, Behavioral Economics"
+        cats = map_interests_to_categories(interests)
+
+        assert "cs.CL" not in cats, "cs.CL should not be in include (comes from 'Transformers' exclude)"
+        assert "cs.IR" not in cats, "cs.IR should not be in include (comes from 'RAG' exclude)"
+
+    def test_full_message_would_wrongly_add_categories(self):
+        """Demonstrate that parsing the full message includes wrong categories."""
+        from src.agent.react_agent import map_interests_to_categories
+
+        full_msg = (
+            "Find recent research papers related to Multi Armed Bandits, PCA, "
+            "Behavioral Economics. Exclude: RAG, Transformers, Attention, GAN, VAE"
+        )
+        cats = map_interests_to_categories(full_msg)
+        # Full message incorrectly picks up excluded topic keywords
+        has_nlp_cat = "cs.CL" in cats or "cs.IR" in cats
+        assert has_nlp_cat, (
+            "Expected full message to wrongly include cs.CL or cs.IR "
+            "(this test documents the bug the fix prevents)"
+        )

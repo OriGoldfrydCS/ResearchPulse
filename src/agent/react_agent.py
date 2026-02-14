@@ -721,12 +721,19 @@ class ResearchReActAgent:
             categories_include = ["cs.LG", "stat.ML", "cs.AI"]
             self._log("INFO", "Using broad default categories: cs.LG, stat.ML, cs.AI")
         
-        # Merge categories from user's chat message (additive, not override)
-        user_message = self.config.initial_prompt or ""
-        user_categories = map_interests_to_categories(user_message)
+        # Merge categories derived from the INTERESTS portion of the prompt
+        # IMPORTANT: We use `self._parsed_prompt.topic` (the extracted interests
+        # text) — NOT the full user message (which also contains excluded topics
+        # like "Transformers" and "Attention" that would incorrectly add
+        # cs.CL / cs.IR to the include list).
+        prompt_interests_text = getattr(self._parsed_prompt, 'topic', '') or ''
+        if prompt_interests_text:
+            user_categories = map_interests_to_categories(prompt_interests_text)
+        else:
+            user_categories = []
         if user_categories:
             merged = list(set(categories_include) | set(user_categories))
-            self._log("INFO", f"Merged prompt categories {user_categories} with profile categories -> {merged}")
+            self._log("INFO", f"Merged prompt-interest categories {user_categories} with profile categories -> {merged}")
             categories_include = merged
         
         # Map exclude interests if provided
