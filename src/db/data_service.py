@@ -157,6 +157,15 @@ def get_research_profile() -> Dict[str, Any]:
         user = get_or_create_default_user()
         if user:
             # Convert User to research profile format
+            # If avoid_topics list is empty but interests_exclude has free text,
+            # parse it into avoid_topics so keyword-level exclusion works.
+            avoid_topics = user.get("avoid_topics", [])
+            interests_exclude_text = user.get("interests_exclude", "")
+            if not avoid_topics and interests_exclude_text:
+                avoid_topics = [
+                    t.strip() for t in interests_exclude_text.split(",") if t.strip()
+                ]
+
             return {
                 "user_id": user.get("id"),  # Include user_id for autonomous components
                 "researcher_name": user.get("name"),
@@ -165,7 +174,7 @@ def get_research_profile() -> Dict[str, Any]:
                 "research_topics": user.get("research_topics", []),
                 "my_papers": user.get("my_papers", []),
                 "preferred_venues": user.get("preferred_venues", []),
-                "avoid_topics": user.get("avoid_topics", []),
+                "avoid_topics": avoid_topics,
                 "time_budget_per_week_minutes": user.get("time_budget_per_week_minutes", 120),
                 "arxiv_categories_include": user.get("arxiv_categories_include", []),
                 "arxiv_categories_exclude": user.get("arxiv_categories_exclude", []),

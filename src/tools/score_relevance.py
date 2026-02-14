@@ -145,7 +145,7 @@ class ScoringResult(BaseModel):
 # Weights for different scoring components
 TOPIC_MATCH_WEIGHT = 0.45
 CATEGORY_MATCH_WEIGHT = 0.30
-AVOID_TOPIC_PENALTY = 0.35
+AVOID_TOPIC_PENALTY = 0.85
 VENUE_BONUS = 0.10
 TITLE_KEYWORD_WEIGHT = 0.15
 
@@ -666,8 +666,19 @@ def score_relevance_and_importance(
         venue_bonus * VENUE_BONUS
     )
     
-    # Apply avoid penalty
-    relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
+    # Apply avoid penalty — hard-exclude if an avoid keyword appears in the title
+    if avoid_penalty > 0:
+        title_kw = _extract_keywords(paper_obj.title)
+        avoid_kw = set()
+        for t in profile_obj.avoid_topics:
+            avoid_kw.update(_extract_keywords(t))
+        if title_kw & avoid_kw:
+            # Avoid keyword is in the title — cap score very low
+            relevance_score = min(relevance_score * 0.05, 0.05)
+        else:
+            relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
+    else:
+        relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
     
     # Apply user feedback adjustments
     relevance_score = relevance_score * (1.0 - feedback_penalty) + feedback_bonus
