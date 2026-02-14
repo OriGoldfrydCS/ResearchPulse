@@ -820,6 +820,44 @@ class ResearchReActAgent:
                 if skip:
                     continue
             
+            # LLM Relevance Filter: use LLM reasoning to determine if paper
+            # is truly relevant and not about an excluded topic.
+            # This catches semantic matches that keyword regex misses
+            # (e.g., a paper about "Attention mechanisms" when "Attention" is excluded).
+            research_topics = self._research_profile.get("research_topics", [])
+            try:
+                from tools.llm_relevance import evaluate_paper_relevance_with_llm
+
+                user_uuid = self._research_profile.get("user_uuid")
+                llm_rel = evaluate_paper_relevance_with_llm(
+                    paper=paper,
+                    research_topics=research_topics,
+                    avoid_topics=avoid_topics,
+                    user_id=user_uuid,
+                )
+                if llm_rel:  # non-empty means feature is enabled
+                    if llm_rel.get("is_excluded"):
+                        matched = llm_rel.get("excluded_topic_match", "")
+                        reason_text = llm_rel.get("reasoning", "")
+                        self._log(
+                            "INFO",
+                            f"LLM excluded paper (topic='{matched}'): "
+                            f"{paper.get('title', '')[:80]} — {reason_text}",
+                        )
+                        continue
+                    if not llm_rel.get("is_relevant", True):
+                        reason_text = llm_rel.get("reasoning", "")
+                        self._log(
+                            "INFO",
+                            f"LLM judged irrelevant: "
+                            f"{paper.get('title', '')[:80]} — {reason_text}",
+                        )
+                        continue
+                    # Store LLM relevance score for later use in heuristic blending
+                    paper["_llm_relevance"] = llm_rel
+            except Exception as e:
+                self._log("DEBUG", f"LLM relevance filter unavailable: {e}")
+            
             # 3a: Query RAG for similar papers
             rag_results = None
             if self.stop_controller.metrics.rag_queries < self.config.stop_policy.max_rag_queries:
@@ -858,6 +896,28 @@ class ResearchReActAgent:
             if not success:
                 self._log("WARN", f"Scoring failed for {paper.get('arxiv_id')}: {error}")
                 continue
+            
+            # Blend LLM relevance score with heuristic score when available.
+            # The LLM score captures semantic understanding that keywords miss;
+            # taking a weighted average gives the best of both worlds.
+            llm_rel = paper.get("_llm_relevance")
+            if llm_rel and "relevance_score" in llm_rel:
+                heuristic_score = score_result.get("relevance_score", 0)
+                llm_score = llm_rel["relevance_score"]
+                # 40% heuristic + 60% LLM — LLM gets higher weight because
+                # it understands semantic meaning the heuristics can't capture
+                blended = 0.4 * heuristic_score + 0.6 * llm_score
+                score_result["relevance_score"] = round(blended, 3)
+                score_result["llm_relevance_score"] = llm_score
+                score_result["llm_relevance_reasoning"] = llm_rel.get("reasoning", "")
+                # Re-derive importance from blended score
+                novelty = score_result.get("novelty_score", 0.5)
+                if blended >= 0.45 and novelty >= 0.5:
+                    score_result["importance"] = "high"
+                elif blended >= 0.4 or (blended >= 0.3 and novelty >= 0.6):
+                    score_result["importance"] = "medium"
+                else:
+                    score_result["importance"] = "low"
             
             # Increment papers_checked now that we've actually processed (scored) this paper
             self.stop_controller.increment_papers_checked(1)

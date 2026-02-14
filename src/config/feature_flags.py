@@ -14,9 +14,12 @@ All flags default to False for safety. Enable via environment variables:
 - LIVE_DOCUMENT_ENABLED=true
 
 Configuration options:
+- LLM_RELEVANCE_ENABLED=true
 - LLM_NOVELTY_MODEL: Model to use for novelty scoring (default: gpt-4o-mini)
 - LLM_NOVELTY_MIN_RELEVANCE: Minimum relevance score to trigger LLM novelty (default: 0.4)
 - LLM_NOVELTY_CACHE_TTL_DAYS: Cache TTL for novelty scores (default: 7)
+- LLM_RELEVANCE_MODEL: Model for relevance filtering (default: gpt-4o-mini)
+- LLM_RELEVANCE_CACHE_TTL_HOURS: Cache TTL for relevance results (default: 48)
 - PROFILE_EVOLUTION_MIN_PAPERS: Min high-relevance papers to trigger analysis (default: 3)
 - PROFILE_EVOLUTION_COOLDOWN_HOURS: Cooldown between analyses (default: 24)
 - LIVE_DOCUMENT_PATH: Path for the live document file (default: artifacts/live_document.md)
@@ -71,6 +74,7 @@ def _get_env_float(name: str, default: float) -> float:
 
 # Main feature toggles - all default to False for safety
 LLM_NOVELTY_ENABLED = _get_env_bool("LLM_NOVELTY_ENABLED", False)
+LLM_RELEVANCE_ENABLED = _get_env_bool("LLM_RELEVANCE_ENABLED", False)
 AUDIT_LOG_ENABLED = _get_env_bool("AUDIT_LOG_ENABLED", False)
 PROFILE_EVOLUTION_ENABLED = _get_env_bool("PROFILE_EVOLUTION_ENABLED", False)
 LIVE_DOCUMENT_ENABLED = _get_env_bool("LIVE_DOCUMENT_ENABLED", False)
@@ -100,6 +104,29 @@ class LLMNoveltyConfig:
             max_tokens=_get_env_int("LLM_NOVELTY_MAX_TOKENS", 1000),
             temperature=_get_env_float("LLM_NOVELTY_TEMPERATURE", 0.3),
             fallback_on_error=_get_env_bool("LLM_NOVELTY_FALLBACK", True),
+        )
+
+
+@dataclass
+class LLMRelevanceConfig:
+    """Configuration for LLM relevance filtering."""
+    enabled: bool = False
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.1  # Low for consistent filtering decisions
+    max_tokens: int = 300  # Short structured JSON response
+    cache_ttl_hours: int = 48  # Cache relevance results
+    fallback_on_error: bool = True  # Allow paper through if LLM fails
+
+    @classmethod
+    def from_env(cls) -> "LLMRelevanceConfig":
+        """Load config from environment variables."""
+        return cls(
+            enabled=_get_env_bool("LLM_RELEVANCE_ENABLED", False),
+            model=os.getenv("LLM_RELEVANCE_MODEL", "gpt-4o-mini"),
+            temperature=_get_env_float("LLM_RELEVANCE_TEMPERATURE", 0.1),
+            max_tokens=_get_env_int("LLM_RELEVANCE_MAX_TOKENS", 300),
+            cache_ttl_hours=_get_env_int("LLM_RELEVANCE_CACHE_TTL_HOURS", 48),
+            fallback_on_error=_get_env_bool("LLM_RELEVANCE_FALLBACK", True),
         )
 
 
@@ -192,6 +219,7 @@ class FeatureFlags:
             # do audit logging
     """
     llm_novelty: LLMNoveltyConfig = field(default_factory=LLMNoveltyConfig)
+    llm_relevance: LLMRelevanceConfig = field(default_factory=LLMRelevanceConfig)
     audit_log: AuditLogConfig = field(default_factory=AuditLogConfig)
     profile_evolution: ProfileEvolutionConfig = field(default_factory=ProfileEvolutionConfig)
     live_document: LiveDocumentConfig = field(default_factory=LiveDocumentConfig)
@@ -201,6 +229,7 @@ class FeatureFlags:
         """Load all feature flags from environment."""
         return cls(
             llm_novelty=LLMNoveltyConfig.from_env(),
+            llm_relevance=LLMRelevanceConfig.from_env(),
             audit_log=AuditLogConfig.from_env(),
             profile_evolution=ProfileEvolutionConfig.from_env(),
             live_document=LiveDocumentConfig.from_env(),
@@ -213,6 +242,10 @@ class FeatureFlags:
                 "enabled": self.llm_novelty.enabled,
                 "model": self.llm_novelty.model,
                 "min_relevance_threshold": self.llm_novelty.min_relevance_threshold,
+            },
+            "llm_relevance": {
+                "enabled": self.llm_relevance.enabled,
+                "model": self.llm_relevance.model,
             },
             "audit_log": {
                 "enabled": self.audit_log.enabled,
