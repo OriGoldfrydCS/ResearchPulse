@@ -644,6 +644,13 @@ class ResearchReActAgent:
         if self._parsed_prompt.topic:
             self._log("INFO", f"Topic extracted: {self._parsed_prompt.topic}")
         
+        # Merge exclude topics from prompt into the research profile's avoid_topics
+        if self._parsed_prompt.exclude_topics:
+            existing_avoid = self._research_profile.get("avoid_topics", [])
+            merged = list(set(existing_avoid + self._parsed_prompt.exclude_topics))
+            self._research_profile["avoid_topics"] = merged
+            self._log("INFO", f"Exclude topics from prompt merged into avoid_topics: {merged}")
+        
         # Store parsed info in episode for reporting
         self.episode.detected_template = self._parsed_prompt.template.value
         self.episode.requested_paper_count = self._parsed_prompt.output_count
@@ -749,6 +756,19 @@ class ResearchReActAgent:
                     rag_results = rag_result
                     self.stop_controller.increment_rag_queries(1)
             
+            # Pre-filter: skip papers whose title contains an excluded keyword
+            avoid_topics = self._research_profile.get("avoid_topics", [])
+            if avoid_topics:
+                title_lower = (paper.get("title") or "").lower()
+                skip = False
+                for topic in avoid_topics:
+                    if topic.lower() in title_lower:
+                        self._log("INFO", f"Skipping paper (title matches excluded topic '{topic}'): {paper.get('title', '')[:80]}")
+                        skip = True
+                        break
+                if skip:
+                    continue
+            
             # 3b: Score relevance and importance
             score_result, success, error = self._invoke_tool(
                 "score_relevance_and_importance",
@@ -763,7 +783,7 @@ class ResearchReActAgent:
                 },
                 research_profile={
                     "research_topics": self._research_profile.get("research_topics", []),
-                    "avoid_topics": self._research_profile.get("avoid_topics", []),
+                    "avoid_topics": avoid_topics,
                     "arxiv_categories_include": self._research_profile.get("arxiv_categories_include", []),
                     "arxiv_categories_exclude": self._research_profile.get("arxiv_categories_exclude", []),
                     "preferred_venues": self._research_profile.get("preferred_venues", []),

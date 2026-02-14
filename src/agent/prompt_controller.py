@@ -122,6 +122,7 @@ class ParsedPrompt:
     is_survey_request: bool = False
     is_trends_request: bool = False
     is_structured_output: bool = False
+    exclude_topics: List[str] = field(default_factory=list)  # Topics to exclude from results
     raw_prompt: str = ""
     
     @property
@@ -264,6 +265,9 @@ class PromptParser:
             ParsedPrompt with all extracted parameters
         """
         result = ParsedPrompt(raw_prompt=prompt)
+        
+        # Extract exclude topics from prompt text
+        result.exclude_topics = self._extract_exclude_topics(prompt)
         prompt_lower = prompt.lower()
         
         # Extract requested count (K)
@@ -352,6 +356,25 @@ class PromptParser:
                     return after
         return None
     
+    def _extract_exclude_topics(self, prompt: str) -> List[str]:
+        """Extract topics to exclude from the prompt text."""
+        import re
+        # Match patterns like "Exclude the following topics...:\n<topics>"
+        # or "Exclude: <topics>" or "exclude <topics>"
+        patterns = [
+            r'[Ee]xclude\s+(?:the\s+following\s+topics?\s*(?:if\s+applicable)?\s*[:\n]+)\s*(.+?)(?:\n\n|\.|$)',
+            r'[Ee]xclude\s*:\s*(.+?)(?:\n\n|\.|$)',
+            r'[Tt]opics?\s+to\s+exclude\s*[:\n]+\s*(.+?)(?:\n\n|\.|$)',
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, prompt, re.DOTALL)
+            if m:
+                raw = m.group(1).strip()
+                # Split by comma, newline, or semicolon
+                topics = [t.strip() for t in re.split(r'[,;\n]+', raw) if t.strip()]
+                return topics
+        return []
+
     def _extract_topic(self, prompt: str, parsed: ParsedPrompt) -> str:
         """
         Extract the main topic from the prompt.
