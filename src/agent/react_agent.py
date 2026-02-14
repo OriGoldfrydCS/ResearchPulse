@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -113,6 +114,32 @@ INTEREST_TO_CATEGORY_MAP = {
     "few-shot learning": ["cs.LG", "cs.CL"],
     "meta-learning": ["cs.LG"],
     "optimization": ["cs.LG", "math.OC"],
+    "multi-armed bandits": ["cs.LG", "stat.ML"],
+    "multi armed bandits": ["cs.LG", "stat.ML"],
+    "bandits": ["cs.LG", "stat.ML"],
+    "bandit": ["cs.LG", "stat.ML"],
+    "contextual bandits": ["cs.LG", "stat.ML"],
+    "bayesian optimization": ["cs.LG", "stat.ML"],
+    "gaussian processes": ["cs.LG", "stat.ML"],
+    "causal inference": ["stat.ME", "stat.ML", "cs.LG"],
+    "pca": ["stat.ML", "cs.LG", "stat.ME"],
+    "principal component analysis": ["stat.ML", "cs.LG", "stat.ME"],
+    "tsne": ["cs.LG", "stat.ML"],
+    "t-sne": ["cs.LG", "stat.ML"],
+    "dimensionality reduction": ["cs.LG", "stat.ML"],
+    "clustering": ["cs.LG", "stat.ML"],
+    "anomaly detection": ["cs.LG", "stat.ML"],
+    "time series": ["cs.LG", "stat.ML", "stat.ME"],
+    "regression": ["stat.ML", "stat.ME"],
+    "classification": ["cs.LG", "stat.ML"],
+    "ensemble methods": ["cs.LG", "stat.ML"],
+    "random forests": ["cs.LG", "stat.ML"],
+    "gradient boosting": ["cs.LG", "stat.ML"],
+    "feature selection": ["cs.LG", "stat.ML"],
+    "active learning": ["cs.LG", "stat.ML"],
+    "online learning": ["cs.LG", "stat.ML"],
+    "representation learning": ["cs.LG", "stat.ML"],
+    "contrastive learning": ["cs.LG", "cs.CV"],
     
     # AI / Agents
     "artificial intelligence": ["cs.AI"],
@@ -196,6 +223,12 @@ INTEREST_TO_CATEGORY_MAP = {
     
     # Economics & Finance
     "economics": ["econ.EM", "econ.GN", "econ.TH"],
+    "behavioral economics": ["econ.TH", "econ.GN"],
+    "experimental economics": ["econ.TH", "econ.GN"],
+    "game theory": ["cs.GT", "econ.TH"],
+    "mechanism design": ["cs.GT", "econ.TH"],
+    "auction": ["cs.GT", "econ.TH"],
+    "decision making": ["cs.AI", "econ.TH", "stat.ML"],
     "finance": ["q-fin.ST", "q-fin.RM", "q-fin.PM", "q-fin.CP"],
     "econometrics": ["econ.EM", "stat.ME"],
     "financial mathematics": ["q-fin.MF", "q-fin.CP"],
@@ -209,6 +242,9 @@ INTEREST_TO_CATEGORY_MAP = {
 def map_interests_to_categories(interests_text: str, exclude: bool = False) -> List[str]:
     """
     Map user's free-text interests to arXiv categories.
+    
+    Uses word-boundary matching to avoid false positives
+    (e.g., 'search' should not match inside 'research').
     
     Args:
         interests_text: Free-text description of research interests
@@ -224,7 +260,10 @@ def map_interests_to_categories(interests_text: str, exclude: bool = False) -> L
     categories = set()
     
     for keyword, cats in INTEREST_TO_CATEGORY_MAP.items():
-        if keyword in interests_lower:
+        # Use word-boundary matching to prevent partial matches
+        # e.g., "search" should NOT match inside "research"
+        pattern = r'(?:^|\b)' + re.escape(keyword) + r'(?:\b|$)'
+        if re.search(pattern, interests_lower):
             for cat in cats:
                 categories.add(cat)
     
@@ -675,17 +714,20 @@ class ResearchReActAgent:
                 categories_include = map_interests_to_categories(interests_include)
                 self._log("INFO", f"Mapped interests to categories: {categories_include}")
         
-        # Fall back to defaults if still empty
+        # Fall back to broad categories if still empty.
+        # Use general ML/AI/Stats rather than hardcoding NLP-specific categories,
+        # since the researcher's interests could be in any field.
         if not categories_include:
-            categories_include = ["cs.CL", "cs.LG"]
-            self._log("INFO", "Using default categories: cs.CL, cs.LG")
+            categories_include = ["cs.LG", "stat.ML", "cs.AI"]
+            self._log("INFO", "Using broad default categories: cs.LG, stat.ML, cs.AI")
         
-        # Override categories based on user's chat message if it contains specific topics
+        # Merge categories from user's chat message (additive, not override)
         user_message = self.config.initial_prompt or ""
         user_categories = map_interests_to_categories(user_message)
         if user_categories:
-            categories_include = user_categories
-            self._log("INFO", f"Using categories from user prompt: {categories_include}")
+            merged = list(set(categories_include) | set(user_categories))
+            self._log("INFO", f"Merged prompt categories {user_categories} with profile categories -> {merged}")
+            categories_include = merged
         
         # Map exclude interests if provided
         if not categories_exclude:
@@ -694,10 +736,27 @@ class ResearchReActAgent:
                 categories_exclude = map_interests_to_categories(interests_exclude, exclude=True)
                 self._log("INFO", f"Mapped exclude interests to categories: {categories_exclude}")
         
+        # CRITICAL: Remove any exclude categories that also appear in include.
+        # This prevents situations where e.g. "Bandits" -> cs.LG (include) and
+        # "Transformers" -> cs.LG (exclude) would incorrectly filter out wanted papers.
+        if categories_exclude and categories_include:
+            conflict = set(categories_include) & set(categories_exclude)
+            if conflict:
+                categories_exclude = [c for c in categories_exclude if c not in conflict]
+                self._log("WARN", f"Removed conflicting categories from exclude (also in include): {conflict}")
+        
+        # Build a keyword query from research topics for more targeted arXiv search
+        research_topics = self._research_profile.get("research_topics", [])
+        topic_query = None
+        if research_topics:
+            topic_query = " OR ".join(research_topics)
+            self._log("INFO", f"Using topic keyword query for arXiv: {topic_query}")
+        
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",
             categories_include=categories_include,
             categories_exclude=categories_exclude,
+            query=topic_query,
             # Use dashboard "Papers per Run" setting to control arXiv fetch count
             max_results=self._parsed_prompt.arxiv_fetch_count if self._parsed_prompt else DEFAULT_ARXIV_FETCH_COUNT,
         )
@@ -744,6 +803,23 @@ class ResearchReActAgent:
             if should_stop:
                 return self._finalize_episode(reason)
             
+            # Pre-filter: skip papers whose title or abstract contains an excluded keyword.
+            # Uses word-boundary matching to avoid false positives
+            # (e.g., excluding "GAN" should NOT skip "Elegant" or "Organ").
+            avoid_topics = self._research_profile.get("avoid_topics", [])
+            if avoid_topics:
+                paper_text = ((paper.get("title") or "") + " " + (paper.get("abstract") or "")).lower()
+                skip = False
+                for topic in avoid_topics:
+                    # Build a word-boundary regex for the excluded topic
+                    pattern = r'\b' + re.escape(topic.lower()) + r'\b'
+                    if re.search(pattern, paper_text):
+                        self._log("INFO", f"Skipping paper (matches excluded topic '{topic}'): {paper.get('title', '')[:80]}")
+                        skip = True
+                        break
+                if skip:
+                    continue
+            
             # 3a: Query RAG for similar papers
             rag_results = None
             if self.stop_controller.metrics.rag_queries < self.config.stop_policy.max_rag_queries:
@@ -755,19 +831,6 @@ class ResearchReActAgent:
                 if success:
                     rag_results = rag_result
                     self.stop_controller.increment_rag_queries(1)
-            
-            # Pre-filter: skip papers whose title contains an excluded keyword
-            avoid_topics = self._research_profile.get("avoid_topics", [])
-            if avoid_topics:
-                title_lower = (paper.get("title") or "").lower()
-                skip = False
-                for topic in avoid_topics:
-                    if topic.lower() in title_lower:
-                        self._log("INFO", f"Skipping paper (title matches excluded topic '{topic}'): {paper.get('title', '')[:80]}")
-                        skip = True
-                        break
-                if skip:
-                    continue
             
             # 3b: Score relevance and importance
             score_result, success, error = self._invoke_tool(

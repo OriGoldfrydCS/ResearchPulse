@@ -380,7 +380,15 @@ def _fetch_real_papers(
         query_parts.append(f"({cat_query})")
     
     if query:
-        query_parts.append(f"(ti:{query} OR abs:{query})")
+        # Support multi-topic queries separated by OR
+        # Each topic needs its own ti:/abs: prefix for correct arXiv API parsing
+        topics = [t.strip() for t in query.split(" OR ") if t.strip()]
+        if len(topics) > 1:
+            ti_parts = " OR ".join(f'ti:"{t}"' for t in topics)
+            abs_parts = " OR ".join(f'abs:"{t}"' for t in topics)
+            query_parts.append(f"({ti_parts} OR {abs_parts})")
+        else:
+            query_parts.append(f"(ti:{query} OR abs:{query})")
     
     search_query = " AND ".join(query_parts) if query_parts else "cat:cs.CL"
     

@@ -285,27 +285,45 @@ def _calculate_category_score(
     return 0.2  # Some base score for papers not in exclude list
 
 
-def _check_avoid_topics(paper_keywords: set, avoid_topics: List[str]) -> float:
+def _check_avoid_topics(paper_keywords: set, avoid_topics: List[str],
+                        paper_text: str = "") -> float:
     """
     Check if paper contains topics to avoid.
+    
+    Uses two strategies:
+    1. Phrase matching: checks if the full exclude phrase appears in paper text
+       (word-boundary aware to prevent "GAN" matching "organ")
+    2. Keyword matching: falls back to keyword set intersection for single words
     
     Returns penalty score from 0.0 (no penalty) to 1.0 (max penalty).
     """
     if not avoid_topics:
         return 0.0
     
-    avoid_keywords = set()
+    phrase_matches = 0
+    keyword_matches = 0
+    paper_text_lower = paper_text.lower() if paper_text else ""
+    
     for topic in avoid_topics:
-        avoid_keywords.update(_extract_keywords(topic))
+        topic_clean = topic.strip()
+        if not topic_clean:
+            continue
+        # Strategy 1: Word-boundary phrase match against full paper text
+        if paper_text_lower:
+            pattern = r'\b' + re.escape(topic_clean.lower()) + r'\b'
+            if re.search(pattern, paper_text_lower):
+                phrase_matches += 1
+                continue
+        # Strategy 2: Keyword set intersection (fallback for single words)
+        topic_kw = _extract_keywords(topic_clean)
+        if topic_kw and topic_kw.issubset(paper_keywords):
+            keyword_matches += 1
     
-    if not avoid_keywords:
-        return 0.0
-    
-    matches = len(paper_keywords & avoid_keywords)
+    total_matches = phrase_matches + keyword_matches
     
     # Even one match is a significant penalty
-    if matches > 0:
-        return min(1.0, 0.5 + 0.1 * matches)
+    if total_matches > 0:
+        return min(1.0, 0.5 + 0.15 * total_matches)
     
     return 0.0
 
@@ -644,7 +662,8 @@ def score_relevance_and_importance(
     )
     
     # 3. Avoid topic penalty
-    avoid_penalty = _check_avoid_topics(paper_keywords, profile_obj.avoid_topics)
+    avoid_penalty = _check_avoid_topics(paper_keywords, profile_obj.avoid_topics,
+                                        paper_text=paper_text)
     
     # 4. Venue bonus (check in title/abstract)
     venue_bonus = _check_venue_match(paper_text, profile_obj.preferred_venues)
@@ -666,19 +685,20 @@ def score_relevance_and_importance(
         venue_bonus * VENUE_BONUS
     )
     
-    # Apply avoid penalty — hard-exclude if an avoid keyword appears in the title
+    # Apply avoid penalty — hard-exclude if an avoid topic phrase appears in the title
     if avoid_penalty > 0:
-        title_kw = _extract_keywords(paper_obj.title)
-        avoid_kw = set()
+        title_lower = paper_obj.title.lower()
+        title_has_avoid = False
         for t in profile_obj.avoid_topics:
-            avoid_kw.update(_extract_keywords(t))
-        if title_kw & avoid_kw:
-            # Avoid keyword is in the title — cap score very low
+            pattern = r'\b' + re.escape(t.strip().lower()) + r'\b'
+            if re.search(pattern, title_lower):
+                title_has_avoid = True
+                break
+        if title_has_avoid:
+            # Avoid topic is in the title — cap score very low
             relevance_score = min(relevance_score * 0.05, 0.05)
         else:
             relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
-    else:
-        relevance_score = relevance_score * (1.0 - avoid_penalty * AVOID_TOPIC_PENALTY)
     
     # Apply user feedback adjustments
     relevance_score = relevance_score * (1.0 - feedback_penalty) + feedback_bonus
