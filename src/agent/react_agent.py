@@ -951,7 +951,7 @@ class ResearchReActAgent:
             # happen to share a broad arXiv category (e.g., cs.LG) but have
             # nothing to do with the user's actual interests.
             # ==================================================================
-            HARD_RELEVANCE_THRESHOLD = 0.25
+            HARD_RELEVANCE_THRESHOLD = 0.20
             final_relevance = score_result.get("relevance_score", 0)
             if final_relevance < HARD_RELEVANCE_THRESHOLD:
                 self._log("INFO",

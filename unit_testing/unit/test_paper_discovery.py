@@ -530,7 +530,7 @@ class TestRelevanceScoringCategoryOnlyCap:
             f"Expected LOW but got {result.importance} "
             f"(rel={result.relevance_score}, topic={result.scoring_factors.get('topic_overlap')})"
         )
-        assert result.relevance_score <= 0.25
+        assert result.relevance_score <= 0.15
 
     def test_irrelevant_robotics_paper_is_low(self, bandits_profile):
         """A robotics paper should be LOW even if cs.AI is in profile."""
@@ -573,7 +573,7 @@ class TestRelevanceScoringCategoryOnlyCap:
         assert result.importance != "low" or result.relevance_score >= 0.2
 
     def test_zero_topic_overlap_caps_score(self, bandits_profile):
-        """Verify the cap: topic_overlap=0 → relevance ≤ 0.20."""
+        """Verify the cap: topic_overlap=0 → relevance ≤ 0.10."""
         paper = {
             "arxiv_id": "9999.00005",
             "title": "Neural Architecture Search for Image Classification",
@@ -583,7 +583,7 @@ class TestRelevanceScoringCategoryOnlyCap:
         }
         result = self._score(paper, bandits_profile)
         assert result.scoring_factors["topic_overlap"] == 0.0
-        assert result.relevance_score <= 0.20
+        assert result.relevance_score <= 0.10
 
 
 class TestCategoryMappingFromPrompt:
@@ -616,3 +616,211 @@ class TestCategoryMappingFromPrompt:
             "Expected full message to wrongly include cs.CL or cs.IR "
             "(this test documents the bug the fix prevents)"
         )
+
+
+# =========================================================================
+# Prompt Parser – interests_only Extraction & Exclude Fix
+# =========================================================================
+
+class TestPromptParserInterestsOnly:
+    """
+    Test the fundamental prompt parsing changes:
+    1. interests_only field extracts ONLY research interests
+    2. _extract_exclude_topics stops at sentence boundaries
+    3. _extract_topic strips exclude clause entirely
+    """
+
+    @pytest.fixture
+    def parser(self):
+        from src.agent.prompt_controller import PromptParser
+        return PromptParser()
+
+    def test_interests_only_basic(self, parser):
+        """interests_only should contain ONLY the research interest keywords."""
+        prompt = (
+            "Find recent research papers related to the following research interests: "
+            "Multi Armed Bandits, PCA, TSNE, Behavioral Economics. "
+            "Exclude the following topics if applicable: RAG, Transformers, Attention, GAN, VAE "
+            "Focus on papers published within the last month."
+        )
+        parsed = parser.parse(prompt)
+
+        assert "Multi Armed Bandits" in parsed.interests_only
+        assert "PCA" in parsed.interests_only
+        assert "Behavioral Economics" in parsed.interests_only
+        # Must NOT contain exclude terms
+        assert "RAG" not in parsed.interests_only
+        assert "Transformers" not in parsed.interests_only
+        assert "Attention" not in parsed.interests_only
+        assert "GAN" not in parsed.interests_only
+        assert "VAE" not in parsed.interests_only
+
+    def test_exclude_topics_no_trailing_text(self, parser):
+        """Exclude topics list should not contain trailing instruction text."""
+        prompt = (
+            "Find papers on bandits. Exclude the following topics if applicable: "
+            "RAG, Transformers, Attention, GAN, VAE Focus on papers published within the last month."
+        )
+        parsed = parser.parse(prompt)
+
+        assert parsed.exclude_topics == ["RAG", "Transformers", "Attention", "GAN", "VAE"]
+        # Verify no trailing garbage in last item
+        for topic in parsed.exclude_topics:
+            assert "Focus" not in topic
+            assert "published" not in topic
+            assert "month" not in topic
+
+    def test_topic_strips_exclude_clause(self, parser):
+        """The topic field should NOT contain exclude terms."""
+        prompt = (
+            "Find recent research papers related to the following research interests: "
+            "Multi Armed Bandits, PCA. Exclude the following topics if applicable: "
+            "RAG, Transformers. Focus on papers published within the last month."
+        )
+        parsed = parser.parse(prompt)
+
+        # Topic should not contain exclude terms
+        assert "RAG" not in parsed.topic
+        assert "Transformers" not in parsed.topic
+
+    def test_interests_only_simple_prompt(self, parser):
+        """Test interests_only with a simple prompt (no exclude clause)."""
+        prompt = "Find papers about reinforcement learning and game theory."
+        parsed = parser.parse(prompt)
+
+        assert parsed.interests_only  # Should have content
+        assert parsed.exclude_topics == []
+
+    def test_interests_only_with_colon_format(self, parser):
+        """Test interests_only with 'Exclude: X, Y, Z' format."""
+        prompt = "Papers on PCA and clustering. Exclude: deep learning, transformers"
+        parsed = parser.parse(prompt)
+
+        assert "deep learning" in parsed.exclude_topics
+        assert "transformers" in parsed.exclude_topics
+        # interests_only should not have exclude terms
+        assert "deep learning" not in parsed.interests_only
+        assert "transformers" not in parsed.interests_only
+
+    def test_category_mapping_uses_interests_only(self, parser):
+        """Category mapping on interests_only should be clean."""
+        from src.agent.react_agent import map_interests_to_categories
+
+        prompt = (
+            "Find research papers related to the following research interests: "
+            "Multi Armed Bandits, PCA, TSNE, Behavioral Economics. "
+            "Exclude the following topics if applicable: RAG, Transformers, Attention, GAN, VAE "
+            "Focus on papers published within the last month."
+        )
+        parsed = parser.parse(prompt)
+
+        cats = map_interests_to_categories(parsed.interests_only)
+        assert "cs.CL" not in cats, "cs.CL must not appear (from 'Transformers' exclude)"
+        assert "cs.IR" not in cats, "cs.IR must not appear (from 'RAG' exclude)"
+        # Should contain categories for actual interests
+        assert "cs.LG" in cats or "stat.ML" in cats, "Should have ML categories for bandits/PCA"
+
+    def test_category_mapping_on_topic_also_clean(self, parser):
+        """Category mapping on topic (with exclude clause stripped) should also be clean."""
+        from src.agent.react_agent import map_interests_to_categories
+
+        prompt = (
+            "Find research papers related to the following research interests: "
+            "Multi Armed Bandits, PCA, TSNE, Behavioral Economics. "
+            "Exclude the following topics if applicable: RAG, Transformers, Attention, GAN, VAE "
+            "Focus on papers published within the last month."
+        )
+        parsed = parser.parse(prompt)
+
+        cats = map_interests_to_categories(parsed.topic)
+        assert "cs.CL" not in cats, "cs.CL must not appear in topic-derived categories"
+        assert "cs.IR" not in cats, "cs.IR must not appear in topic-derived categories"
+
+
+# =========================================================================
+# Hard Relevance Gate
+# =========================================================================
+
+class TestHardRelevanceGate:
+    """
+    Test the hard relevance gate in the scoring pipeline.
+    Papers below the threshold (0.25) should be dropped entirely.
+    """
+
+    def _score(self, paper, profile):
+        from src.tools.score_relevance import score_relevance_and_importance
+        return score_relevance_and_importance(paper=paper, research_profile=profile)
+
+    @pytest.fixture
+    def profile(self):
+        return {
+            "research_topics": ["Multi Armed Bandits", "PCA", "TSNE", "Behavioral Economics"],
+            "avoid_topics": ["RAG", "Transformers", "Attention", "GAN", "VAE"],
+            "arxiv_categories_include": ["cs.LG", "stat.ML", "econ.GN", "econ.TH", "stat.ME"],
+            "arxiv_categories_exclude": [],
+            "preferred_venues": [],
+        }
+
+    def test_irrelevant_paper_below_gate(self, profile):
+        """Papers with zero topic overlap should score below the hard gate (0.20)."""
+        paper = {
+            "arxiv_id": "gate-1",
+            "title": "T3D: Few-Step Diffusion Language Models via Trajectory Self-Distillation",
+            "abstract": "Diffusion-based text generation using trajectory distillation.",
+            "categories": ["cs.CL", "cs.LG"],
+        }
+        result = self._score(paper, profile)
+        assert result.relevance_score < 0.20, (
+            f"Irrelevant paper should be below gate, got {result.relevance_score}"
+        )
+
+    def test_relevant_paper_above_gate(self, profile):
+        """Papers about actual interests should score above the hard gate."""
+        paper = {
+            "arxiv_id": "gate-2",
+            "title": "Contextual Multi-Armed Bandits with Thompson Sampling",
+            "abstract": "We study contextual bandits with Thompson sampling.",
+            "categories": ["cs.LG", "stat.ML"],
+        }
+        result = self._score(paper, profile)
+        assert result.relevance_score >= 0.20, (
+            f"Relevant paper should pass gate, got {result.relevance_score}"
+        )
+
+    def test_marginally_relevant_paper_can_pass(self, profile):
+        """A paper with some topic overlap should pass even if marginal."""
+        paper = {
+            "arxiv_id": "gate-3",
+            "title": "Online Learning and Bandit Optimization Methods",
+            "abstract": "We survey online learning methods related to bandit optimization.",
+            "categories": ["cs.LG"],
+        }
+        result = self._score(paper, profile)
+        # Should have SOME topic overlap and pass the 0.20 gate
+        assert result.scoring_factors["topic_overlap"] > 0
+        assert result.relevance_score >= 0.20
+
+    def test_completely_unrelated_paper(self, profile):
+        """A paper on a completely different field should be well below gate."""
+        paper = {
+            "arxiv_id": "gate-4",
+            "title": "Quantum Error Correction Codes for Topological Qubits",
+            "abstract": "We construct new quantum error correction codes using topological methods.",
+            "categories": ["quant-ph"],
+        }
+        result = self._score(paper, profile)
+        assert result.relevance_score < 0.15, (
+            f"Completely unrelated paper should be very low, got {result.relevance_score}"
+        )
+
+    def test_zero_overlap_cap_is_strict(self, profile):
+        """When topic_overlap=0 and title_match=0, score must be ≤ 0.10."""
+        paper = {
+            "arxiv_id": "gate-5",
+            "title": "Novel Architecture for Protein Folding Prediction",
+            "abstract": "We apply deep learning to protein structure prediction.",
+            "categories": ["cs.LG", "q-bio.BM"],
+        }
+        result = self._score(paper, profile)
+        if result.scoring_factors["topic_overlap"] == 0 and result.scoring_factors["title_topic_match"] == 0:
+            assert result.relevance_score <= 0.10
