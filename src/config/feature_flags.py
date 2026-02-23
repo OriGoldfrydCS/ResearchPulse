@@ -97,7 +97,7 @@ class LLMNoveltyConfig:
         """Load config from environment variables."""
         return cls(
             enabled=_get_env_bool("LLM_NOVELTY_ENABLED", False),
-            model=os.getenv("LLM_NOVELTY_MODEL", "gpt-4o-mini"),
+            model=os.getenv("LLM_NOVELTY_MODEL", os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")),
             min_relevance_threshold=_get_env_float("LLM_NOVELTY_MIN_RELEVANCE", 0.4),
             cache_ttl_days=_get_env_int("LLM_NOVELTY_CACHE_TTL_DAYS", 7),
             max_similar_papers=_get_env_int("LLM_NOVELTY_MAX_SIMILAR", 5),
@@ -122,7 +122,7 @@ class LLMRelevanceConfig:
         """Load config from environment variables."""
         return cls(
             enabled=_get_env_bool("LLM_RELEVANCE_ENABLED", False),
-            model=os.getenv("LLM_RELEVANCE_MODEL", "gpt-4o-mini"),
+            model=os.getenv("LLM_RELEVANCE_MODEL", os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")),
             temperature=_get_env_float("LLM_RELEVANCE_TEMPERATURE", 0.1),
             max_tokens=_get_env_int("LLM_RELEVANCE_MAX_TOKENS", 300),
             cache_ttl_hours=_get_env_int("LLM_RELEVANCE_CACHE_TTL_HOURS", 48),
@@ -168,7 +168,7 @@ class ProfileEvolutionConfig:
             min_high_relevance_papers=_get_env_int("PROFILE_EVOLUTION_MIN_PAPERS", 3),
             min_novelty_for_analysis=_get_env_float("PROFILE_EVOLUTION_MIN_NOVELTY", 0.7),
             cooldown_hours=_get_env_int("PROFILE_EVOLUTION_COOLDOWN_HOURS", 24),
-            model=os.getenv("PROFILE_EVOLUTION_MODEL", "gpt-4o-mini"),
+            model=os.getenv("PROFILE_EVOLUTION_MODEL", os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")),
             max_suggestions_per_run=_get_env_int("PROFILE_EVOLUTION_MAX_SUGGESTIONS", 3),
             auto_expire_days=_get_env_int("PROFILE_EVOLUTION_EXPIRE_DAYS", 30),
         )

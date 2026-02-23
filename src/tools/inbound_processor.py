@@ -1518,7 +1518,6 @@ JSON:"""
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=400,
             )
             
@@ -1627,7 +1626,6 @@ JSON:"""
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
                 max_tokens=300,
             )
             
@@ -1728,7 +1726,6 @@ EXTRACTED INTERESTS:"""
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
                 max_tokens=300,
             )
             

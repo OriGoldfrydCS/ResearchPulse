@@ -261,7 +261,7 @@ def fetch_arxiv_papers(
             query_info,
         )
     
-    # Real arXiv API fetch with retry on rate-limit (HTTP 429)
+    # Real arXiv API fetch with retry on rate-limit (HTTP 429) or transient errors (HTTP 503)
     max_retries = 4
     base_delay = 5  # seconds
 
@@ -278,13 +278,18 @@ def fetch_arxiv_papers(
             )
         except Exception as e:
             err_msg = str(e)
-            is_rate_limit = "429" in err_msg or "Too Many Requests" in err_msg
+            is_retryable = (
+                "429" in err_msg
+                or "Too Many Requests" in err_msg
+                or "503" in err_msg
+                or "Service Unavailable" in err_msg
+            )
 
-            if is_rate_limit and attempt < max_retries:
+            if is_retryable and attempt < max_retries:
                 delay = base_delay * (2 ** (attempt - 1))  # 5, 10, 20, 40 …
                 logger.warning(
-                    "[FETCH_ARXIV] HTTP 429 rate-limited by arXiv. "
-                    "Retry %d/%d in %ds…", attempt, max_retries, delay,
+                    "[FETCH_ARXIV] HTTP error (retryable) from arXiv. "
+                    "Retry %d/%d in %ds… (%s)", attempt, max_retries, delay, err_msg[:120],
                 )
                 time.sleep(delay)
                 continue

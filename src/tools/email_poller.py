@@ -614,7 +614,6 @@ Response: Just the research interests summary, nothing else."""
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
             max_tokens=200,
         )
         

@@ -82,6 +82,7 @@ static/public/decision_graph.mmd
 course_project_tests.ipynb
 VERIFICATION_CHECKLIST.md
 pytest.ini
+COURSE_COMPLIANCE.md
 
 # ── uv lock file (optional — remove this line if you want to pin deps) ──────
 # uv.lock

@@ -1273,6 +1273,244 @@
             margin: 0;
         }
 
+        /* ========== Chat Summary (dual rendering) ========== */
+        .chat-summary {
+            padding: 16px 18px;
+            line-height: 1.6;
+        }
+
+        .chat-summary-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .chat-summary-status.ok {
+            background: rgba(16, 185, 129, 0.15);
+            color: #047857;
+        }
+
+        html.dark .chat-summary-status.ok {
+            color: #34d399;
+        }
+
+        .chat-summary-status.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
+        html.dark .chat-summary-status.error {
+            color: #f87171;
+        }
+
+        .chat-summary-status.filtered {
+            background: rgba(234, 179, 8, 0.15);
+            color: #a16207;
+        }
+
+        html.dark .chat-summary-status.filtered {
+            color: #fbbf24;
+        }
+
+        .chat-summary-stats {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+
+        .chat-summary-papers {
+            margin: 8px 0 12px 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .paper-card {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+        }
+
+        .paper-card-title {
+            font-size: 0.88rem;
+            font-weight: 600;
+            line-height: 1.4;
+            margin-bottom: 4px;
+        }
+
+        .paper-card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .paper-card-id {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .paper-card-date::before {
+            content: '·';
+            margin-right: 6px;
+        }
+
+        .paper-tag {
+            padding: 1px 7px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .paper-tag.high {
+            background: rgba(16, 185, 129, 0.15);
+            color: #047857;
+        }
+
+        html.dark .paper-tag.high {
+            color: #34d399;
+        }
+
+        .paper-tag.mid {
+            background: rgba(234, 179, 8, 0.15);
+            color: #a16207;
+        }
+
+        html.dark .paper-tag.mid {
+            color: #fbbf24;
+        }
+
+        .paper-tag.low {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
+        html.dark .paper-tag.low {
+            color: #f87171;
+        }
+
+        .paper-card-more {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            font-style: italic;
+            padding-left: 4px;
+        }
+
+        .paper-group-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin: 12px 0 4px 0;
+            padding: 2px 0;
+        }
+
+        .paper-group-label.delivered {
+            color: #047857;
+        }
+
+        html.dark .paper-group-label.delivered {
+            color: #34d399;
+        }
+
+        .paper-group-label.new {
+            color: #2563eb;
+        }
+
+        html.dark .paper-group-label.new {
+            color: #60a5fa;
+        }
+
+        .paper-group-label.seen {
+            color: var(--text-muted);
+        }
+
+        .chat-summary-pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 8px 0;
+        }
+
+        .chat-summary-pipeline .pipeline-step {
+            padding: 3px 10px;
+            background: rgba(168, 67, 112, 0.1);
+            color: var(--primary);
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        html.dark .chat-summary-pipeline .pipeline-step {
+            background: rgba(219, 39, 119, 0.15);
+        }
+
+        .chat-summary-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 12px;
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .chat-summary-toggle:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(168, 67, 112, 0.05);
+        }
+
+        .chat-summary-raw {
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        .chat-summary-raw.expanded {
+            display: block;
+        }
+
+        .chat-summary-raw-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .chat-summary-raw pre {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.78rem;
+            color: var(--text);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 0 0 10px 0;
+        }
+
         /* ========== Chat Header ========== */
         .chat-header {
             display: flex;
@@ -4578,6 +4816,386 @@
         }
 
         /**
+         * Parse papers from the agent response text.
+         * Extracts titles and arXiv IDs deterministically (no LLM calls).
+         */
+        function parsePapersFromResponse(responseText) {
+            if (!responseText) return [];
+            const papers = [];
+            // Try JSON parse first (if response is JSON)
+            try {
+                const parsed = JSON.parse(responseText);
+                if (parsed && Array.isArray(parsed.papers)) {
+                    return parsed.papers.map(p => ({
+                        title: p.title || 'Untitled',
+                        arxiv_id: p.arxiv_id || p.external_id || ''
+                    }));
+                }
+            } catch { /* not JSON, use regex */ }
+            // Regex extraction: look for arXiv IDs
+            const arxivRegex = /(?:arxiv[:\s]*)?(\d{4}\.\d{4,5})/gi;
+            const titleLineRegex = /^\d+\.\s*['"]?(.+?)['"]?\s*[-–—]\s*/gm;
+            let match;
+            // Extract lines that look like paper listings
+            const lines = responseText.split('\n');
+            for (const line of lines) {
+                const numMatch = line.match(/^\d+\.\s*['"](.+?)['"]/);
+                if (numMatch) {
+                    const idMatch = line.match(/(\d{4}\.\d{4,5})/);
+                    papers.push({
+                        title: numMatch[1],
+                        arxiv_id: idMatch ? idMatch[1] : ''
+                    });
+                }
+            }
+            // If no papers found by listing format, just extract arXiv IDs
+            if (papers.length === 0) {
+                while ((match = arxivRegex.exec(responseText)) !== null) {
+                    papers.push({ title: '', arxiv_id: match[1] });
+                }
+            }
+            return papers;
+        }
+
+        /**
+         * Extract structured data from execution steps.
+         * Pure deterministic transformation – no LLM, no API calls.
+         * Returns { fetchedCount, seenCount, unseenCount, deliveredCount,
+         *           seenPapers: [...], unseenPapers: [...], deliveredPapers: [...],
+         *           papers: [{title, arxiv_id, published, importance, relevance, explanation, status}],
+         *           actions: [string], stopReason: string }
+         */
+        function extractDataFromSteps(steps) {
+            if (!steps || steps.length === 0) return null;
+
+            const data = {
+                fetchedCount: 0,
+                seenCount: 0,
+                unseenCount: 0,
+                deliveredCount: 0,
+                papers: [],
+                seenPapers: [],
+                unseenPapers: [],
+                deliveredPapers: [],
+                actions: [],
+                stopReason: ''
+            };
+
+            // Map to deduplicate papers by arxiv_id
+            const paperMap = new Map();
+            // Sets to track status
+            const seenIds = new Set();
+            const unseenIds = new Set();
+            const deliveredIds = new Set();
+
+            for (const step of steps) {
+                const mod = step.module || '';
+                const result = (step.response && step.response.result) || {};
+
+                if (mod === 'FetchArxivPapers') {
+                    // result may have papers array and total_found
+                    if (Array.isArray(result.papers)) {
+                        data.fetchedCount = result.papers.length;
+                        for (const p of result.papers) {
+                            const id = p.arxiv_id || p.external_id || '';
+                            if (id && !paperMap.has(id)) {
+                                paperMap.set(id, {
+                                    title: p.title || '',
+                                    arxiv_id: id,
+                                    published: p.published || p.date || '',
+                                    importance: null,
+                                    relevance: null,
+                                    explanation: '',
+                                    status: 'fetched'
+                                });
+                            }
+                        }
+                    }
+                    if (typeof result.total_found === 'number') {
+                        data.fetchedCount = Math.max(data.fetchedCount, result.total_found);
+                    }
+                }
+
+                if (mod === 'CheckSeenPapers') {
+                    const summary = result.summary || {};
+                    if (typeof summary.seen === 'number') data.seenCount = summary.seen;
+                    if (typeof summary.unseen === 'number') data.unseenCount = summary.unseen;
+                    if (typeof summary.total === 'number' && data.fetchedCount === 0) {
+                        data.fetchedCount = summary.total;
+                    }
+                    // Track seen paper IDs
+                    if (Array.isArray(result.seen_papers)) {
+                        for (const p of result.seen_papers) {
+                            const id = p.arxiv_id || p.external_id || p || '';
+                            if (id) {
+                                seenIds.add(typeof id === 'string' ? id : (id.arxiv_id || ''));
+                            }
+                        }
+                    }
+                    // Track unseen paper IDs
+                    if (Array.isArray(result.unseen_papers)) {
+                        for (const p of result.unseen_papers) {
+                            const id = p.arxiv_id || p.external_id || p || '';
+                            if (id) {
+                                unseenIds.add(typeof id === 'string' ? id : (id.arxiv_id || ''));
+                            }
+                        }
+                    }
+                }
+
+                if (mod === 'ScoreRelevanceAndImportance') {
+                    // Each invocation scores one paper; input_args should contain the paper
+                    const input = step.prompt || {};
+                    const paperId = (input.paper && (input.paper.arxiv_id || input.paper.external_id))
+                        || input.arxiv_id || '';
+                    if (paperId && paperMap.has(paperId)) {
+                        const entry = paperMap.get(paperId);
+                        if (typeof result.importance === 'number') entry.importance = result.importance;
+                        if (typeof result.relevance_score === 'number') entry.relevance = result.relevance_score;
+                        if (result.explanation) entry.explanation = result.explanation;
+                    }
+                }
+
+                if (mod === 'DecideDeliveryAction') {
+                    const action = result.action || result.decision || '';
+                    const input = step.prompt || {};
+                    const paperId = (input.paper && (input.paper.arxiv_id || input.paper.external_id))
+                        || input.arxiv_id || '';
+                    if (action) data.actions.push(action);
+                    if (action === 'deliver' || action === 'email' || action === 'send') {
+                        data.deliveredCount++;
+                        if (paperId) deliveredIds.add(paperId);
+                    }
+                }
+
+                if (mod === 'TerminateRun') {
+                    data.stopReason = result.reason || result.stop_reason || '';
+                }
+            }
+
+            // Assign status to each paper and sort into groups
+            for (const [id, paper] of paperMap) {
+                if (deliveredIds.has(id)) {
+                    paper.status = 'delivered';
+                    data.deliveredPapers.push(paper);
+                } else if (unseenIds.has(id)) {
+                    paper.status = 'new';
+                    data.unseenPapers.push(paper);
+                } else if (seenIds.has(id)) {
+                    paper.status = 'seen';
+                    data.seenPapers.push(paper);
+                } else {
+                    // If no CheckSeenPapers data, infer from presence
+                    paper.status = 'fetched';
+                    data.seenPapers.push(paper);
+                }
+            }
+
+            data.papers = Array.from(paperMap.values());
+            return data;
+        }
+
+        /**
+         * Extract run stats from response text.
+         */
+        function parseRunStats(responseText) {
+            if (!responseText) return {};
+            const stats = {};
+            const runIdMatch = responseText.match(/Run ID:\s*(\S+)/);
+            if (runIdMatch) stats.runId = runIdMatch[1];
+            const papersMatch = responseText.match(/Papers Processed:\s*(\d+)/);
+            if (papersMatch) stats.papersProcessed = parseInt(papersMatch[1]);
+            const decisionsMatch = responseText.match(/Decisions Made:\s*(\d+)/);
+            if (decisionsMatch) stats.decisionsMade = parseInt(decisionsMatch[1]);
+            const artifactsMatch = responseText.match(/Artifacts Generated:\s*(\d+)/);
+            if (artifactsMatch) stats.artifactsGenerated = parseInt(artifactsMatch[1]);
+            const stopMatch = responseText.match(/Stop Reason:\s*(.+)/);
+            if (stopMatch) stats.stopReason = stopMatch[1].trim();
+            // Detect "New Papers Found but Filtered" scenario
+            stats.hasFilteredPapers = /New Papers Found but Filtered/.test(responseText);
+            stats.hasNoNewPapers = /No New Papers Found/.test(responseText);
+            stats.hasNoPapersRetrieved = /No Papers Retrieved/.test(responseText);
+            // Extract unseen/filtered counts from the new message format
+            const unseenMatch = responseText.match(/Found (\d+) new \(unseen\) papers/);
+            if (unseenMatch) stats.unseenCount = parseInt(unseenMatch[1]);
+            const filteredMatch = responseText.match(/(\d+) paper\(s\) filtered out/);
+            if (filteredMatch) stats.filteredCount = parseInt(filteredMatch[1]);
+            return stats;
+        }
+
+        /**
+         * Render the dual-layer execute result: summary view + expandable raw details.
+         * The raw API response is preserved exactly for grading.
+         */
+        function renderExecuteResult(result) {
+            clearEmptyState();
+            const container = document.createElement('div');
+            container.className = 'message agent';
+
+            const isOk = result.status === 'ok';
+            const stats = parseRunStats(result.response);
+            const steps = result.steps || [];
+            const stepsData = extractDataFromSteps(steps);
+
+            // Prefer structured step data; fall back to regex-parsed papers
+            const papers = (stepsData && stepsData.papers.length > 0)
+                ? stepsData.papers
+                : parsePapersFromResponse(result.response);
+
+            // Determine summary variant
+            const isFiltered = isOk && stats.hasFilteredPapers;
+            const isNoNew = isOk && stats.hasNoNewPapers;
+            const isNoRetrieved = isOk && stats.hasNoPapersRetrieved;
+
+            // Build summary HTML
+            let html = '<div class="message-bubble chat-summary">';
+
+            // Status badge
+            if (!isOk) {
+                html += '<div class="chat-summary-status error">❌ Error</div>';
+            } else if (isFiltered) {
+                html += '<div class="chat-summary-status filtered">🔍 New papers found but filtered</div>';
+            } else if (isNoNew) {
+                html += '<div class="chat-summary-status ok">📭 You\'re up to date</div>';
+            } else if (isNoRetrieved) {
+                html += '<div class="chat-summary-status error">⚠️ No papers retrieved</div>';
+            } else {
+                html += '<div class="chat-summary-status ok">✅ Run completed</div>';
+            }
+
+            if (!isOk) {
+                html += `<div style="margin:8px 0;color:var(--error);">${escapeHtml(result.error || 'Unknown error')}</div>`;
+                html += '<div style="font-size:0.85rem;color:var(--text-muted);">Open the details below to inspect the full trace.</div>';
+            } else {
+                // --- Result paragraph ---
+                if (stepsData) {
+                    const parts = [];
+                    if (stepsData.fetchedCount > 0) parts.push(`Fetched <strong>${stepsData.fetchedCount}</strong> paper(s) from arXiv`);
+                    if (stepsData.seenCount > 0) parts.push(`<strong>${stepsData.seenCount}</strong> already seen`);
+                    if (stepsData.unseenCount > 0) parts.push(`<strong>${stepsData.unseenCount}</strong> new candidate(s)`);
+                    if (stepsData.deliveredCount > 0) parts.push(`<strong>${stepsData.deliveredCount}</strong> delivered`);
+                    else if (stats.papersProcessed !== undefined) parts.push(`<strong>${stats.papersProcessed}</strong> delivered`);
+                    if (parts.length > 0) {
+                        html += `<div class="chat-summary-stats">${parts.join(' · ')}</div>`;
+                    }
+                } else {
+                    // Fall back to regex-based stats
+                    const statParts = [];
+                    if (stats.runId) statParts.push(`Run: <code>${escapeHtml(stats.runId.substring(0, 8))}…</code>`);
+                    if (stats.papersProcessed !== undefined) statParts.push(`${stats.papersProcessed} paper(s) delivered`);
+                    if (stats.unseenCount !== undefined) statParts.push(`${stats.unseenCount} unseen found`);
+                    if (stats.filteredCount !== undefined) statParts.push(`${stats.filteredCount} filtered out`);
+                    if (stats.decisionsMade !== undefined && stats.decisionsMade > 0) statParts.push(`${stats.decisionsMade} decisions`);
+                    if (stats.artifactsGenerated !== undefined && stats.artifactsGenerated > 0) statParts.push(`${stats.artifactsGenerated} artifacts`);
+                    if (statParts.length > 0) {
+                        html += `<div class="chat-summary-stats">${statParts.join(' · ')}</div>`;
+                    }
+                }
+
+                // Filtered explanation
+                if (isFiltered) {
+                    html += '<div style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 10px 0;">';
+                    html += 'New papers were discovered but none met your relevance or quality criteria. ';
+                    html += 'Adjust your research topics or thresholds in <strong>Settings</strong> to broaden matches.';
+                    html += '</div>';
+                }
+
+                // No new papers explanation
+                if (isNoNew) {
+                    html += '<div style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 10px 0;">';
+                    html += 'All fetched papers have already been processed. You\'re up to date! ';
+                    html += 'New papers are typically published on arXiv weekdays.';
+                    html += '</div>';
+                }
+
+                // --- Paper cards grouped by status ---
+                function renderPaperCard(p) {
+                    const title = escapeHtml(p.title || p.arxiv_id || 'Untitled');
+                    const id = p.arxiv_id ? escapeHtml(p.arxiv_id) : '';
+                    const published = p.published ? escapeHtml(String(p.published).substring(0, 10)) : '';
+                    let card = '<div class="paper-card">';
+                    card += `<div class="paper-card-title">${title}</div>`;
+                    card += '<div class="paper-card-meta">';
+                    if (id) card += `<span class="paper-card-id">${id}</span>`;
+                    if (published) card += `<span class="paper-card-date">${published}</span>`;
+                    if (typeof p.relevance === 'number') {
+                        const cls = p.relevance >= 7 ? 'high' : (p.relevance >= 4 ? 'mid' : 'low');
+                        card += `<span class="paper-tag ${cls}">relevance ${p.relevance}</span>`;
+                    }
+                    if (typeof p.importance === 'number') {
+                        const cls = p.importance >= 7 ? 'high' : (p.importance >= 4 ? 'mid' : 'low');
+                        card += `<span class="paper-tag ${cls}">importance ${p.importance}</span>`;
+                    }
+                    card += '</div></div>';
+                    return card;
+                }
+
+                if (stepsData && (stepsData.deliveredPapers.length > 0 || stepsData.unseenPapers.length > 0 || stepsData.seenPapers.length > 0)) {
+                    // Delivered papers
+                    if (stepsData.deliveredPapers.length > 0) {
+                        html += `<div class="paper-group-label delivered">📬 Delivered (${stepsData.deliveredPapers.length})</div>`;
+                        html += '<div class="chat-summary-papers">';
+                        stepsData.deliveredPapers.forEach(p => { html += renderPaperCard(p); });
+                        html += '</div>';
+                    }
+                    // New candidates (unseen but not delivered)
+                    if (stepsData.unseenPapers.length > 0) {
+                        html += `<div class="paper-group-label new">🆕 New Candidates (${stepsData.unseenPapers.length})</div>`;
+                        html += '<div class="chat-summary-papers">';
+                        stepsData.unseenPapers.forEach(p => { html += renderPaperCard(p); });
+                        html += '</div>';
+                    }
+                    // Already seen
+                    if (stepsData.seenPapers.length > 0) {
+                        html += `<div class="paper-group-label seen">👁️ Already Seen (${stepsData.seenPapers.length})</div>`;
+                        html += '<div class="chat-summary-papers">';
+                        stepsData.seenPapers.forEach(p => { html += renderPaperCard(p); });
+                        html += '</div>';
+                    }
+                } else if (papers.length > 0) {
+                    // Fallback: no structured grouping available
+                    html += '<div class="chat-summary-papers">';
+                    papers.forEach(p => { html += renderPaperCard(p); });
+                    html += '</div>';
+                    html += '</div>';
+                }
+
+                // Pipeline module headlines
+                if (steps.length > 0) {
+                    html += '<div style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:4px;">Pipeline steps:</div>';
+                    html += '<div class="chat-summary-pipeline">';
+                    const seenModules = [];
+                    steps.forEach(s => {
+                        const mod = s.module || 'Unknown';
+                        if (!seenModules.includes(mod)) {
+                            seenModules.push(mod);
+                            html += `<span class="pipeline-step">${escapeHtml(mod)}</span>`;
+                        }
+                    });
+                    html += '</div>';
+                }
+            }
+
+            // Toggle button for raw details
+            const detailId = 'raw-detail-' + Date.now();
+            html += `<button class="chat-summary-toggle" onclick="document.getElementById('${detailId}').classList.toggle('expanded'); this.textContent = document.getElementById('${detailId}').classList.contains('expanded') ? '▲ Hide full course trace' : '▼ Show full course trace';">▼ Show full course trace</button>`;
+
+            // Raw details section (hidden by default)
+            html += `<div id="${detailId}" class="chat-summary-raw">`;
+            html += '<div class="chat-summary-raw-label">Response (raw)</div>';
+            html += `<pre>${escapeHtml(result.response || '(null)')}</pre>`;
+            html += '<div class="chat-summary-raw-label">Steps (raw)</div>';
+            html += `<pre>${escapeHtml(JSON.stringify(steps, null, 2))}</pre>`;
+            html += '</div>';
+
+            html += '</div>';
+            html += `<div class="message-time">${formatTime(new Date().toISOString())}</div>`;
+            container.innerHTML = html;
+            elements.chatMessages.appendChild(container);
+            scrollToBottom(elements.chatMessages);
+        }
+
+        /**
          * Render execution steps trace in the chat UI.
          * Course Project requirement: display module, prompt, response for each step.
          */
@@ -4601,7 +5219,7 @@
                     : escapeHtml(String(step.response || ''));
 
                 html += `
-                    <details class="step-detail" ${idx === 0 ? 'open' : ''}>
+                    <details class="step-detail">
                         <summary class="step-summary">
                             <span class="step-number">#${idx + 1}</span>
                             <span class="step-module">${moduleName}</span>
@@ -4990,15 +5608,16 @@
                 // Handle new response format: { status, error, response, steps }
                 if (result.status === 'ok') {
                     setStatus('done');
-                    addMessage(result.response || 'Agent completed successfully.', false);
-
-                    // Display execution steps trace (Course Project requirement)
-                    if (result.steps && result.steps.length > 0) {
-                        renderStepsTrace(result.steps);
-                    }
                 } else {
                     setStatus('error');
-                    addMessage(`Error: ${result.error || 'Unknown error'}`, false);
+                }
+
+                // Dual rendering: summary + expandable raw course trace
+                renderExecuteResult(result);
+
+                // Also render the visual steps trace for quick inspection
+                if (result.status === 'ok' && result.steps && result.steps.length > 0) {
+                    renderStepsTrace(result.steps);
                 }
 
             } catch (err) {

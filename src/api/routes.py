@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .run_manager import RunManager, RunStatus, run_manager
+from .schema_guard import validate_team_info, validate_agent_info, validate_execute_response
 
 # Add src to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -586,7 +587,7 @@ async def get_team_info() -> dict:
     Returns the team name and team members with their details.
     Required by Course Project specification.
     """
-    return TEAM_INFO
+    return validate_team_info(TEAM_INFO)
 
 
 @router.get("/agent_info", tags=["Info"])
@@ -598,7 +599,7 @@ async def get_agent_info() -> dict:
     prompts used, and other relevant data.
     Required by Course Project specification.
     """
-    return AGENT_INFO
+    return validate_agent_info(AGENT_INFO)
 
 
 @router.get("/model_architecture", tags=["Info"])
@@ -773,8 +774,23 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             stats = report.get("stats", {}) if isinstance(report, dict) else {}
             seen_count = stats.get("seen_papers_count", 0)
             unseen_count = stats.get("unseen_papers_count", 0)
+            filtered_count = stats.get("papers_filtered_count", 0)
+            total_fetched = stats.get("total_fetched_count", 0)
             
-            if len(episode.papers_processed) == 0 and seen_count > 0:
+            if len(episode.papers_processed) == 0 and unseen_count > 0:
+                # CRITICAL: unseen papers were found but ALL were filtered by
+                # quality/relevance.  Do NOT claim "No New Papers Found".
+                output_parts.append("🔍 New Papers Found but Filtered")
+                output_parts.append("-" * 40)
+                output_parts.append(f"Found {unseen_count} new (unseen) papers from {total_fetched} fetched,")
+                output_parts.append(f"but none met the relevance/quality criteria for delivery.")
+                if filtered_count:
+                    output_parts.append(f"({filtered_count} paper(s) filtered out by quality thresholds.)")
+                output_parts.append("")
+                output_parts.append("💡 Tip: Adjust your research topics or relevance thresholds in Settings")
+                output_parts.append("   to broaden the match criteria.")
+                output_parts.append("")
+            elif len(episode.papers_processed) == 0 and unseen_count == 0 and seen_count > 0:
                 output_parts.append("📭 No New Papers Found")
                 output_parts.append("-" * 40)
                 output_parts.append(f"All {seen_count} papers from arXiv have already been processed.")
@@ -783,7 +799,7 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
                 output_parts.append("💡 Tip: New papers are typically published on arXiv weekdays.")
                 output_parts.append("   Try running the agent again later for fresh content.")
                 output_parts.append("")
-            elif len(episode.papers_processed) == 0 and seen_count == 0:
+            elif len(episode.papers_processed) == 0 and seen_count == 0 and unseen_count == 0:
                 output_parts.append("⚠️ No Papers Retrieved")
                 output_parts.append("-" * 40)
                 output_parts.append("Could not fetch papers from arXiv.")

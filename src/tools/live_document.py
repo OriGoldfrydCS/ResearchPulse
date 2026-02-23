@@ -132,7 +132,7 @@ class LiveDocumentManager:
         max_top_papers: int = 10,
         max_recent_papers: int = 20,
         rolling_window_days: int = 7,
-        model: str = "gpt-4o-mini",
+        model: str = None,
     ):
         """
         Initialize the manager.
@@ -146,7 +146,7 @@ class LiveDocumentManager:
         self.max_top_papers = max_top_papers
         self.max_recent_papers = max_recent_papers
         self.rolling_window_days = rolling_window_days
-        self.model = model
+        self.model = model or os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
     
     def _fetch_existing_document(self, user_id: str) -> Optional[LiveDocumentData]:
         """Fetch existing document from database."""
@@ -236,7 +236,12 @@ class LiveDocumentManager:
         try:
             from openai import OpenAI
             
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+            api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+            if not api_key:
+                logger.warning("Live document: neither LLM_API_KEY nor OPENAI_API_KEY is set")
+                return f"Research briefing with {len(top_papers)} top papers and {len(trending_topics)} trending topics."
+            client = OpenAI(api_key=api_key, base_url=api_base)
             
             papers_text = "\n".join([
                 f"- {p.title} (relevance: {p.relevance_score:.2f})"
@@ -258,7 +263,6 @@ class LiveDocumentManager:
             response = client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
                 max_tokens=300,
             )
             

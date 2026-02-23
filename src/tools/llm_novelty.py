@@ -129,7 +129,7 @@ class LLMNoveltyScorer:
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str = None,
         temperature: float = 0.3,
         max_tokens: int = 1000,
         cache_ttl_days: int = 7,
@@ -145,7 +145,7 @@ class LLMNoveltyScorer:
             cache_ttl_days: How long to cache results
             min_relevance_threshold: Minimum relevance to trigger scoring
         """
-        self.model = model
+        self.model = model or os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.cache_ttl_days = cache_ttl_days
@@ -211,7 +211,12 @@ class LLMNoveltyScorer:
         try:
             from openai import OpenAI
             
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+            api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+            if not api_key:
+                logger.error("LLM novelty: neither LLM_API_KEY nor OPENAI_API_KEY is set")
+                return {}, 0
+            client = OpenAI(api_key=api_key, base_url=api_base)
             
             user_prompt = NOVELTY_SCORING_USER_PROMPT.format(
                 title=paper_title,
@@ -225,7 +230,6 @@ class LLMNoveltyScorer:
                     {"role": "system", "content": NOVELTY_SCORING_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 response_format={"type": "json_object"},
             )

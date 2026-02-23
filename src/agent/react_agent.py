@@ -312,6 +312,9 @@ class AgentEpisode(BaseModel):
     decisions_made: List[Dict[str, Any]] = Field(default_factory=list, description="Decisions made")
     actions_taken: List[Dict[str, Any]] = Field(default_factory=list, description="Actions taken")
     artifacts_generated: List[Dict[str, Any]] = Field(default_factory=list, description="Artifacts generated")
+    total_fetched_count: int = Field(0, description="Total papers fetched from arXiv")
+    unseen_paper_count: int = Field(0, description="Unseen papers found by CheckSeen")
+    papers_filtered_count: int = Field(0, description="Unseen papers filtered out by quality")
     
     class Config:
         arbitrary_types_allowed = True
@@ -737,6 +740,11 @@ class ResearchReActAgent:
             user_categories = []
         if user_categories:
             merged = list(set(categories_include) | set(user_categories))
+            # Cap at 10 categories to keep arXiv query URL short and reduce 503 errors.
+            # Prefer prompt-derived categories, then fill with profile ones.
+            if len(merged) > 10:
+                priority = list(dict.fromkeys(user_categories + categories_include))  # dedup, order preserved
+                merged = priority[:10]
             self._log("INFO", f"Merged prompt-interest categories {user_categories} with profile categories -> {merged}")
             categories_include = merged
         
@@ -778,22 +786,20 @@ class ResearchReActAgent:
             self._log("INFO", f"Using profile topics for arXiv query: {topic_query}")
         
         # Determine how many papers to request from the arXiv API.
-        # Request a larger pool (3x the output count) so that after
-        # filtering out already-delivered papers, enough fresh candidates
-        # remain for the user's requested output count.
-        desired_output = (
+        # Honour the dashboard "Papers per Run" setting directly — the user
+        # sets the fetch count explicitly so we should not inflate it.
+        fetch_count = (
             self._parsed_prompt.arxiv_fetch_count
             if self._parsed_prompt
             else DEFAULT_ARXIV_FETCH_COUNT
         )
-        candidate_pool_size = min(desired_output * 3, 100)
 
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",
             categories_include=categories_include,
             categories_exclude=categories_exclude,
             query=topic_query,
-            max_results=candidate_pool_size,
+            max_results=fetch_count,
         )
         
         if not success or not fetch_result.get("success"):
@@ -1184,6 +1190,10 @@ class ResearchReActAgent:
             except Exception as e:
                 self._log("ERROR", f"Colleague surplus processing error: {str(e)}")
         
+        # Compute papers_filtered_count: unseen papers that did not make it
+        # through the quality/relevance filters into _scored_papers.
+        papers_filtered_count = max(0, len(self._unseen_papers) - len(self._scored_papers))
+
         # Generate report
         report_result, success, error = self._invoke_tool(
             "generate_report",
@@ -1206,6 +1216,8 @@ class ResearchReActAgent:
             unseen_count=len(self._unseen_papers),
             seen_count=len(self._fetched_papers) - len(self._unseen_papers),
             highest_importance=self.stop_controller.metrics.highest_importance,
+            total_fetched_count=len(self._fetched_papers),
+            papers_filtered_count=papers_filtered_count,
         )
         
         # Terminate run
@@ -1224,6 +1236,9 @@ class ResearchReActAgent:
         self.episode.decisions_made = self._decisions
         self.episode.actions_taken = self._actions
         self.episode.artifacts_generated = self._artifacts
+        self.episode.total_fetched_count = len(self._fetched_papers)
+        self.episode.unseen_paper_count = len(self._unseen_papers)
+        self.episode.papers_filtered_count = papers_filtered_count
         
         if success and report_result:
             self.episode.final_report = report_result.get("report_json", {})

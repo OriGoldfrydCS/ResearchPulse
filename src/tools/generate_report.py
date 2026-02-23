@@ -79,9 +79,12 @@ class ArtifactInfo(BaseModel):
 
 class RunStats(BaseModel):
     """Statistics for the run."""
-    total_papers_retrieved: int = Field(0, description="Total papers retrieved from arXiv")
+    total_papers_retrieved: int = Field(0, description="Total papers fetched from arXiv")
+    total_fetched_count: int = Field(0, description="Alias: total papers fetched from arXiv API")
     unseen_papers_count: int = Field(0, description="Papers not seen before")
     seen_papers_count: int = Field(0, description="Papers already seen")
+    papers_delivered: int = Field(0, description="Papers that passed all filters and were delivered")
+    papers_filtered_count: int = Field(0, description="Unseen papers filtered out by quality/relevance")
     rag_query_count: int = Field(0, description="Number of RAG queries made")
     papers_scored: int = Field(0, description="Papers that were scored")
     decisions_made: int = Field(0, description="Number of decisions made")
@@ -423,6 +426,8 @@ def generate_report(
     highest_importance: Optional[str] = None,
     end_time: Optional[str] = None,
     additional_notes: str = "",
+    total_fetched_count: int = 0,
+    papers_filtered_count: int = 0,
 ) -> GenerateReportResult:
     """
     Generate a comprehensive run report with structured JSON and markdown summary.
@@ -503,10 +508,15 @@ def generate_report(
         artifact_infos = _build_artifact_infos(artifacts)
         
         # Calculate stats
+        # total_papers_retrieved = papers fetched from arXiv API (not just scored/delivered)
+        effective_fetched = total_fetched_count if total_fetched_count > 0 else (unseen_count + seen_count)
         stats = RunStats(
-            total_papers_retrieved=len(papers),
+            total_papers_retrieved=effective_fetched,
+            total_fetched_count=effective_fetched,
             unseen_papers_count=unseen_count,
             seen_papers_count=seen_count,
+            papers_delivered=len(papers),
+            papers_filtered_count=papers_filtered_count,
             rag_query_count=rag_query_count,
             papers_scored=sum(1 for p in paper_summaries if p.importance is not None),
             decisions_made=len(decisions),

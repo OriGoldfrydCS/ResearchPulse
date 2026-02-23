@@ -3550,8 +3550,7 @@ def _generate_paper_summary(abstract: str, title: str) -> str:
                     {"role": "system", "content": "You are a research assistant. Summarize academic papers concisely in 2-3 sentences, focusing on the main contribution and methodology. Be specific about what makes this paper unique."},
                     {"role": "user", "content": f"Summarize this paper:\n\nTitle: {title}\n\nAbstract: {abstract}"}
                 ],
-                max_tokens=150,
-                temperature=0.3
+                max_tokens=150
             )
             return response.choices[0].message.content.strip()
     except Exception:

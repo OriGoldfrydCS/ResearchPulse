@@ -32,7 +32,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -159,7 +159,7 @@ class ProfileEvolutionAnalyzer:
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str = None,
         min_high_relevance_papers: int = 3,
         min_novelty_threshold: float = 0.7,
         max_suggestions: int = 3,
@@ -175,7 +175,7 @@ class ProfileEvolutionAnalyzer:
             max_suggestions: Maximum suggestions per run
             cooldown_hours: Hours between analyses
         """
-        self.model = model
+        self.model = model or os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
         self.min_high_relevance_papers = min_high_relevance_papers
         self.min_novelty_threshold = min_novelty_threshold
         self.max_suggestions = max_suggestions
@@ -192,7 +192,7 @@ class ProfileEvolutionAnalyzer:
             if not is_database_configured():
                 # Without DB, use in-memory tracking
                 if self._last_analysis_time:
-                    elapsed = datetime.utcnow() - self._last_analysis_time
+                    elapsed = datetime.now(timezone.utc) - self._last_analysis_time
                     if elapsed < timedelta(hours=self.cooldown_hours):
                         return f"Cooldown: {self.cooldown_hours - elapsed.total_seconds() // 3600:.0f}h remaining"
                 return None
@@ -205,7 +205,12 @@ class ProfileEvolutionAnalyzer:
                 ).first()
                 
                 if recent and recent.created_at:
-                    elapsed = datetime.utcnow() - recent.created_at
+                    # Ensure both are timezone-aware for safe subtraction
+                    now = datetime.now(timezone.utc)
+                    created = recent.created_at
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    elapsed = now - created
                     if elapsed < timedelta(hours=self.cooldown_hours):
                         remaining = self.cooldown_hours - (elapsed.total_seconds() / 3600)
                         return f"Cooldown: {remaining:.0f}h remaining since last analysis"
@@ -331,7 +336,12 @@ class ProfileEvolutionAnalyzer:
         try:
             from openai import OpenAI
             
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+            api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+            if not api_key:
+                logger.error("Profile evolution: neither LLM_API_KEY nor OPENAI_API_KEY is set")
+                return []
+            client = OpenAI(api_key=api_key, base_url=api_base)
             
             user_prompt = PROFILE_EVOLUTION_USER_PROMPT.format(
                 research_topics=", ".join(profile.get("research_topics", [])),
@@ -347,7 +357,6 @@ class ProfileEvolutionAnalyzer:
                     {"role": "system", "content": PROFILE_EVOLUTION_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.4,
                 max_tokens=1500,
                 response_format={"type": "json_object"},
             )
