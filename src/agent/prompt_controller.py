@@ -100,6 +100,7 @@ class PromptTemplate(str, Enum):
     APPLICATION_FOCUSED = "application_focused"    # Template 8
     EMERGING_TRENDS = "emerging_trends"            # Template 9
     STRUCTURED_OUTPUT = "structured_output"        # Template 10
+    FETCH_BY_ID = "fetch_by_id"                     # Template 11 — single paper lookup
     UNRECOGNIZED = "unrecognized"                   # Fallback
 
 
@@ -124,6 +125,7 @@ class ParsedPrompt:
     is_structured_output: bool = False
     exclude_topics: List[str] = field(default_factory=list)  # Topics to exclude from results
     interests_only: str = ""  # ONLY the research interest keywords, no exclude/meta text
+    arxiv_id: Optional[str] = None  # arXiv paper ID for single-paper lookup
     raw_prompt: str = ""
     
     @property
@@ -297,6 +299,9 @@ class PromptParser:
         # Extract topic (what remains after removing meta-information)
         result.topic = self._extract_topic(prompt, result)
         
+        # Extract arXiv ID for direct paper lookup
+        result.arxiv_id = self._extract_arxiv_id(prompt)
+
         # Determine template
         result.template = self._determine_template(result)
         
@@ -481,8 +486,26 @@ class PromptParser:
         
         return topic.strip()
     
+    # Regex for arXiv IDs: standard (2301.12345) or old-style (hep-th/9901001)
+    _ARXIV_ID_RE = re.compile(r'\b(\d{4}\.\d{4,5}(?:v\d+)?)\b')
+    _ARXIV_OLD_ID_RE = re.compile(r'\b([a-z-]+/\d{7})\b')
+
+    def _extract_arxiv_id(self, prompt: str) -> Optional[str]:
+        """Extract an arXiv paper ID from the prompt, if present."""
+        m = self._ARXIV_ID_RE.search(prompt)
+        if m:
+            return m.group(1)
+        m = self._ARXIV_OLD_ID_RE.search(prompt)
+        if m:
+            return m.group(1)
+        return None
+
     def _determine_template(self, parsed: ParsedPrompt) -> PromptTemplate:
         """Determine which template the parsed prompt matches."""
+        # Template 11: Fetch by arXiv ID (highest priority)
+        if parsed.arxiv_id:
+            return PromptTemplate.FETCH_BY_ID
+
         has_topic = bool(parsed.topic)
         has_venue = bool(parsed.venue)
         has_time = bool(parsed.time_period)

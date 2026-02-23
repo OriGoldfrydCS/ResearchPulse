@@ -27,10 +27,13 @@ to decide what actions should be taken for both the researcher and colleagues.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import uuid
 import smtplib
+
+logger = logging.getLogger(__name__)
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
@@ -2028,12 +2031,17 @@ def process_colleague_surplus(
                 paper.categories, colleague.arxiv_categories_interest
             )
             
-            # Decide if we should share this paper with colleagues
+            # Decide if we should share this paper with colleagues.
+            # Strict rule: only share when there is genuine topic OR category
+            # overlap between the paper and the colleague's declared interests.
             should_share = has_topic_match or has_category_match
-            
-            # For high importance papers, share even with weak matches
-            if paper.importance == "high" and colleague.topics:
-                should_share = True
+
+            logger.info(
+                "[COLLEAGUE_FILTER] paper=%s colleague=%s topic_match=%s "
+                "category_match=%s matching_topics=%s share=%s",
+                paper.arxiv_id, colleague.name, has_topic_match,
+                has_category_match, matching_topics, should_share,
+            )
             
             if not should_share:
                 all_colleague_actions.append(ColleagueAction(

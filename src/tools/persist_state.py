@@ -294,7 +294,7 @@ def persist_paper_decision(
         "embedded_in_pinecone": decision.embedded_in_pinecone,
     }
     # Forward optional paper metadata from the input dict
-    for meta_key in ["abstract", "authors", "categories", "link", "published", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
+    for meta_key in ["abstract", "authors", "categories", "link", "published", "updated", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
         val = paper_decision.get(meta_key)
         if val is not None:
             paper_record[meta_key] = val
@@ -422,7 +422,7 @@ def persist_paper_decisions_batch(
                 "embedded_in_pinecone": decision.embedded_in_pinecone,
             }
             # Forward optional paper metadata from the input dict
-            for meta_key in ["abstract", "authors", "categories", "link", "published", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
+            for meta_key in ["abstract", "authors", "categories", "link", "published", "updated", "agent_email_decision", "agent_calendar_decision", "relevance_score", "novelty_score"]:
                 val = paper_dict.get(meta_key)
                 if val is not None:
                     paper_record[meta_key] = val

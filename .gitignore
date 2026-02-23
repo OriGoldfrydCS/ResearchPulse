@@ -64,6 +64,9 @@ ehthumbs.db
 *.log
 logs/
 
+# ── Local data cache (auto-generated from DB / fallback) ─────────────────────
+data/
+
 # ── Local artifacts (generated / personal) ───────────────────────────────────
 artifacts/calendar/*.ics
 artifacts/emails/*.txt
@@ -77,6 +80,8 @@ Course Project.txt
 static/public/decision_graph_dark.png
 static/public/decision_graph.mmd
 course_project_tests.ipynb
+VERIFICATION_CHECKLIST.md
+pytest.ini
 
 # ── uv lock file (optional — remove this line if you want to pin deps) ──────
 # uv.lock

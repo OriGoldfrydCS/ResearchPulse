@@ -694,6 +694,11 @@ class ResearchReActAgent:
         self.episode.detected_template = self._parsed_prompt.template.value
         self.episode.requested_paper_count = self._parsed_prompt.output_count
         
+        # Route: single-paper lookup by arXiv ID
+        from agent.prompt_controller import PromptTemplate
+        if self._parsed_prompt.template == PromptTemplate.FETCH_BY_ID:
+            return self._run_single_paper_workflow(self._parsed_prompt.arxiv_id)
+
         # Reset run tracker for idempotency
         reset_run_tracker()
         
@@ -772,13 +777,23 @@ class ResearchReActAgent:
             topic_query = " OR ".join(research_topics)
             self._log("INFO", f"Using profile topics for arXiv query: {topic_query}")
         
+        # Determine how many papers to request from the arXiv API.
+        # Request a larger pool (3x the output count) so that after
+        # filtering out already-delivered papers, enough fresh candidates
+        # remain for the user's requested output count.
+        desired_output = (
+            self._parsed_prompt.arxiv_fetch_count
+            if self._parsed_prompt
+            else DEFAULT_ARXIV_FETCH_COUNT
+        )
+        candidate_pool_size = min(desired_output * 3, 100)
+
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",
             categories_include=categories_include,
             categories_exclude=categories_exclude,
             query=topic_query,
-            # Use dashboard "Papers per Run" setting to control arXiv fetch count
-            max_results=self._parsed_prompt.arxiv_fetch_count if self._parsed_prompt else DEFAULT_ARXIV_FETCH_COUNT,
+            max_results=candidate_pool_size,
         )
         
         if not success or not fetch_result.get("success"):
@@ -1042,6 +1057,7 @@ class ResearchReActAgent:
                     "categories": paper.get("categories", []),
                     "link": paper.get("link"),
                     "published": paper.get("published"),
+                    "updated": paper.get("updated"),
                     # Agent delivery decisions
                     "agent_email_decision": agent_email_decision,
                     "agent_calendar_decision": agent_calendar_decision,
@@ -1254,6 +1270,55 @@ class ResearchReActAgent:
             self.episode.stop_reason = f"error: {str(e)}"
             return self.episode
     
+    def _run_single_paper_workflow(self, arxiv_id: str) -> AgentEpisode:
+        """Fetch exactly one paper by arXiv ID and persist it."""
+        self._log("INFO", f"Single paper lookup: {arxiv_id}")
+        from tools.fetch_arxiv import fetch_single_paper
+        result = fetch_single_paper(arxiv_id)
+
+        if not result.success or not result.papers:
+            return self._finalize_episode(f"Paper {arxiv_id} not found on arXiv")
+
+        paper = result.papers[0].model_dump()
+        self._fetched_papers = [paper]
+        self._scored_papers = [paper]
+        self.stop_controller.increment_papers_checked(1)
+
+        # Persist the paper
+        persist_result, success, error = self._invoke_tool(
+            "persist_state",
+            paper_decision={
+                "paper_id": paper.get("arxiv_id"),
+                "title": paper.get("title"),
+                "decision": "saved",
+                "importance": "high",
+                "notes": f"Directly requested by arXiv ID {arxiv_id}",
+                "embedded_in_pinecone": False,
+                "abstract": paper.get("abstract"),
+                "authors": paper.get("authors", []),
+                "categories": paper.get("categories", []),
+                "link": paper.get("link"),
+                "published": paper.get("published"),
+                "updated": paper.get("updated"),
+            },
+        )
+        if not success:
+            self._log("WARN", f"Persist failed for {arxiv_id}: {error}")
+
+        # Generate report for the single paper
+        report_result, success, error = self._invoke_tool(
+            "generate_report",
+            research_profile=self._research_profile,
+            papers=self._scored_papers,
+            decisions=[],
+            actions=[],
+        )
+        if success:
+            self.episode.final_report = report_result.get("report", "")
+
+        self.stop_controller.mark_completed()
+        return self._finalize_episode(f"Single paper {arxiv_id} fetched and saved")
+
     def _run_autonomous_components(self) -> None:
         """
         Run all autonomous components after the main workflow completes.
@@ -1385,8 +1450,11 @@ class ResearchReActAgent:
             self._log("WARNING", f"Profile evolution failed (non-critical): {e}")
         
         # 4. Live Document Update
+        # Use only _scored_papers (papers that passed the scoring pipeline)
+        # rather than analysis_papers (which includes all fetched papers with
+        # inflated default scores).
         try:
-            if is_feature_enabled("LIVE_DOCUMENT", user_uuid) and analysis_papers:
+            if is_feature_enabled("LIVE_DOCUMENT", user_uuid) and self._scored_papers:
                 from tools.live_document import update_live_document_from_run
                 
                 self._log("DEBUG", "Updating live document...")
@@ -1394,7 +1462,7 @@ class ResearchReActAgent:
                     run_id=self.run_id,
                     user_id=user_id,
                     user_profile=self._research_profile,
-                    scored_papers=analysis_papers,
+                    scored_papers=self._scored_papers,
                 )
                 
                 if doc_result.get("save_result", {}).get("success"):

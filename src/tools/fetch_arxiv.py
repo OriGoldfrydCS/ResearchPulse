@@ -194,6 +194,7 @@ def fetch_arxiv_papers(
     query: Optional[str] = None,
     days_back: int = 7,
     use_mock: bool = True,
+    start_index: int = 0,
 ) -> FetchArxivResult:
     """
     Fetch recent papers from arXiv matching specified criteria.
@@ -246,6 +247,7 @@ def fetch_arxiv_papers(
         "max_results": max_results,
         "query": query,
         "days_back": days_back,
+        "start_index": start_index,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
     
@@ -272,6 +274,7 @@ def fetch_arxiv_papers(
                 query,
                 days_back,
                 query_info,
+                start_index=start_index,
             )
         except Exception as e:
             err_msg = str(e)
@@ -359,6 +362,7 @@ def _fetch_real_papers(
     query: Optional[str],
     days_back: int,
     query_info: Dict[str, Any],
+    start_index: int = 0,
 ) -> FetchArxivResult:
     """Fetch papers from real arXiv API."""
     try:
@@ -392,11 +396,12 @@ def _fetch_real_papers(
     
     search_query = " AND ".join(query_parts) if query_parts else "cat:cs.CL"
     
-    # Perform search — request modest overhead for post-filters
+    # Perform search — request modest overhead for post-filters.
+    # start_index allows paginating through results on re-runs.
     fetch_count = min(max_results + 20, max_results * 2, 100)
     search = arxiv.Search(
         query=search_query,
-        max_results=fetch_count,
+        max_results=start_index + fetch_count,
         sort_by=arxiv.SortCriterion.SubmittedDate,
         sort_order=arxiv.SortOrder.Descending,
     )
@@ -411,8 +416,14 @@ def _fetch_real_papers(
     
     papers = []
     cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+    skipped = 0
     
     for result in client.results(search):
+        # Skip first start_index results for pagination
+        if skipped < start_index:
+            skipped += 1
+            continue
+
         # Date filter
         if result.published.replace(tzinfo=None) < cutoff_date:
             continue
@@ -450,6 +461,75 @@ def _fetch_real_papers(
         query_info=query_info,
         error=None,
     )
+
+
+def fetch_single_paper(arxiv_id: str) -> FetchArxivResult:
+    """Fetch exactly one paper by its arXiv ID.
+
+    Uses the arXiv API ``id_list`` parameter for a direct lookup.
+    Falls back to mock data when the arxiv library is unavailable.
+
+    Args:
+        arxiv_id: The arXiv paper ID (e.g. ``"2301.00001"``).
+
+    Returns:
+        A ``FetchArxivResult`` containing zero or one papers.
+    """
+    query_info = {"arxiv_id": arxiv_id, "mode": "single_paper"}
+
+    # Check mock data first
+    for paper_data in MOCK_PAPERS:
+        if paper_data["arxiv_id"] == arxiv_id:
+            return FetchArxivResult(
+                success=True,
+                papers=[ArxivPaper(**paper_data)],
+                total_found=1,
+                query_info=query_info,
+            )
+
+    try:
+        import arxiv as arxiv_lib
+    except ImportError:
+        return FetchArxivResult(
+            success=False, papers=[], total_found=0,
+            query_info=query_info,
+            error="arxiv library not installed. Run: pip install arxiv",
+        )
+
+    try:
+        search = arxiv_lib.Search(id_list=[arxiv_id])
+        client = arxiv_lib.Client(page_size=1, delay_seconds=3.0, num_retries=3)
+
+        for result in client.results(search):
+            entry_id = result.entry_id.split("/")[-1]
+            paper = ArxivPaper(
+                arxiv_id=entry_id,
+                title=result.title,
+                abstract=result.summary,
+                authors=[a.name for a in result.authors],
+                categories=result.categories,
+                published=result.published.isoformat() + "Z",
+                updated=result.updated.isoformat() + "Z",
+                link=result.entry_id,
+                pdf_link=result.pdf_url or "",
+            )
+            return FetchArxivResult(
+                success=True, papers=[paper], total_found=1,
+                query_info=query_info,
+            )
+
+        return FetchArxivResult(
+            success=True, papers=[], total_found=0,
+            query_info=query_info,
+            error=f"Paper {arxiv_id} not found on arXiv",
+        )
+    except Exception as e:
+        logger.error("[FETCH_ARXIV] Single-paper fetch failed: %s", e)
+        return FetchArxivResult(
+            success=False, papers=[], total_found=0,
+            query_info=query_info,
+            error=f"arXiv API error: {e}",
+        )
 
 
 def fetch_arxiv_papers_json(

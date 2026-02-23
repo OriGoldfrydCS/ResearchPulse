@@ -5155,14 +5155,17 @@ def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> b
 # --- Live Document ---
 
 @router.get("/live-document")
-async def get_live_document(format: str = Query(default="json", regex="^(json|markdown|html)$")):
+async def get_live_document(format: str = Query(default="json", regex="^(json|markdown|html|txt|pdf)$")):
     """
     Get the user's live research briefing document.
     
     Feature flag: LIVE_DOCUMENT_ENABLED (must be enabled)
     
     Args:
-        format: Response format (json, markdown, html)
+        format: Response format (json, markdown, html, txt, pdf).
+                'pdf' returns a print-friendly HTML page with
+                Content-Disposition: attachment so the browser
+                triggers a download / print dialog.
     
     Returns the latest version of the live document.
     """
@@ -5199,6 +5202,30 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
             return Response(
                 content=manager.render_html(doc),
                 media_type="text/html",
+            )
+        elif format == "txt":
+            manager = LiveDocumentManager()
+            doc = LiveDocumentData(**doc_data.get("document_data", {}))
+            return Response(
+                content=manager.render_text(doc),
+                media_type="text/plain",
+                headers={"Content-Disposition": "attachment; filename=live_document.txt"},
+            )
+        elif format == "pdf":
+            manager = LiveDocumentManager()
+            doc = LiveDocumentData(**doc_data.get("document_data", {}))
+            html_content = manager.render_html(doc)
+            # Wrap in a print-friendly page so the browser can save as PDF
+            pdf_html = (
+                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                "<title>Research Briefing</title>"
+                "<style>@media print{body{font-size:11pt}}</style>"
+                "</head><body>" + html_content + "</body></html>"
+            )
+            return Response(
+                content=pdf_html,
+                media_type="text/html",
+                headers={"Content-Disposition": "attachment; filename=live_document.html"},
             )
         else:
             return {

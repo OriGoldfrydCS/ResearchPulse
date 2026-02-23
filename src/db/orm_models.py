@@ -1216,6 +1216,14 @@ def arxiv_category_to_dict(cat: ArxivCategoryDB) -> Dict[str, Any]:
 
 def paper_to_dict(paper: Paper) -> Dict[str, Any]:
     """Convert Paper model to dictionary."""
+    categories = paper.categories or []
+    # Build human-friendly display names for categories
+    categories_display = []
+    try:
+        from tools.arxiv_categories import get_category_display_name
+        categories_display = [get_category_display_name(c) for c in categories]
+    except Exception:
+        categories_display = list(categories)
     return {
         "id": str(paper.id),
         "source": paper.source,
@@ -1223,7 +1231,8 @@ def paper_to_dict(paper: Paper) -> Dict[str, Any]:
         "title": paper.title,
         "abstract": paper.abstract,
         "authors": paper.authors or [],
-        "categories": paper.categories or [],
+        "categories": categories,
+        "categories_display": categories_display,
         "url": paper.url,
         "pdf_url": paper.pdf_url,
         "published_at": paper.published_at.isoformat() + "Z" if paper.published_at else None,

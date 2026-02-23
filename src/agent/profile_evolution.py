@@ -283,10 +283,15 @@ class ProfileEvolutionAnalyzer:
             for cat in paper.get("categories", []):
                 if isinstance(cat, str) and cat not in user_cats_include and cat not in seen_cats:
                     seen_cats.add(cat)
+                    try:
+                        from tools.arxiv_categories import get_category_display_name
+                        cat_label = get_category_display_name(cat)
+                    except Exception:
+                        cat_label = cat
                     suggestions.append({
                         "suggestion_type": "add_category",
                         "category": cat,
-                        "reasoning": f"Category '{cat}' appeared in recent high-relevance papers but is not in your tracked categories.",
+                        "reasoning": f"Category {cat_label} appeared in recent high-relevance papers but is not in your tracked categories.",
                         "confidence": 0.6,
                     })
         
@@ -412,9 +417,21 @@ class ProfileEvolutionAnalyzer:
             elif suggestion_type == "refine_topic":
                 text = f"Refine topic '{raw.get('topic', '')}' to '{raw.get('new_topic', '')}'"
             elif suggestion_type == "add_category":
-                text = f"Add arXiv category: {raw.get('category', '')}"
+                _cat_code = raw.get('category', '')
+                try:
+                    from tools.arxiv_categories import get_category_display_name
+                    _cat_display = get_category_display_name(_cat_code)
+                except Exception:
+                    _cat_display = _cat_code
+                text = f"Add arXiv category: {_cat_display}"
             elif suggestion_type == "remove_category":
-                text = f"Remove arXiv category: {raw.get('category', '')}"
+                _cat_code = raw.get('category', '')
+                try:
+                    from tools.arxiv_categories import get_category_display_name
+                    _cat_display = get_category_display_name(_cat_code)
+                except Exception:
+                    _cat_display = _cat_code
+                text = f"Remove arXiv category: {_cat_display}"
             elif suggestion_type == "merge_topics":
                 text = f"Merge topics: {', '.join(raw.get('topics_to_merge', []))} → '{raw.get('merged_topic', '')}'"
             else:
@@ -548,9 +565,25 @@ def save_profile_suggestions(
             return {"success": False, "error": "database_not_configured"}
         
         saved_ids = []
+        skipped_dupes = 0
         
         with get_db_session() as db:
             for suggestion in analysis.suggestions:
+                # Deduplicate: skip if an identical pending suggestion exists
+                existing = (
+                    db.query(ProfileEvolutionSuggestion)
+                    .filter_by(
+                        user_id=uuid.UUID(analysis.user_id),
+                        suggestion_type=suggestion.suggestion_type,
+                        suggestion_text=suggestion.suggestion_text,
+                        status="pending",
+                    )
+                    .first()
+                )
+                if existing:
+                    skipped_dupes += 1
+                    continue
+
                 record = ProfileEvolutionSuggestion(
                     user_id=uuid.UUID(analysis.user_id),
                     run_id=analysis.run_id,
@@ -568,9 +601,9 @@ def save_profile_suggestions(
             
             db.commit()
         
-        logger.info(f"Saved {len(saved_ids)} profile evolution suggestions")
+        logger.info(f"Saved {len(saved_ids)} profile evolution suggestions (skipped {skipped_dupes} duplicates)")
         
-        return {"success": True, "saved": len(saved_ids), "ids": saved_ids}
+        return {"success": True, "saved": len(saved_ids), "skipped_duplicates": skipped_dupes, "ids": saved_ids}
         
     except Exception as e:
         logger.error(f"Failed to save profile suggestions: {e}")

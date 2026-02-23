@@ -848,6 +848,38 @@ def get_seen_paper_ids() -> Set[str]:
     return {p.get("paper_id") for p in papers if p.get("paper_id")}
 
 
+def get_delivered_paper_ids() -> Set[str]:
+    """Get paper IDs already delivered to the user (decision = saved/shared/logged).
+
+    On re-run, these papers should be excluded so the user sees *new*
+    results, while papers merely "seen" during scoring are still eligible.
+    Falls back to ``get_seen_paper_ids()`` when the DB is unavailable.
+    """
+    if is_db_available():
+        try:
+            user_id = _get_default_user_id()
+            if user_id:
+                with get_db_session() as db:
+                    views = (
+                        db.query(PaperView)
+                        .join(Paper, Paper.id == PaperView.paper_id)
+                        .filter(
+                            PaperView.user_id == uuid.UUID(user_id),
+                            PaperView.decision.in_(["saved", "shared", "logged"]),
+                        )
+                        .all()
+                    )
+                    ids: Set[str] = set()
+                    for v in views:
+                        if v.paper and v.paper.external_id:
+                            ids.add(v.paper.external_id)
+                    return ids
+        except Exception as e:
+            logger.error(f"Error loading delivered paper IDs from DB: {e}")
+    # Fallback: treat all seen papers as delivered
+    return get_seen_paper_ids()
+
+
 def get_paper_by_id(paper_id: str) -> Optional[Dict[str, Any]]:
     """Get a specific paper record by ID."""
     state = get_papers_state()
@@ -883,9 +915,12 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                         external_id=paper_id
                     ).first()
                     
-                    # Parse published date if available
+                    # Parse published date if available (fall back to 'updated' date)
                     published_at = None
-                    raw_pub = paper_record.get("published") or paper_record.get("published_at") or paper_record.get("publication_date")
+                    raw_pub = (paper_record.get("published")
+                               or paper_record.get("published_at")
+                               or paper_record.get("publication_date")
+                               or paper_record.get("updated"))
                     if raw_pub:
                         try:
                             from datetime import datetime as _dt

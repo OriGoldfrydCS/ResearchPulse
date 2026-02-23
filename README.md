@@ -46,10 +46,11 @@ The agent observes the research landscape by pulling fresh data from external so
 
 | Component | What it does |
 |-----------|-------------|
-| **arXiv API** | Fetches recent papers filtered by your chosen categories and time period |
+| **arXiv API** | Fetches recent papers filtered by your chosen categories and time period. Supports **paper-by-ID** retrieval (e.g. `2301.12345`) and **pagination** to fetch the next batch of unseen papers on re-runs |
 | **Pinecone RAG** | Queries the vector store to detect novelty - has this topic been seen before? |
 | **Inbox Monitor** | Checks email for colleague replies and feedback on shared papers |
 | **Profile Loader** | Reads your research interests, exclusions, and delivery preferences |
+| **Delivered Tracker** | Tracks which papers were actually delivered (saved/shared/logged) vs. merely seen, so re-runs fetch genuinely new papers |
 
 > [!NOTE]
 > In the current version, perception is **focused** — the agent fetches papers matching your configured arXiv categories and time window, while also drawing context from your user profile, colleague interests, and past feedback stored in the database. This keeps discovery targeted without information overload.
@@ -66,6 +67,7 @@ The LLM-powered ReAct core evaluates every paper through structured thinking:
 | **Novelty Detection** | Embeds the paper and queries Pinecone - if too similar to past papers, it's deprioritized |
 | **Importance Ranking** | Assigns `high` / `medium` / `low` importance based on combined relevance + novelty |
 | **Delivery Decision** | Applies your delivery policy to decide: notify, share with a colleague, or just log it |
+| **Colleague Filtering** | Papers are shared with colleagues **only** when there is genuine topic or category overlap — high importance alone does not trigger sharing |
 | **Stop Policy** | Continuously checks guardrails (max runtime, max papers, max RAG queries) to stay bounded |
 
 The reasoning phase follows the **ReAct pattern**: `Thought → Action → Observation → Thought → ...`, with every step logged for full transparency.
@@ -86,7 +88,8 @@ Once reasoning is complete, the agent executes real-world actions:
 | 📤 **Colleague Share** | Paper matches a colleague's interests | Targeted email with paper summary |
 | ⭐ **Paper Tagging** | Relevance/importance scored | Paper saved with metadata to your library |
 | 📝 **AI Summary** | On-demand via dashboard | LLM-generated summary of the full PDF |
-| 💡 **Profile Evolution** | Patterns detected in your feedback | Suggestions to refine your research interests |
+| � **Live Document** | After every run | Rolling research briefing with TXT and PDF export |
+| 💡 **Profile Evolution** | Patterns detected in your feedback | Deduplicated suggestions to refine your research interests |
 
 > [!NOTE]
 > All actions are **auditable**. Every email sent, calendar event created, and share made is logged in the database and visible in the dashboard's Emails, Alerts, and Shares tabs.
@@ -95,14 +98,14 @@ Once reasoning is complete, the agent executes real-world actions:
 
 ## 🔀 Autonomous Decision Graph
 
-Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the agent reaches **20+ autonomous junctions** where it chooses different paths based on context, scores, policies, and feature flags:
+Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the agent reaches **25+ autonomous junctions** where it chooses different paths based on context, scores, policies, and feature flags:
 
 <div style="overflow:scroll; max-height:600px; max-width:100%; border:2px solid #d1d5db; border-radius:12px;">
   <img src="static/public/decision_graph.svg" alt="ResearchPulse Autonomous Decision Graph" />
 </div>
 
 <p align="center">
-  <em>↕️ ↔️ Scroll inside the box to navigate · <a href="static/public/decision_graph.svg">Open full-size SVG</a></em>
+  <em>↕️ ↔️ Scroll inside the box to navigate · <a href="static/public/decision_graph.svg">Open full-size SVG</a> · <a href="static/public/decision_graph.mmd">Mermaid source</a></em>
 </p>
 
 #### 🗺️ Legend
@@ -163,7 +166,8 @@ Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the age
 | 👥 **Colleague Sharing** | Auto-match papers to colleagues by research interests |
 | 📄 **Paper Summaries** | One-click AI summarization of any paper's PDF |
 | 📬 **Inbox Monitoring** | Detects and processes colleague replies |
-| 🧬 **Profile Evolution** | Learns from your stars and feedback to improve over time |
+| 🧬 **Profile Evolution** | Learns from your stars and feedback to improve over time (with duplicate suggestion dedup) |
+| 📑 **Live Document** | Rolling research briefing updated after every run, exportable as **TXT** or **PDF** |
 | 📥 **CSV Export** | Export your paper library for reference managers |
 | 🌓 **Dark / Light Mode** | Theme toggle with persistent preference |
 | 🔐 **Join Code Security** | Colleagues need a passphrase to join your network |
@@ -250,6 +254,10 @@ Open **http://127.0.0.1:8000** - you'll land on the Home tab. Set up your Resear
 | `APP_HOST` | - | Server host (default: `127.0.0.1`) |
 | `APP_PORT` | - | Server port (default: `8000`) |
 | `ARXIV_MAX_RESULTS` | - | Max papers per query (default: `50`) |
+| `AUDIT_LOG_ENABLED` | - | Enable audit log autonomous component |
+| `LLM_NOVELTY_ENABLED` | - | Enable LLM novelty scoring component |
+| `PROFILE_EVOLUTION_ENABLED` | - | Enable profile evolution suggestions |
+| `LIVE_DOCUMENT_ENABLED` | - | Enable live document generation |
 
 > [!TIP]
 > Keep your `.env` file **out of version control**. A `.env.template` is provided with placeholder values for every variable.
@@ -287,7 +295,68 @@ Every run is **bounded** - the agent stops when *any* condition is met:
 ```
 
 > [!NOTE]
-> All state lives in PostgreSQL + Pinecone - the app is **deployment-safe** and works identically on local dev, Render, or any cloud host.
+> All state lives in PostgreSQL + Pinecone — the app is **deployment-safe** and works identically on local dev, Render, or any cloud host. The arXiv category taxonomy is loaded from the database with a built-in fallback; no local `data/` folder is required.
+
+---
+
+## 🔀 Fetch & Delivery Pipeline
+
+```
+User Prompt
+    │
+    ├─── Contains arXiv ID? (e.g. "2301.12345")
+    │       YES → fetch_single_paper → persist as saved → report
+    │       NO  ↓
+    ├─── Parse prompt → map interests to arXiv categories
+    │                     ↓
+    ├─── Fetch from arXiv API (with start_index pagination)
+    │                     ↓
+    ├─── Filter: already-DELIVERED papers removed
+    │    (only saved/shared/logged count as delivered;
+    │     previously fetched-but-skipped papers reappear)
+    │                     ↓
+    ├─── For each unseen paper:
+    │       Keyword filter → LLM relevance → RAG novelty → Score
+    │       Hard relevance gate (≥ 0.20) → Importance ranking
+    │                     ↓
+    ├─── Enforce output limit (top N by score)
+    │                     ↓
+    ├─── Colleague surplus: share with colleagues
+    │    ONLY when topic OR category overlap exists
+    │                     ↓
+    ├─── Persist decisions → Generate report
+    │                     ↓
+    └─── Autonomous components (if enabled):
+            • Audit Log
+            • LLM Novelty Scoring
+            • Profile Evolution (deduped suggestions)
+            • Live Document (TXT / PDF export)
+```
+
+---
+
+## 📑 Live Document
+
+The **Live Document** is a rolling research briefing maintained after each agent run. It includes an executive summary, top papers, trending topics, and category breakdown.
+
+- Updated automatically from **scored papers only** (not all fetched candidates)
+- Viewable on the Home tab
+- Exportable as:
+  - **Markdown** (default view)
+  - **HTML** (rendered in dashboard)
+  - **TXT** (plain-text download via `GET /api/live-document?format=txt`)
+  - **PDF** (browser print-to-PDF via `GET /api/live-document?format=pdf`)
+
+---
+
+## 💡 Profile Evolution & Suggestions
+
+After each run, the agent analyzes high-scoring papers and generates advisory suggestions:
+
+- **Types**: add/remove/refine topic, add/remove category, merge topics
+- **Deduplication**: identical pending suggestions are automatically skipped (same user, type, and text)
+- **Category display**: suggestions use human-friendly names like `cs.AI (Artificial Intelligence)` instead of raw codes
+- **Advisory only**: suggestions are never auto-applied — user must accept or reject
 
 ---
 
@@ -295,7 +364,7 @@ Every run is **bounded** - the agent stops when *any* condition is met:
 
 | Tab | Icon | What you'll find |
 |-----|:----:|-----------------|
-| **Home** | 🏠 | Chat input, "Search for me", Live Document, Profile Suggestions |
+| **Home** | 🏠 | Auto-growing chat input, "Search for me", Live Document (TXT/PDF export), Profile Suggestions |
 | **Papers** | 📄 | Full paper library with star, filter, sort, bulk actions, CSV export |
 | **Emails** | 📧 | All sent email digests and colleague notifications |
 | **Alerts** | 📅 | Calendar events and reading reminders (.ics download) |
@@ -370,20 +439,44 @@ ResearchPulse/
 ├── migrations/             # Alembic migration scripts
 │   └── versions/           # Individual migrations
 ├── static/
-│   ├── index.html          # Full SPA dashboard
-│   └── public/             # Logo, architecture diagram
+│   ├── index.html          # Full SPA dashboard (auto-growing chat input)
+│   └── public/             # Logo, architecture diagram, decision graph SVG
 └── src/
-    ├── agent/              # ReAct agent, stop controller, profile evolution
-    ├── api/                # FastAPI routes, run manager, colleague routes
-    ├── config/             # Feature flags
-    ├── db/                 # ORM models, database session, data service
+    ├── agent/              # ReAct agent, stop controller, profile evolution, prompt parser
+    ├── api/                # FastAPI routes (incl. live-doc TXT/PDF), run manager
+    ├── config/             # Feature flags (4 autonomous components)
+    ├── db/                 # ORM models, database session, data service, delivered tracking
     ├── rag/                # Pinecone client, embeddings, retriever
-    └── tools/              # 20+ LangChain tools (fetch, score, email, etc.)
+    └── tools/              # 20+ LangChain tools (fetch, score, email, live doc, etc.)
 ```
 
 ---
 
-## 📜 License
+## �️ Database Migrations
+
+Migrations are managed with **Alembic**. Key migrations include:
+
+| Migration | Description |
+|-----------|-------------|
+| `initial_schema` | Base tables (users, papers, paper_views, colleagues, etc.) |
+| `add_arxiv_categories` | ArXiv category taxonomy table |
+| `add_autonomous_components` | Audit log, LLM novelty, profile evolution models |
+| `add_paper_summary` | Paper AI summary storage |
+| `add_paper_view_fields` | Extended paper view tracking (relevance/novelty scores) |
+| `add_profile_fields` | Enriched user profile (keywords, time period, stop policy) |
+| `add_prompt_templates` | Saved prompt and template management |
+| `add_feature_flag_settings` | Feature flag configuration per user |
+| `add_execution_settings` | Execution bounds (max runtime, max papers) |
+
+Run pending migrations:
+
+```bash
+alembic upgrade head
+```
+
+---
+
+## �📜 License
 
 MIT - see [LICENSE](LICENSE) for details.
 

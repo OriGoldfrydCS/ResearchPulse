@@ -1089,7 +1089,7 @@
         .input-area textarea {
             resize: none;
             min-height: 48px;
-            max-height: 120px;
+            max-height: 200px;
             overflow-y: auto;
             line-height: 1.4;
         }
@@ -2502,7 +2502,7 @@
         .input-area {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-end;
             gap: 12px;
             padding: 16px;
             background: var(--surface);
@@ -4542,6 +4542,7 @@
 
             // Clear input
             elements.messageInput.value = '';
+            resetTextareaHeight(elements.messageInput);
 
             // Reset state
             state.currentRunId = null;
@@ -4963,6 +4964,7 @@
             // Reset UI
             state.isRunning = true;
             elements.messageInput.value = '';
+            resetTextareaHeight(elements.messageInput);
             setInputEnabled(false);
             setStatus('running');
             elements.reportPanel.classList.remove('visible');
@@ -5080,6 +5082,18 @@
                 e.preventDefault();
                 handleButtonClick();
             }
+        });
+
+        // Auto-grow textarea as user types (grows upward via flex-end alignment)
+        function autoResizeTextarea(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+        }
+        function resetTextareaHeight(el) {
+            el.style.height = '';
+        }
+        elements.messageInput.addEventListener('input', () => {
+            autoResizeTextarea(elements.messageInput);
         });
 
         // Focus input on load
@@ -5250,7 +5264,7 @@
                 const externalId = paper.external_id || '';
                 const arxivUrl = externalId ? `https://arxiv.org/abs/${externalId}` : (paper.url || p.url || '#');
                 const pdfUrl = externalId ? `https://arxiv.org/pdf/${externalId}.pdf` : '';
-                const categories = paper.categories || p.categories || [];
+                const categories = paper.categories_display || paper.categories || p.categories || [];
                 const publishedAt = paper.published_at || p.published_at;
                 const firstSeenAt = p.first_seen_at;
                 const paperId = p.paper_id || paper.id || p.id;
@@ -5421,7 +5435,7 @@
             const pdfUrl = externalId ? `https://arxiv.org/pdf/${externalId}.pdf` : '';
             const abstract = paperData.abstract || '';
             const authors = paperData.authors || [];
-            const categories = paperData.categories || paper.categories || [];
+            const categories = paperData.categories_display || paperData.categories || paper.categories || [];
             const publishedAt = paperData.published_at || paper.published_at;
             const firstSeenAt = paper.first_seen_at;
             const importance = (paper.importance || 'low').toUpperCase();
@@ -7947,6 +7961,7 @@
 
             // Insert into chat input
             document.getElementById('message-input').value = prompt;
+            autoResizeTextarea(document.getElementById('message-input'));
             document.getElementById('message-input').focus();
 
             // Show toast notification
@@ -7992,6 +8007,7 @@
 
             // Set the prompt in the input field
             document.getElementById('message-input').value = prompt;
+            autoResizeTextarea(document.getElementById('message-input'));
         }
 
         function buildAndSend() {
@@ -8069,6 +8085,7 @@
             const prompt = savedPromptsCache.find(p => p.id === promptId);
             if (prompt) {
                 document.getElementById('message-input').value = prompt.prompt_text;
+                autoResizeTextarea(document.getElementById('message-input'));
 
                 // Optionally restore builder state
                 if (prompt.areas && prompt.areas.length > 0) {
@@ -8854,7 +8871,8 @@
                 actionsBar.innerHTML = `
                     <button id="toggle-modal-size" onclick="toggleModalSize()" class="action-btn" style="font-size: 0.82rem;">↔️ Expand / Collapse</button>
                     <div style="display: flex; gap: 8px;">
-                        <button onclick="doDownloadLiveDoc()" class="action-btn">⬇️ Download .txt</button>
+                        <button onclick="doDownloadLiveDoc('txt')" class="action-btn">⬇️ Download .txt</button>
+                        <button onclick="doDownloadLiveDoc('pdf')" class="action-btn">⬇️ Download .pdf</button>
                         <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset</button>
                     </div>
                 `;
@@ -8882,18 +8900,30 @@
             }
         }
 
-        function doDownloadLiveDoc() {
+        function doDownloadLiveDoc(fmt) {
             try {
-                const text = window._liveDocText || '';
-                if (!text) { alert('No document content to download.'); return; }
-                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.txt';
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                if (fmt === 'pdf') {
+                    // Open the print-friendly HTML in a new tab for Save-as-PDF
+                    window.open('/api/live-document?format=pdf', '_blank');
+                    return;
+                }
+                // TXT download via API
+                fetch('/api/live-document?format=txt')
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to fetch document');
+                        return r.text();
+                    })
+                    .then(text => {
+                        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.txt';
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                    })
+                    .catch(e => alert('Download failed: ' + e.message));
             } catch (e) {
                 alert('Download failed: ' + e.message);
             }
@@ -9104,6 +9134,7 @@
             const template = promptTemplates.find(t => t.id === templateId);
             if (template) {
                 document.getElementById('message-input').value = template.text;
+                autoResizeTextarea(document.getElementById('message-input'));
                 document.getElementById('message-input').focus();
 
                 // Auto-collapse the templates panel after selection

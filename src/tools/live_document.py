@@ -474,6 +474,72 @@ class LiveDocumentManager:
         
         return "\n".join(lines)
     
+    def render_text(self, doc: LiveDocumentData) -> str:
+        """Render the document as plain text (no markdown formatting)."""
+        lines = []
+
+        lines.append(doc.title.upper())
+        lines.append("=" * len(doc.title))
+        lines.append(f"Last updated: {doc.last_updated}")
+        lines.append("")
+
+        lines.append("EXECUTIVE SUMMARY")
+        lines.append("-" * 17)
+        lines.append(doc.executive_summary)
+        lines.append("")
+
+        lines.append(f"TOP PAPERS ({len(doc.top_papers)})")
+        lines.append("-" * 20)
+        for i, paper in enumerate(doc.top_papers, 1):
+            novelty_str = ""
+            if paper.llm_novelty_score:
+                novelty_str = f" | LLM Novelty: {paper.llm_novelty_score:.0f}/100"
+            elif paper.novelty_score:
+                novelty_str = f" | Novelty: {paper.novelty_score:.2f}"
+            lines.append(f"{i}. {paper.title}")
+            lines.append(f"   Relevance: {paper.relevance_score:.2f}{novelty_str}")
+            if paper.authors:
+                lines.append(f"   Authors: {', '.join(paper.authors)}")
+            if paper.categories:
+                lines.append(f"   Categories: {', '.join(paper.categories)}")
+            if paper.abstract_snippet:
+                lines.append(f"   {paper.abstract_snippet}")
+            if paper.arxiv_url:
+                lines.append(f"   {paper.arxiv_url}")
+            lines.append("")
+
+        if doc.trending_topics:
+            lines.append("TRENDING TOPICS")
+            lines.append("-" * 15)
+            for topic in doc.trending_topics:
+                status = "Emerging" if topic.emerging else "Active"
+                lines.append(f"  {topic.topic}: {topic.paper_count} papers, avg relevance {topic.avg_relevance:.2f} [{status}]")
+            lines.append("")
+
+        if doc.category_breakdown:
+            lines.append("CATEGORY BREAKDOWN")
+            lines.append("-" * 18)
+            for cat, count in list(doc.category_breakdown.items())[:10]:
+                lines.append(f"  {cat}: {count}")
+            lines.append("")
+
+        if doc.recent_papers:
+            lines.append(f"RECENT PAPERS (Last {len(doc.recent_papers)})")
+            lines.append("-" * 20)
+            for paper in doc.recent_papers[:10]:
+                lines.append(f"  - {paper.title} (Relevance: {paper.relevance_score:.2f}) {paper.arxiv_url}")
+            lines.append("")
+
+        if doc.change_log:
+            lines.append("CHANGE LOG")
+            lines.append("-" * 10)
+            for entry in doc.change_log[:10]:
+                lines.append(f"  - {entry}")
+            lines.append("")
+
+        lines.append(f"Total papers tracked: {doc.total_papers_tracked} | Runs included: {len(doc.runs_included)}")
+        return "\n".join(lines)
+
     def _md_to_html(self, md: str) -> str:
         """Convert markdown text to HTML using regex-based parsing."""
         import re

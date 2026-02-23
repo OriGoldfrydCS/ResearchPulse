@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 # Add parent to path for sibling imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 # Use data_service for DB-first access with fallback to local JSON
-from db.data_service import get_seen_paper_ids, get_paper_by_id
+from db.data_service import get_seen_paper_ids, get_delivered_paper_ids, get_paper_by_id
 from db.json_store import DEFAULT_DATA_DIR
 
 
@@ -99,8 +99,10 @@ def check_seen_papers(
         >>> result.summary
         {"total": 2, "unseen": 1, "seen": 1}
     """
-    # Get the set of all seen paper IDs
-    seen_ids = get_seen_paper_ids()
+    # Get the set of paper IDs already delivered to the user.
+    # This uses "delivered" semantics (decision = saved/shared/logged) so that
+    # re-runs return *fresh* papers instead of saying "already in DB".
+    seen_ids = get_delivered_paper_ids()
     
     unseen_papers: List[Dict[str, Any]] = []
     seen_papers: List[SeenPaperInfo] = []

@@ -925,6 +925,19 @@ def get_category(code: str) -> Optional[ArxivCategory]:
     return cache.categories.get(code)
 
 
+def get_category_display_name(code: str) -> str:
+    """Return a human-friendly display string for an arXiv category code.
+
+    Example: ``get_category_display_name("cs.AI")`` → ``"cs.AI (Artificial Intelligence)"``
+
+    Falls back to the raw code when the category is unknown.
+    """
+    cat = get_category(code)
+    if cat and cat.name:
+        return f"{code} ({cat.name})"
+    return code
+
+
 def get_all_categories() -> Dict[str, ArxivCategory]:
     """Get all cached categories."""
     cache = get_cache()
