@@ -75,7 +75,7 @@ class DocumentSection(BaseModel):
 class LiveDocumentData(BaseModel):
     """Full live document data structure."""
     user_id: str
-    title: str = "Research Pulse - Live Briefing"
+    title: str = "ResearchPulse - Live Document"
     generated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     last_updated: str = ""
     
@@ -240,7 +240,7 @@ class LiveDocumentManager:
             api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
             if not api_key:
                 logger.warning("Live document: neither LLM_API_KEY nor OPENAI_API_KEY is set")
-                return f"Research briefing with {len(top_papers)} top papers and {len(trending_topics)} trending topics."
+                return f"This live document summarises the {len(top_papers)} most relevant papers based on your research interests."
             client = OpenAI(api_key=api_key, base_url=api_base)
             
             papers_text = "\n".join([
@@ -270,7 +270,7 @@ class LiveDocumentManager:
             
         except Exception as e:
             logger.warning(f"Executive summary generation failed: {e}")
-            return f"Research briefing with {len(top_papers)} top papers and {len(trending_topics)} trending topics."
+            return f"This live document summarises the {len(top_papers)} most relevant papers based on your research interests."
     
     def _build_category_breakdown(self, papers: List[Dict]) -> Dict[str, int]:
         """Build category breakdown from papers."""
@@ -405,15 +405,13 @@ class LiveDocumentManager:
         lines.append("")
         
         for i, paper in enumerate(doc.top_papers, 1):
-            novelty_str = ""
-            if paper.llm_novelty_score:
-                novelty_str = f" | LLM Novelty: {paper.llm_novelty_score:.0f}/100"
-            elif paper.novelty_score:
-                novelty_str = f" | Novelty: {paper.novelty_score:.2f}"
+            novelty_val = (paper.llm_novelty_score / 100.0) if paper.llm_novelty_score else paper.novelty_score
+            novelty_str = f" | Novelty: {novelty_val:.2f}" if novelty_val else ""
+            combined = paper.relevance_score + (novelty_val or 0)
             
             lines.append(f"### {i}. {paper.title}")
             lines.append(f"")
-            lines.append(f"**Relevance:** {paper.relevance_score:.2f}{novelty_str}")
+            lines.append(f"**Relevance:** {paper.relevance_score:.2f}{novelty_str} | **Score:** {combined:.2f}")
             lines.append(f"")
             if paper.authors:
                 lines.append(f"**Authors:** {', '.join(paper.authors)}")
@@ -427,54 +425,6 @@ class LiveDocumentManager:
             if paper.arxiv_url:
                 lines.append(f"[View on arXiv]({paper.arxiv_url})")
                 lines.append("")
-        
-        # Trending Topics
-        if doc.trending_topics:
-            lines.append("## Trending Topics")
-            lines.append("")
-            lines.append("| Topic | Papers | Avg Relevance | Status |")
-            lines.append("|-------|--------|---------------|--------|")
-            
-            for topic in doc.trending_topics:
-                status = "🆕 Emerging" if topic.emerging else "📊 Active"
-                lines.append(f"| {topic.topic} | {topic.paper_count} | {topic.avg_relevance:.2f} | {status} |")
-            
-            lines.append("")
-        
-        # Category Breakdown
-        if doc.category_breakdown:
-            lines.append("## Category Breakdown")
-            lines.append("")
-            
-            for cat, count in list(doc.category_breakdown.items())[:10]:
-                bar = "█" * min(count, 20)
-                lines.append(f"- **{cat}**: {count} {bar}")
-            
-            lines.append("")
-        
-        # Recent Papers
-        if doc.recent_papers:
-            lines.append(f"## Recent Papers (Last {len(doc.recent_papers)})")
-            lines.append("")
-            
-            for paper in doc.recent_papers[:10]:
-                lines.append(f"- [{paper.title}]({paper.arxiv_url}) - Relevance: {paper.relevance_score:.2f}")
-            
-            lines.append("")
-        
-        # Change Log
-        if doc.change_log:
-            lines.append("## Change Log")
-            lines.append("")
-            
-            for entry in doc.change_log[:10]:
-                lines.append(f"- {entry}")
-            
-            lines.append("")
-        
-        # Footer
-        lines.append("---")
-        lines.append(f"*Total papers tracked: {doc.total_papers_tracked} | Runs included: {len(doc.runs_included)}*")
         
         return "\n".join(lines)
     
@@ -495,13 +445,11 @@ class LiveDocumentManager:
         lines.append(f"TOP PAPERS ({len(doc.top_papers)})")
         lines.append("-" * 20)
         for i, paper in enumerate(doc.top_papers, 1):
-            novelty_str = ""
-            if paper.llm_novelty_score:
-                novelty_str = f" | LLM Novelty: {paper.llm_novelty_score:.0f}/100"
-            elif paper.novelty_score:
-                novelty_str = f" | Novelty: {paper.novelty_score:.2f}"
+            novelty_val = (paper.llm_novelty_score / 100.0) if paper.llm_novelty_score else paper.novelty_score
+            novelty_str = f" | Novelty: {novelty_val:.2f}" if novelty_val else ""
+            combined = paper.relevance_score + (novelty_val or 0)
             lines.append(f"{i}. {paper.title}")
-            lines.append(f"   Relevance: {paper.relevance_score:.2f}{novelty_str}")
+            lines.append(f"   Relevance: {paper.relevance_score:.2f}{novelty_str} | Score: {combined:.2f}")
             if paper.authors:
                 lines.append(f"   Authors: {', '.join(paper.authors)}")
             if paper.categories:
@@ -512,36 +460,6 @@ class LiveDocumentManager:
                 lines.append(f"   {paper.arxiv_url}")
             lines.append("")
 
-        if doc.trending_topics:
-            lines.append("TRENDING TOPICS")
-            lines.append("-" * 15)
-            for topic in doc.trending_topics:
-                status = "Emerging" if topic.emerging else "Active"
-                lines.append(f"  {topic.topic}: {topic.paper_count} papers, avg relevance {topic.avg_relevance:.2f} [{status}]")
-            lines.append("")
-
-        if doc.category_breakdown:
-            lines.append("CATEGORY BREAKDOWN")
-            lines.append("-" * 18)
-            for cat, count in list(doc.category_breakdown.items())[:10]:
-                lines.append(f"  {cat}: {count}")
-            lines.append("")
-
-        if doc.recent_papers:
-            lines.append(f"RECENT PAPERS (Last {len(doc.recent_papers)})")
-            lines.append("-" * 20)
-            for paper in doc.recent_papers[:10]:
-                lines.append(f"  - {paper.title} (Relevance: {paper.relevance_score:.2f}) {paper.arxiv_url}")
-            lines.append("")
-
-        if doc.change_log:
-            lines.append("CHANGE LOG")
-            lines.append("-" * 10)
-            for entry in doc.change_log[:10]:
-                lines.append(f"  - {entry}")
-            lines.append("")
-
-        lines.append(f"Total papers tracked: {doc.total_papers_tracked} | Runs included: {len(doc.runs_included)}")
         return "\n".join(lines)
 
     def _md_to_html(self, md: str) -> str:
@@ -670,6 +588,56 @@ class LiveDocumentManager:
 </html>"""
 
         return html
+
+    def render_pdf(self, doc: LiveDocumentData) -> bytes:
+        """Render the document as a PDF binary using fpdf2."""
+        from fpdf import FPDF
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        # Title
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.cell(0, 12, doc.title, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 6, f"Last updated: {doc.last_updated}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+        # Executive Summary
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Executive Summary", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 5, doc.executive_summary)
+        pdf.ln(4)
+
+        # Papers
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, f"Latest Papers ({len(doc.top_papers)})", new_x="LMARGIN", new_y="NEXT")
+
+        for i, paper in enumerate(doc.top_papers, 1):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.multi_cell(0, 6, f"{i}. {paper.title}")
+
+            pdf.set_font("Helvetica", "", 9)
+            novelty_val = (paper.llm_novelty_score / 100.0) if paper.llm_novelty_score else paper.novelty_score
+            novelty_str = f" | Novelty: {novelty_val:.2f}" if novelty_val else ""
+            combined = paper.relevance_score + (novelty_val or 0)
+            pdf.cell(0, 5, f"Relevance: {paper.relevance_score:.2f}{novelty_str} | Score: {combined:.2f}", new_x="LMARGIN", new_y="NEXT")
+
+            if paper.authors:
+                pdf.cell(0, 5, f"Authors: {', '.join(paper.authors)}", new_x="LMARGIN", new_y="NEXT")
+            if paper.categories:
+                pdf.cell(0, 5, f"Categories: {', '.join(paper.categories)}", new_x="LMARGIN", new_y="NEXT")
+            if paper.abstract_snippet:
+                pdf.set_font("Helvetica", "I", 9)
+                pdf.multi_cell(0, 5, paper.abstract_snippet)
+            if paper.arxiv_url:
+                pdf.set_font("Helvetica", "", 9)
+                pdf.cell(0, 5, paper.arxiv_url, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
+
+        return pdf.output()
 
 
 # =============================================================================

@@ -286,7 +286,7 @@ class TestLiveDocument:
         
         doc = LiveDocumentData(
             user_id="user-123",
-            title="Research Pulse - Live Briefing",
+            title="ResearchPulse - Live Document",
             executive_summary="Summary of research",
             total_papers_tracked=10,
         )

@@ -1151,7 +1151,7 @@ class LiveDocument(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     
     # Document metadata
-    title = Column(String(500), default="Research Pulse - Live Briefing")
+    title = Column(String(500), default="ResearchPulse - Live Document")
     
     # Document content - JSONB for full data, text for rendered
     document_data = Column(JSON, default=dict)

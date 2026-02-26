@@ -18,6 +18,7 @@ import os
 import json
 import csv
 import io
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -38,6 +39,8 @@ from sqlalchemy.exc import IntegrityError
 
 from ..db.store import get_default_store
 from ..db.database import check_connection, is_database_configured
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -5153,6 +5156,42 @@ def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> b
 
 # --- Live Document ---
 
+def _filter_live_doc_papers(doc: "LiveDocumentData", user_id: "UUID") -> "LiveDocumentData":
+    """Filter out deleted papers and keep only the 10 newest by date."""
+    try:
+        from ..db.database import is_database_configured, get_db_session
+        from ..db.orm_models import Paper
+        if is_database_configured():
+            arxiv_ids = {p.arxiv_id for p in doc.top_papers}
+            arxiv_ids.update(p.arxiv_id for p in doc.recent_papers)
+            with get_db_session() as db:
+                existing = db.query(Paper.external_id).filter(
+                    Paper.external_id.in_(arxiv_ids)
+                ).all()
+                existing_ids = {row[0] for row in existing}
+            doc.top_papers = [p for p in doc.top_papers if p.arxiv_id in existing_ids]
+            doc.recent_papers = [p for p in doc.recent_papers if p.arxiv_id in existing_ids]
+    except Exception:
+        pass  # If filtering fails, serve what we have
+
+    # Merge top_papers + recent_papers, deduplicate, sort by combined score (high to low), take 10
+    seen = set()
+    all_papers = []
+    for p in list(doc.top_papers) + list(doc.recent_papers):
+        if p.arxiv_id not in seen:
+            seen.add(p.arxiv_id)
+            all_papers.append(p)
+
+    def _combined_score(p):
+        novelty = (p.llm_novelty_score / 100.0) if p.llm_novelty_score else (p.novelty_score or 0)
+        return p.relevance_score + novelty
+
+    all_papers.sort(key=_combined_score, reverse=True)
+    doc.top_papers = all_papers[:10]
+    doc.recent_papers = []
+    return doc
+
+
 @router.get("/live-document")
 async def get_live_document(format: str = Query(default="json", regex="^(json|markdown|html|txt|pdf)$")):
     """
@@ -5162,9 +5201,7 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
     
     Args:
         format: Response format (json, markdown, html, txt, pdf).
-                'pdf' returns a print-friendly HTML page with
-                Content-Disposition: attachment so the browser
-                triggers a download / print dialog.
+                'pdf' returns an actual PDF binary.
     
     Returns the latest version of the live document.
     """
@@ -5188,43 +5225,34 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
         if not doc_data:
             raise HTTPException(status_code=404, detail="No live document found. Run a research pulse first.")
         
+        manager = LiveDocumentManager()
+        doc = LiveDocumentData(**doc_data.get("document_data", {}))
+        doc = _filter_live_doc_papers(doc, user_id)
+
+        logger.info(f"Live document request: format={format}, papers={len(doc.top_papers)}")
+
         if format == "markdown":
-            manager = LiveDocumentManager()
-            doc = LiveDocumentData(**doc_data.get("document_data", {}))
             return Response(
                 content=manager.render_markdown(doc),
                 media_type="text/markdown",
             )
         elif format == "html":
-            manager = LiveDocumentManager()
-            doc = LiveDocumentData(**doc_data.get("document_data", {}))
             return Response(
                 content=manager.render_html(doc),
                 media_type="text/html",
             )
         elif format == "txt":
-            manager = LiveDocumentManager()
-            doc = LiveDocumentData(**doc_data.get("document_data", {}))
             return Response(
                 content=manager.render_text(doc),
                 media_type="text/plain",
                 headers={"Content-Disposition": "attachment; filename=live_document.txt"},
             )
         elif format == "pdf":
-            manager = LiveDocumentManager()
-            doc = LiveDocumentData(**doc_data.get("document_data", {}))
-            html_content = manager.render_html(doc)
-            # Wrap in a print-friendly page so the browser can save as PDF
-            pdf_html = (
-                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-                "<title>Research Briefing</title>"
-                "<style>@media print{body{font-size:11pt}}</style>"
-                "</head><body>" + html_content + "</body></html>"
-            )
+            pdf_bytes = manager.render_pdf(doc)
             return Response(
-                content=pdf_html,
-                media_type="text/html",
-                headers={"Content-Disposition": "attachment; filename=live_document.html"},
+                content=bytes(pdf_bytes),
+                media_type="application/pdf",
+                headers={"Content-Disposition": 'attachment; filename="live-document.pdf"'},
             )
         else:
             return {
@@ -5234,6 +5262,7 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Live document error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
