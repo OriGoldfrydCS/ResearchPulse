@@ -9546,7 +9546,7 @@
             iframeDoc.close();
             // Wait for content to render then trigger print (Save as PDF)
             setTimeout(() => {
-                try { iframe.contentWindow.print(); } catch(e) { /* cross-origin guard */ }
+                try { iframe.contentWindow.print(); } catch (e) { /* cross-origin guard */ }
                 setTimeout(() => document.body.removeChild(iframe), 1000);
             }, 500);
         }
