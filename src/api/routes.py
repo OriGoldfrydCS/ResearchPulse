@@ -249,8 +249,8 @@ AGENT_INFO = {
     ]
 }
 
-# Architecture diagram path (static PNG file)
-ARCHITECTURE_PNG_PATH = Path(__file__).parent.parent.parent / "static" / "public" / "architecture.png"
+# Architecture diagram path — use data/ dir (bundled with serverless function on Vercel)
+ARCHITECTURE_PNG_PATH = Path(__file__).parent.parent.parent / "data" / "architecture.png"
 
 # Module name mapping: snake_case (runtime) → PascalCase (architecture/AGENT_INFO)
 # Course Project requires consistency across architecture diagram, steps, and descriptions
@@ -607,36 +607,37 @@ async def get_model_architecture():
     """
     Get model architecture diagram.
     
-    Returns the architecture diagram as a PNG image from static/public/architecture.png.
+    Returns the architecture diagram as a PNG image.
     Content-Type: image/png (per Course Project specification).
     """
-    from fastapi.responses import FileResponse
-    
+    from fastapi.responses import Response
+
+    # Primary: read pre-built PNG from data/ (bundled with serverless function)
     if ARCHITECTURE_PNG_PATH.exists():
-        return FileResponse(
-            path=str(ARCHITECTURE_PNG_PATH),
+        png_bytes = ARCHITECTURE_PNG_PATH.read_bytes()
+        return Response(
+            content=png_bytes,
             media_type="image/png",
-            filename="architecture.png"
+            headers={"Content-Disposition": "inline; filename=architecture.png"}
         )
-    else:
-        # Fallback: generate on-the-fly if static file is missing
-        from fastapi.responses import Response
-        try:
-            from tools.architecture_diagram import generate_architecture_png
-            png_bytes = generate_architecture_png()
-            return Response(
-                content=png_bytes,
-                media_type="image/png",
-                headers={"Content-Disposition": "inline; filename=architecture.png"}
-            )
-        except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": f"Failed to generate architecture diagram: {str(e)}",
-                    "description": "ResearchPulse uses a ReAct architecture with FastAPI, Pinecone, Supabase, and LLMod.ai."
-                }
-            )
+
+    # Fallback: generate on-the-fly if file is missing
+    try:
+        from tools.architecture_diagram import generate_architecture_png
+        png_bytes = generate_architecture_png()
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={"Content-Disposition": "inline; filename=architecture.png"}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"Failed to generate architecture diagram: {str(e)}",
+                "description": "ResearchPulse uses a ReAct architecture with FastAPI, Pinecone, Supabase, and LLMod.ai."
+            }
+        )
 
 
 @router.post("/execute", response_model=ExecuteResponse, tags=["Agent"])
