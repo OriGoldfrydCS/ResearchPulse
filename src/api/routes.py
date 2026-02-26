@@ -249,8 +249,13 @@ AGENT_INFO = {
     ]
 }
 
-# Architecture diagram path — use data/ dir (bundled with serverless function on Vercel)
-ARCHITECTURE_PNG_PATH = Path(__file__).parent.parent.parent / "data" / "architecture.png"
+# Architecture diagram — try multiple paths (Vercel CWD differs from local __file__ resolution)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+ARCHITECTURE_PNG_CANDIDATES = [
+    _PROJECT_ROOT / "static" / "public" / "architecture.png",       # local dev
+    Path("static") / "public" / "architecture.png",                  # Vercel CWD-relative
+    _PROJECT_ROOT / "data" / "architecture.png",                     # alternative
+]
 
 # Module name mapping: snake_case (runtime) → PascalCase (architecture/AGENT_INFO)
 # Course Project requires consistency across architecture diagram, steps, and descriptions
@@ -612,16 +617,16 @@ async def get_model_architecture():
     """
     from fastapi.responses import Response
 
-    # Primary: read pre-built PNG from data/ (bundled with serverless function)
-    if ARCHITECTURE_PNG_PATH.exists():
-        png_bytes = ARCHITECTURE_PNG_PATH.read_bytes()
-        return Response(
-            content=png_bytes,
-            media_type="image/png",
-            headers={"Content-Disposition": "inline; filename=architecture.png"}
-        )
+    # Try each candidate path (covers local dev + Vercel serverless)
+    for candidate in ARCHITECTURE_PNG_CANDIDATES:
+        if candidate.exists():
+            return Response(
+                content=candidate.read_bytes(),
+                media_type="image/png",
+                headers={"Content-Disposition": "inline; filename=architecture.png"}
+            )
 
-    # Fallback: generate on-the-fly if file is missing
+    # Fallback: generate on-the-fly if no static file found
     try:
         from tools.architecture_diagram import generate_architecture_png
         png_bytes = generate_architecture_png()
@@ -631,11 +636,12 @@ async def get_model_architecture():
             headers={"Content-Disposition": "inline; filename=architecture.png"}
         )
     except Exception as e:
+        tried = [str(p) for p in ARCHITECTURE_PNG_CANDIDATES]
         return JSONResponse(
             status_code=500,
             content={
-                "error": f"Failed to generate architecture diagram: {str(e)}",
-                "description": "ResearchPulse uses a ReAct architecture with FastAPI, Pinecone, Supabase, and LLMod.ai."
+                "error": f"Architecture PNG not found and fallback failed: {e}",
+                "tried_paths": tried,
             }
         )
 

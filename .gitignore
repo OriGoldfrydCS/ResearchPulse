@@ -66,6 +66,7 @@ logs/
 
 # ── Local data cache (auto-generated from DB / fallback) ─────────────────────
 data/
+!data/architecture.png
 
 # ── Local artifacts (generated / personal) ───────────────────────────────────
 artifacts/calendar/*.ics
