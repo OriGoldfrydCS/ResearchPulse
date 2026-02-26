@@ -68,6 +68,8 @@ class LLMRelevanceResult(BaseModel):
     is_relevant: bool = Field(True, description="Whether the paper is relevant to research interests")
     is_excluded: bool = Field(False, description="Whether the paper matches an excluded topic")
     relevance_score: float = Field(0.5, ge=0.0, le=1.0, description="LLM-assessed relevance 0-1")
+    topics_match: bool = Field(True, description="Whether the paper's core topics genuinely relate to stated interests")
+    matched_interests: List[str] = Field(default_factory=list, description="Which researcher interests this paper relates to")
     excluded_topic_match: str = Field("", description="Which excluded topic matched, if any")
     reasoning: str = Field("", description="LLM's reasoning for the judgment")
     is_cached: bool = Field(False, description="Whether result was from cache")
@@ -90,12 +92,16 @@ Output format (JSON only, no markdown):
     "is_relevant": true/false,
     "is_excluded": true/false,
     "relevance_score": 0.0-1.0,
+    "topics_match": true/false,
+    "matched_interests": ["interest1", ...],
     "excluded_topic_match": "" or "the matched topic",
     "reasoning": "1-2 sentence explanation"
 }
 
 Guidelines:
 - is_excluded=true takes priority: if a paper matches an excluded topic, it should be filtered out regardless of relevance
+- topics_match: set to true ONLY if the paper's core contribution directly addresses one or more of the researcher's stated interests. Superficial keyword overlap (e.g., the word "multi" appearing in both "Multi Armed Bandits" and "multi-robot systems") does NOT constitute a topic match. The paper must genuinely be ABOUT a listed interest.
+- matched_interests: list the specific researcher interests that this paper genuinely relates to. Empty list if none match.
 - relevance_score should reflect how directly the paper's CORE contribution aligns with the interests (not superficial keyword overlap)
 - A score of 0.0-0.2 means no meaningful connection
 - A score of 0.3-0.5 means tangential or weak connection
@@ -213,14 +219,25 @@ class LLMRelevanceFilter:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
             )
 
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content or ""
             tokens_used = response.usage.total_tokens if response.usage else 0
 
+            # Parse JSON from the response, handling markdown code fences
+            text = content.strip()
+            if text.startswith("```"):
+                # Strip ```json ... ``` wrapper
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                text = "\n".join(lines).strip()
+
+            if not text:
+                logger.warning("LLM relevance: empty response from model")
+                return {}, tokens_used
+
             try:
-                return json.loads(content), tokens_used
+                return json.loads(text), tokens_used
             except json.JSONDecodeError:
                 logger.warning(f"LLM relevance: bad JSON: {content[:200]}")
                 return {}, tokens_used
@@ -269,11 +286,15 @@ class LLMRelevanceFilter:
             return None
 
         # Parse
+        raw_matched = response.get("matched_interests", [])
+        matched_interests = raw_matched if isinstance(raw_matched, list) else []
         result = LLMRelevanceResult(
             arxiv_id=arxiv_id,
             is_relevant=bool(response.get("is_relevant", True)),
             is_excluded=bool(response.get("is_excluded", False)),
             relevance_score=float(response.get("relevance_score", 0.5)),
+            topics_match=bool(response.get("topics_match", True)),
+            matched_interests=[str(i) for i in matched_interests],
             excluded_topic_match=str(response.get("excluded_topic_match", "")),
             reasoning=str(response.get("reasoning", "")),
             is_cached=False,
@@ -338,6 +359,8 @@ def evaluate_paper_relevance_with_llm(
                 "is_relevant": result.is_relevant,
                 "is_excluded": result.is_excluded,
                 "relevance_score": result.relevance_score,
+                "topics_match": result.topics_match,
+                "matched_interests": result.matched_interests,
                 "excluded_topic_match": result.excluded_topic_match,
                 "reasoning": result.reasoning,
                 "tokens_used": result.tokens_used,
@@ -351,6 +374,8 @@ def evaluate_paper_relevance_with_llm(
                 "is_relevant": True,
                 "is_excluded": False,
                 "relevance_score": 0.5,
+                "topics_match": True,
+                "matched_interests": [],
                 "excluded_topic_match": "",
                 "reasoning": "Fallback: LLM unavailable, allowing paper through for heuristic scoring",
                 "tokens_used": 0,
@@ -367,6 +392,8 @@ def evaluate_paper_relevance_with_llm(
                 "is_relevant": True,
                 "is_excluded": False,
                 "relevance_score": 0.5,
+                "topics_match": True,
+                "matched_interests": [],
                 "excluded_topic_match": "",
                 "reasoning": f"Fallback: error ({str(e)[:80]})",
                 "tokens_used": 0,

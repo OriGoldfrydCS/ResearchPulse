@@ -1,5 +1,5 @@
 """
-Research Pulse Tools Package.
+ResearchPulse Tools Package.
 
 This package provides all tools for the ReAct agent workflow:
 

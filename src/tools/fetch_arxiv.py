@@ -449,8 +449,8 @@ def _fetch_real_papers(
             abstract=result.summary,
             authors=[author.name for author in result.authors],
             categories=result.categories,
-            published=result.published.isoformat() + "Z",
-            updated=result.updated.isoformat() + "Z",
+            published=result.published.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            updated=result.updated.strftime("%Y-%m-%dT%H:%M:%SZ"),
             link=result.entry_id,
             pdf_link=result.pdf_url or "",
         )
@@ -513,8 +513,8 @@ def fetch_single_paper(arxiv_id: str) -> FetchArxivResult:
                 abstract=result.summary,
                 authors=[a.name for a in result.authors],
                 categories=result.categories,
-                published=result.published.isoformat() + "Z",
-                updated=result.updated.isoformat() + "Z",
+                published=result.published.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                updated=result.updated.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 link=result.entry_id,
                 pdf_link=result.pdf_url or "",
             )

@@ -278,7 +278,7 @@ def self_check() -> bool:
             seen = result.seen_papers[0]
             all_passed &= check("has date_seen", bool(seen.date_seen))
             all_passed &= check("has decision", seen.decision in ["ignored", "saved", "shared", "logged"])
-            all_passed &= check("has importance", seen.importance in ["high", "medium", "low"])
+            all_passed &= check("has importance", seen.importance in ["high", "medium", "low", "very_low"])
         else:
             all_passed &= check("paper should be seen", False)
     except Exception as e:

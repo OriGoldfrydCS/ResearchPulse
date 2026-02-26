@@ -227,7 +227,7 @@ class LiveDocumentManager:
     ) -> str:
         """Generate AI-powered executive summary."""
         if not top_papers:
-            return "No papers analyzed yet. Run a research pulse to populate this document."
+            return "No papers analyzed yet. Run a researchPulse to populate this document."
         
         try:
             from openai import OpenAI

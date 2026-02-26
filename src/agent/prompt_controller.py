@@ -133,10 +133,16 @@ class ParsedPrompt:
         """
         Get the number of papers to output.
         
-        Returns the explicitly requested count (K), or DEFAULT_OUTPUT_COUNT
-        if no count was specified.
+        Returns the explicitly requested count (K) if the user specified one.
+        Otherwise, falls back to the dashboard "Papers per Run" setting
+        (arxiv_fetch_count) so that the system respects the user's configured
+        limit.  DEFAULT_OUTPUT_COUNT is only used when neither is available.
         """
-        return self.requested_count if self.requested_count else DEFAULT_OUTPUT_COUNT
+        if self.requested_count:
+            return self.requested_count
+        if self._arxiv_fetch_count is not None:
+            return self._arxiv_fetch_count
+        return DEFAULT_OUTPUT_COUNT
     
     _arxiv_fetch_count: Optional[int] = None  # Injected DB value (dashboard "Papers per Run")
 

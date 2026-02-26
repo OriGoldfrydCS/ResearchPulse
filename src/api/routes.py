@@ -807,15 +807,40 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
                 output_parts.append("   Try running the agent again later for fresh content.")
                 output_parts.append("")
             elif len(episode.papers_processed) == 0 and seen_count == 0 and unseen_count == 0:
-                output_parts.append("⚠️ No Papers Retrieved")
-                output_parts.append("-" * 40)
-                output_parts.append("Could not fetch papers from arXiv.")
-                output_parts.append("This may be due to network issues or arXiv API limits.")
-                output_parts.append("")
+                if getattr(episode, 'topic_not_in_categories', False):
+                    searched = getattr(episode, 'searched_topic', None) or "the requested topic"
+                    output_parts.append("⚠️ Topic Not Found on arXiv")
+                    output_parts.append("-" * 40)
+                    output_parts.append(f"No papers were found for '{searched}' on arXiv.")
+                    output_parts.append("arXiv primarily covers Physics, Mathematics, Computer Science,")
+                    output_parts.append("Quantitative Biology, Quantitative Finance, Statistics,")
+                    output_parts.append("Electrical Engineering, and Economics.")
+                    output_parts.append("")
+                    output_parts.append("💡 Tip: Try rephrasing the topic or using a more specific term")
+                    output_parts.append("   that aligns with arXiv's subject areas.")
+                    output_parts.append("")
+                else:
+                    output_parts.append("⚠️ No Papers Retrieved")
+                    output_parts.append("-" * 40)
+                    output_parts.append("Could not fetch papers from arXiv.")
+                    output_parts.append("This may be due to network issues or arXiv API limits.")
+                    output_parts.append("")
             
             output_parts.append("Summary:")
             output_parts.append(str(episode.final_report))
         
+        # Surface a warning when the topic didn't map to any arXiv category
+        # even if some papers were found via keyword search
+        if getattr(episode, 'topic_not_in_categories', False) and len(episode.papers_processed) > 0:
+            searched = getattr(episode, 'searched_topic', None) or "the requested topic"
+            output_parts.append("")
+            output_parts.append("⚠️ Note: Topic Not in arXiv Categories")
+            output_parts.append(f"   '{searched}' is not a standard arXiv subject area.")
+            output_parts.append("   Results were found via keyword search across all categories,")
+            output_parts.append("   but may not be directly relevant. arXiv primarily covers")
+            output_parts.append("   Physics, Math, CS, Biology, Finance, Statistics, and EE.")
+            output_parts.append("")
+
         if episode.artifacts_generated:
             output_parts.append("")
             output_parts.append("Generated Artifacts:")

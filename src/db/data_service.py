@@ -398,6 +398,14 @@ def _get_default_delivery_policy() -> Dict[str, Any]:
                 "add_to_reading_list": False,
                 "allow_colleague_sharing": False,
                 "priority_label": "low"
+            },
+            "very_low": {
+                "notify_researcher": False,
+                "send_email": False,
+                "create_calendar_entry": False,
+                "add_to_reading_list": False,
+                "allow_colleague_sharing": False,
+                "priority_label": "very_low"
             }
         },
         "email_settings": {
@@ -925,7 +933,10 @@ def upsert_paper(paper_record: Dict[str, Any]) -> Dict[str, Any]:
                         try:
                             from datetime import datetime as _dt
                             if isinstance(raw_pub, str):
-                                raw_pub = raw_pub.replace("Z", "+00:00")
+                                # Strip trailing 'Z' before parsing to avoid
+                                # double-timezone like '+00:00Z' → '+00:00+00:00'
+                                if raw_pub.endswith("Z"):
+                                    raw_pub = raw_pub[:-1]
                                 published_at = _dt.fromisoformat(raw_pub).replace(tzinfo=None)
                             else:
                                 published_at = raw_pub

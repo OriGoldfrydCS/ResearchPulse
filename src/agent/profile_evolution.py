@@ -761,3 +761,103 @@ def analyze_and_suggest_profile_evolution(
             "error": str(e),
             "suggestions_count": 0,
         }
+
+
+def suggest_query_topic_if_off_profile(
+    run_id: str,
+    user_id: str,
+    query_topic: str,
+    user_profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Generate a profile suggestion when the user searches for a topic that
+    is NOT in their research_topics.
+
+    This is a lightweight check that bypasses the normal cooldown mechanism.
+    It allows the HOME tab "Profile Suggestions" section to surface
+    actionable suggestions even on the first off-topic query.
+
+    Args:
+        run_id: Current run ID
+        user_id: User UUID string
+        query_topic: The topic the user searched for (e.g. "ROBOTICS")
+        user_profile: User's current research profile
+
+    Returns:
+        Dict with success status and suggestion info
+    """
+    if not query_topic or not query_topic.strip():
+        return {"created": False, "reason": "no_query_topic"}
+
+    query_topic = query_topic.strip()
+    research_topics = user_profile.get("research_topics", [])
+
+    # Check if query topic (or something semantically close) already exists
+    query_lower = query_topic.lower()
+    query_words = {w.lower() for w in query_lower.split() if len(w) > 2}
+
+    for existing in research_topics:
+        existing_lower = existing.lower()
+        # Exact or substring match
+        if query_lower in existing_lower or existing_lower in query_lower:
+            return {"created": False, "reason": "already_in_profile", "matched_topic": existing}
+        # Word-level overlap
+        existing_words = {w.lower() for w in existing_lower.split() if len(w) > 2}
+        overlap = query_words & existing_words
+        if overlap:
+            return {"created": False, "reason": "similar_topic_exists", "matched_topic": existing, "overlapping_words": list(overlap)}
+
+    # Topic is genuinely off-profile — create a suggestion
+    try:
+        from db.database import is_database_configured, get_db_session
+        from db.orm_models import ProfileEvolutionSuggestion
+
+        if not is_database_configured():
+            return {"created": False, "reason": "database_not_configured"}
+
+        suggestion_text = f"Consider adding \"{query_topic}\" to your research interests"
+        reasoning = (
+            f"You searched for \"{query_topic}\" but this topic is not in your "
+            f"current research interests ({', '.join(research_topics) if research_topics else 'none set'}). "
+            f"Adding it will improve relevance scoring for future queries on this topic."
+        )
+
+        with get_db_session() as db:
+            # Deduplicate: skip if an identical pending suggestion exists
+            existing = (
+                db.query(ProfileEvolutionSuggestion)
+                .filter_by(
+                    user_id=uuid.UUID(user_id),
+                    suggestion_type="add_topic",
+                    suggestion_text=suggestion_text,
+                    status="pending",
+                )
+                .first()
+            )
+            if existing:
+                return {"created": False, "reason": "duplicate_pending"}
+
+            record = ProfileEvolutionSuggestion(
+                user_id=uuid.UUID(user_id),
+                run_id=run_id,
+                suggestion_type="add_topic",
+                suggestion_text=suggestion_text,
+                reasoning=reasoning,
+                confidence=0.8,
+                supporting_papers=[],
+                suggestion_data={
+                    "action": "add_topic",
+                    "topic": query_topic,
+                    "source": "query_drift",
+                },
+                status="pending",
+            )
+            db.add(record)
+            db.commit()
+
+            logger.info(f"Query-based profile suggestion created: add '{query_topic}'")
+            return {"created": True, "suggestion_id": str(record.id)}
+
+    except Exception as e:
+        logger.error(f"Failed to create query-based suggestion: {e}")
+        return {"created": False, "reason": str(e)}

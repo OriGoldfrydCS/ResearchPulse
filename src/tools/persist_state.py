@@ -54,7 +54,7 @@ class PaperDecision(BaseModel):
     decision: Literal["saved", "shared", "ignored", "logged"] = Field(
         "logged", description="Decision made for this paper"
     )
-    importance: Literal["high", "medium", "low"] = Field(
+    importance: Literal["high", "medium", "low", "very_low"] = Field(
         "low", description="Assessed importance level"
     )
     notes: str = Field("", description="Notes about the paper/decision")

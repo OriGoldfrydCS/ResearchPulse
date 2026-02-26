@@ -331,7 +331,7 @@ class TestLiveDocument:
         
         markdown = manager.render_markdown(doc)
         
-        assert "# Research Pulse" in markdown
+        assert "# ResearchPulse" in markdown
         assert "Test summary" in markdown
         assert "Paper One" in markdown
         assert "https://arxiv.org/abs/2401.00001" in markdown

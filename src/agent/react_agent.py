@@ -315,6 +315,8 @@ class AgentEpisode(BaseModel):
     total_fetched_count: int = Field(0, description="Total papers fetched from arXiv")
     unseen_paper_count: int = Field(0, description="Unseen papers found by CheckSeen")
     papers_filtered_count: int = Field(0, description="Unseen papers filtered out by quality")
+    topic_not_in_categories: bool = Field(False, description="True when prompt topic did not map to any arXiv category")
+    searched_topic: Optional[str] = Field(None, description="The topic searched when category mapping failed")
     
     class Config:
         arbitrary_types_allowed = True
@@ -747,6 +749,22 @@ class ResearchReActAgent:
                 merged = priority[:10]
             self._log("INFO", f"Merged prompt-interest categories {user_categories} with profile categories -> {merged}")
             categories_include = merged
+        elif prompt_interests_text:
+            # The prompt contains an explicit topic that doesn't map to any known
+            # arXiv category (e.g. "Aviation", "Quantum Biology", "Finance").
+            # Drop the category filter so arXiv API searches across ALL categories
+            # using the keyword query alone.  Without this, the search would be
+            # restricted to the user's *profile* categories (e.g. cs.LG, stat.ML)
+            # where the requested topic likely has zero papers.
+            self._log(
+                "INFO",
+                f"Prompt topic '{prompt_interests_text}' did not map to any arXiv "
+                "categories. Dropping category filter for cross-category keyword search.",
+            )
+            categories_include = []
+            categories_exclude = []  # profile excludes are irrelevant for out-of-profile topics
+            self.episode.topic_not_in_categories = True
+            self.episode.searched_topic = prompt_interests_text
         
         # Map exclude interests if provided
         if not categories_exclude:
@@ -786,13 +804,33 @@ class ResearchReActAgent:
             self._log("INFO", f"Using profile topics for arXiv query: {topic_query}")
         
         # Determine how many papers to request from the arXiv API.
-        # Honour the dashboard "Papers per Run" setting directly — the user
-        # sets the fetch count explicitly so we should not inflate it.
+        # Use the dashboard "Papers per Run" setting as the baseline.
+        # Only inflate beyond it when the user *explicitly* asked for more
+        # papers in their prompt (e.g. "find 20 papers").
         fetch_count = (
             self._parsed_prompt.arxiv_fetch_count
             if self._parsed_prompt
             else DEFAULT_ARXIV_FETCH_COUNT
         )
+        if self._parsed_prompt and self._parsed_prompt.requested_count:
+            # User explicitly asked for K papers — fetch enough candidates
+            # to have a buffer for filtering (seen, excluded, low-relevance).
+            min_fetch = self._parsed_prompt.requested_count * 3
+            if fetch_count < min_fetch:
+                self._log("INFO", f"Raising fetch_count from {fetch_count} to {min_fetch} "
+                          f"(user explicitly requested {self._parsed_prompt.requested_count} papers)")
+                fetch_count = min_fetch
+
+        # Determine days_back for the arXiv date window.
+        # Use the prompt's explicit time constraint when available;
+        # otherwise widen the window for "top K" / open-ended queries
+        # so we have a larger pool of candidates to rank.
+        days_back = 7  # default
+        if self._parsed_prompt and self._parsed_prompt.time_days:
+            days_back = self._parsed_prompt.time_days
+        elif self._parsed_prompt and self._parsed_prompt.requested_count:
+            days_back = 30
+            self._log("INFO", f"No explicit time constraint; using {days_back}-day window for top-K query")
 
         fetch_result, success, error = self._invoke_tool(
             "fetch_arxiv_papers",
@@ -800,6 +838,7 @@ class ResearchReActAgent:
             categories_exclude=categories_exclude,
             query=topic_query,
             max_results=fetch_count,
+            days_back=days_back,
         )
         
         if not success or not fetch_result.get("success"):
@@ -890,10 +929,13 @@ class ResearchReActAgent:
                         reason_text = llm_rel.get("reasoning", "")
                         self._log(
                             "INFO",
-                            f"LLM judged irrelevant: "
+                            f"LLM judged irrelevant (marking very_low): "
                             f"{paper.get('title', '')[:80]} — {reason_text}",
                         )
-                        continue
+                        # Mark as very_low instead of dropping — user may have
+                        # searched for this topic intentionally.
+                        paper["_llm_irrelevant"] = True
+                        paper["_llm_irrelevant_reason"] = reason_text
                     # Store LLM relevance score for later use in heuristic blending
                     paper["_llm_relevance"] = llm_rel
             except Exception as e:
@@ -939,17 +981,50 @@ class ResearchReActAgent:
                 continue
             
             # Blend LLM relevance score with heuristic score when available.
-            # The LLM score captures semantic understanding that keywords miss;
-            # taking a weighted average gives the best of both worlds.
+            # The LLM now returns `topics_match` (bool) which indicates whether
+            # the paper's core topics genuinely relate to the researcher's stated
+            # interests. This semantic signal overrides keyword false-positives
+            # and can also unlock matches that keywords miss.
             llm_rel = paper.get("_llm_relevance")
             if llm_rel and "relevance_score" in llm_rel:
                 heuristic_score = score_result.get("relevance_score", 0)
                 llm_score = llm_rel["relevance_score"]
-                # 40% heuristic + 60% LLM — LLM gets higher weight because
-                # it understands semantic meaning the heuristics can't capture
-                blended = 0.4 * heuristic_score + 0.6 * llm_score
+                llm_topics_match = llm_rel.get("topics_match", True)  # default True for backward compat
+                
+                # Extract heuristic scoring factors
+                s_factors = score_result.get("scoring_factors", {})
+                topic_overlap = s_factors.get("topic_overlap", 0)
+                title_topic_match = s_factors.get("title_topic_match", 0)
+                
+                if llm_rel.get("model_used") == "fallback":
+                    # LLM failed (bad JSON / error) — don't blend the
+                    # placeholder 0.5 score; keep heuristic only
+                    blended = heuristic_score
+                elif not llm_topics_match and topic_overlap == 0:
+                    # Both heuristic AND LLM agree: no topic relation.
+                    # Keep heuristic score (already capped by zero-overlap gate).
+                    blended = heuristic_score
+                elif not llm_topics_match and topic_overlap > 0:
+                    # LLM says topics don't match, but heuristic found keyword
+                    # overlap (likely a false positive, e.g., "multi" from
+                    # "Multi Armed Bandits" matching "multi-robot").
+                    # Trust the LLM to veto the keyword false positive:
+                    # use the lower of the two scores.
+                    blended = min(heuristic_score, llm_score)
+                elif llm_topics_match and topic_overlap == 0:
+                    # LLM sees genuine semantic relationship that keywords
+                    # missed. Allow a moderate blend, but slightly conservative
+                    # since keywords couldn't confirm.
+                    blended = 0.3 * heuristic_score + 0.7 * llm_score
+                else:
+                    # Both agree: topics match and keywords confirm.
+                    # Standard blend: 40% heuristic + 60% LLM.
+                    blended = 0.4 * heuristic_score + 0.6 * llm_score
+
                 score_result["relevance_score"] = round(blended, 3)
                 score_result["llm_relevance_score"] = llm_score
+                score_result["llm_topics_match"] = llm_topics_match
+                score_result["llm_matched_interests"] = llm_rel.get("matched_interests", [])
                 score_result["llm_relevance_reasoning"] = llm_rel.get("reasoning", "")
                 # Re-derive importance from blended score
                 novelty = score_result.get("novelty_score", 0.5)
@@ -961,24 +1036,21 @@ class ResearchReActAgent:
                     score_result["importance"] = "low"
             
             # ==================================================================
-            # HARD RELEVANCE GATE (FUNDAMENTAL CHANGE)
+            # VERY LOW RELEVANCE GATE
             # ==================================================================
-            # Papers must demonstrate POSITIVE relevance to the researcher's
-            # stated interests. If a paper has zero topic keyword overlap AND
-            # gets a low LLM score (or no LLM), it is DROPPED entirely — not
-            # delivered as LOW, but removed from results.
-            #
-            # This prevents the system from flooding the user with papers that
-            # happen to share a broad arXiv category (e.g., cs.LG) but have
-            # nothing to do with the user's actual interests.
+            # Papers with very low relevance are kept but marked "very_low".
+            # They still appear in the Papers list so user can see results
+            # from intentional searches outside their usual interests.
             # ==================================================================
-            HARD_RELEVANCE_THRESHOLD = 0.20
+            VERY_LOW_RELEVANCE_THRESHOLD = 0.20
             final_relevance = score_result.get("relevance_score", 0)
-            if final_relevance < HARD_RELEVANCE_THRESHOLD:
+            if final_relevance < VERY_LOW_RELEVANCE_THRESHOLD or paper.get("_llm_irrelevant"):
+                score_result["importance"] = "very_low"
+                if paper.get("_llm_irrelevant"):
+                    score_result["explanation"] = paper.get("_llm_irrelevant_reason", "Not related to your research interests")
                 self._log("INFO",
-                    f"DROPPED paper below relevance gate ({final_relevance:.3f} < {HARD_RELEVANCE_THRESHOLD}): "
+                    f"Marked very_low relevance ({final_relevance:.3f}): "
                     f"{paper.get('title', '')[:80]}")
-                continue
             
             # Increment papers_checked now that we've actually processed (scored) this paper
             self.stop_controller.increment_papers_checked(1)
@@ -1101,7 +1173,11 @@ class ResearchReActAgent:
             
             # Save ALL scored papers for colleague surplus processing BEFORE truncation
             # This is critical: colleagues only get papers NOT selected for owner
-            self._all_scored_papers_for_surplus = list(self._scored_papers)
+            # Exclude very_low papers — they aren't relevant to anyone's interests
+            self._all_scored_papers_for_surplus = [
+                p for p in self._scored_papers
+                if p.get("importance") != "very_low"
+            ]
             
             # Apply output enforcement - truncate to exactly K papers
             enforced_result = self._prompt_controller.enforce_output(
@@ -1464,12 +1540,39 @@ class ResearchReActAgent:
         except Exception as e:
             self._log("WARNING", f"Profile evolution failed (non-critical): {e}")
         
-        # 4. Live Document Update
-        # Use only _scored_papers (papers that passed the scoring pipeline)
-        # rather than analysis_papers (which includes all fetched papers with
-        # inflated default scores).
+        # 3b. Query-based profile suggestion (bypasses cooldown)
+        # When the user searches for a topic not in their profile, suggest adding it.
         try:
-            if is_feature_enabled("LIVE_DOCUMENT", user_uuid) and self._scored_papers:
+            if is_feature_enabled("PROFILE_EVOLUTION", user_uuid) and self._parsed_prompt:
+                query_topic = getattr(self._parsed_prompt, 'interests_only', '') or ''
+                if query_topic:
+                    from agent.profile_evolution import suggest_query_topic_if_off_profile
+                    
+                    drift_result = suggest_query_topic_if_off_profile(
+                        run_id=self.run_id,
+                        user_id=user_id,
+                        query_topic=query_topic,
+                        user_profile=self._research_profile,
+                    )
+                    if drift_result.get("created"):
+                        self._log("INFO", f"Query-drift suggestion created: consider adding '{query_topic}' to interests")
+                    else:
+                        reason = drift_result.get('reason', 'unknown')
+                        matched = drift_result.get('matched_topic', '')
+                        extra = f" (matched: '{matched}')" if matched else ""
+                        self._log("INFO", f"Query-drift suggestion not created: {reason}{extra}")
+        except Exception as e:
+            self._log("WARNING", f"Query-drift suggestion check failed: {e}")
+        
+        # 4. Live Document Update
+        # Only include papers that are actually relevant to the user's
+        # research interests (not very_low), so the live doc stays focused.
+        try:
+            relevant_papers = [
+                p for p in self._scored_papers
+                if p.get("importance") != "very_low"
+            ]
+            if is_feature_enabled("LIVE_DOCUMENT", user_uuid) and relevant_papers:
                 from tools.live_document import update_live_document_from_run
                 
                 self._log("DEBUG", "Updating live document...")
@@ -1477,7 +1580,7 @@ class ResearchReActAgent:
                     run_id=self.run_id,
                     user_id=user_id,
                     user_profile=self._research_profile,
-                    scored_papers=self._scored_papers,
+                    scored_papers=relevant_papers,
                 )
                 
                 if doc_result.get("save_result", {}).get("success"):

@@ -80,7 +80,7 @@ class RunMetrics:
     papers_checked: int = 0
     rag_queries: int = 0
     new_papers_found: int = 0
-    highest_importance: Optional[Literal["high", "medium", "low"]] = None
+    highest_importance: Optional[Literal["high", "medium", "low", "very_low"]] = None
     agent_requested_terminate: bool = False
 
     def elapsed_minutes(self) -> float:
@@ -102,7 +102,7 @@ class RunMetrics:
 
 
 # Importance level ordering for comparison
-IMPORTANCE_ORDER = {"low": 1, "medium": 2, "high": 3}
+IMPORTANCE_ORDER = {"very_low": 0, "low": 1, "medium": 2, "high": 3}
 
 
 class StopController:
@@ -244,7 +244,7 @@ class StopController:
         self.metrics.new_papers_found = count
 
     def update_highest_importance(
-        self, importance: Literal["high", "medium", "low"]
+        self, importance: Literal["high", "medium", "low", "very_low"]
     ) -> None:
         """Update the highest importance level seen."""
         if self.metrics.highest_importance is None:

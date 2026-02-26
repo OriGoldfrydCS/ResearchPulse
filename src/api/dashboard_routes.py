@@ -496,6 +496,30 @@ class HealthResponse(BaseModel):
 
 
 # =============================================================================
+# Helper: derive research_topics list from interests_include free text
+# =============================================================================
+
+def _parse_interests_to_topics(interests_text: str) -> List[str]:
+    """Parse the free-text interests_include into a structured research_topics list.
+    
+    Splits on commas and newlines, strips whitespace, and removes empty entries.
+    This ensures research_topics always mirrors what the user typed in
+    'Research Interests'.
+    """
+    if not interests_text or not interests_text.strip():
+        return []
+    import re
+    # Split on commas or newlines
+    parts = re.split(r'[,\n]+', interests_text)
+    topics = []
+    for part in parts:
+        t = part.strip()
+        if t and t not in topics:
+            topics.append(t)
+    return topics
+
+
+# =============================================================================
 # User Endpoint
 # =============================================================================
 
@@ -577,6 +601,10 @@ async def update_research_profile(data: ProfileUpdate):
             update_dict["arxiv_categories_exclude"] = data.arxiv_categories_exclude
         if data.interests_include is not None:
             update_dict["interests_include"] = data.interests_include
+            # Auto-derive research_topics from interests_include (single source of truth)
+            # Only override if research_topics was NOT explicitly provided in this request
+            if data.research_topics is None:
+                update_dict["research_topics"] = _parse_interests_to_topics(data.interests_include)
         if data.interests_exclude is not None:
             update_dict["interests_exclude"] = data.interests_exclude
         if data.preferred_time_period is not None:
@@ -2273,6 +2301,20 @@ async def trigger_run(data: RunTrigger, background_tasks: BackgroundTasks):
                         # First, upsert the paper itself
                         external_id = paper.get("arxiv_id") or paper.get("paper_id") or paper.get("id", "")
                         if external_id:
+                            # Parse published date from ArxivPaper's 'published' field
+                            _pub_raw = paper.get("published") or paper.get("published_at") or paper.get("updated")
+                            _pub_at = None
+                            if _pub_raw:
+                                try:
+                                    from datetime import datetime as _dt
+                                    if isinstance(_pub_raw, str):
+                                        if _pub_raw.endswith("Z"):
+                                            _pub_raw = _pub_raw[:-1]
+                                        _pub_at = _dt.fromisoformat(_pub_raw).replace(tzinfo=None)
+                                    else:
+                                        _pub_at = _pub_raw
+                                except Exception:
+                                    pass
                             paper_record = store.upsert_paper({
                                 "source": "arxiv",
                                 "external_id": external_id,
@@ -2282,6 +2324,7 @@ async def trigger_run(data: RunTrigger, background_tasks: BackgroundTasks):
                                 "categories": paper.get("categories", []),
                                 "url": paper.get("url"),
                                 "pdf_url": paper.get("pdf_url"),
+                                "published_at": _pub_at,
                             })
                             
                             # Then upsert the paper view for this user
@@ -5076,6 +5119,13 @@ def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> b
                 old_topic = sd.get("topic", "")
                 if old_topic:
                     topics = [t for t in topics if t.lower() != old_topic.lower()]
+                    # Also remove from interests_include free text
+                    if old_topic in (interests or ""):
+                        import re
+                        interests = re.sub(
+                            r',?\s*' + re.escape(old_topic) + r'\s*,?',
+                            ', ', interests, flags=re.IGNORECASE
+                        ).strip(', ')
                     
             elif action == "refine_topic":
                 old_topic = sd.get("topic", "")
@@ -5138,10 +5188,19 @@ def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> b
                               [m.lower() for m in to_merge]]
                     if merged not in topics:
                         topics.append(merged)
+                    # Update interests_include: remove merged topics, add merged result
+                    import re
+                    for old_t in to_merge:
+                        interests = re.sub(
+                            r',?\s*' + re.escape(old_t) + r'\s*,?',
+                            ', ', interests, flags=re.IGNORECASE
+                        ).strip(', ')
+                    if merged not in (interests or ""):
+                        interests = (interests.rstrip(', ') + ', ' + merged) if interests else merged
             
-            # Apply updates
+            # Apply updates — derive research_topics from interests_include (single source of truth)
             user.interests_include = interests
-            user.research_topics = topics
+            user.research_topics = _parse_interests_to_topics(interests)
             user.arxiv_categories_include = cats_include
             user.arxiv_categories_exclude = cats_exclude
             user.updated_at = __import__('datetime').datetime.utcnow()
@@ -5255,7 +5314,7 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
         doc_data = get_live_document(user_id)
         
         if not doc_data:
-            raise HTTPException(status_code=404, detail="No live document found. Run a research pulse first.")
+            raise HTTPException(status_code=404, detail="No live document found. Run a researchPulse first.")
         
         manager = LiveDocumentManager()
         doc = LiveDocumentData(**doc_data.get("document_data", {}))

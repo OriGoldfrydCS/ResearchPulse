@@ -44,7 +44,7 @@ class PaperSummary(BaseModel):
     link: Optional[str] = Field(None, description="Paper URL")
     relevance_score: Optional[float] = Field(None, description="Relevance score 0-1")
     novelty_score: Optional[float] = Field(None, description="Novelty score 0-1")
-    importance: Optional[Literal["high", "medium", "low"]] = Field(None, description="Importance level")
+    importance: Optional[Literal["high", "medium", "low", "very_low"]] = Field(None, description="Importance level")
     decision: Optional[Literal["saved", "shared", "ignored", "logged"]] = Field(None, description="Decision made")
     is_unseen: bool = Field(True, description="Whether paper was unseen before this run")
 
@@ -62,7 +62,7 @@ class DecisionSummary(BaseModel):
     """Summary of decisions made for papers."""
     paper_id: str = Field(..., description="arXiv paper ID")
     paper_title: str = Field(..., description="Paper title")
-    importance: Literal["high", "medium", "low"] = Field(..., description="Assessed importance")
+    importance: Literal["high", "medium", "low", "very_low"] = Field(..., description="Assessed importance")
     decision: Literal["saved", "shared", "ignored", "logged"] = Field(..., description="Decision made")
     actions: List[str] = Field(default_factory=list, description="Actions taken")
 

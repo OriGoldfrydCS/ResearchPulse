@@ -214,36 +214,55 @@ def _calculate_topic_overlap(paper_keywords: set, profile_topics: List[str]) -> 
     """
     Calculate topic overlap score between paper and research profile.
     
-    Returns a score from 0.0 to 1.0 based on keyword matching.
-    Uses fuzzy matching - partial keyword overlaps count.
+    Uses per-topic evaluation: each profile topic is checked individually.
+    For multi-word topics (e.g., "Multi Armed Bandits"), at least 2 of
+    its constituent keywords must appear in the paper to count as a match.
+    This prevents false positives from a single generic word overlap
+    (e.g., "multi" in "multi-robot" falsely matching "Multi Armed Bandits").
+    
+    Returns a score from 0.0 to 1.0.
     """
     if not profile_topics or not paper_keywords:
         return 0.0
     
-    # Extract keywords from research topics
-    topic_keywords = set()
-    for topic in profile_topics:
-        topic_keywords.update(_extract_keywords(topic))
+    matched_topic_count = 0
+    valid_topics = 0
     
-    if not topic_keywords:
+    for topic in profile_topics:
+        topic_kws = _extract_keywords(topic)
+        if not topic_kws:
+            continue
+        valid_topics += 1
+        
+        # Count how many of this topic's keywords appear in the paper
+        hit_count = 0.0
+        for tk in topic_kws:
+            # Direct match
+            if tk in paper_keywords:
+                hit_count += 1.0
+                continue
+            # Partial match (substring): e.g., "bandit" matches "bandits"
+            for pk in paper_keywords:
+                if pk != tk and (pk in tk or tk in pk) and len(min(pk, tk, key=len)) > 3:
+                    hit_count += 0.5
+                    break  # one partial match per topic keyword is enough
+        
+        # For multi-word topics, require at least 2 keyword hits to count
+        # as a genuine match. This prevents single generic words (like
+        # "multi" from "Multi Armed Bandits") from creating false positives.
+        if len(topic_kws) >= 2:
+            if hit_count >= 2:
+                matched_topic_count += 1
+        else:
+            # Single-word topic (e.g., "PCA"): any hit counts
+            if hit_count > 0:
+                matched_topic_count += 1
+    
+    if valid_topics == 0:
         return 0.0
     
-    # Count matches (including partial matches for compound terms)
-    direct_matches = len(paper_keywords & topic_keywords)
-    
-    # Check for partial matches (e.g., "transformer" matches "transformers")
-    partial_matches = 0
-    for pk in paper_keywords:
-        for tk in topic_keywords:
-            if pk != tk and (pk in tk or tk in pk) and len(min(pk, tk, key=len)) > 3:
-                partial_matches += 0.5
-    
-    total_matches = direct_matches + partial_matches
-    
-    # Normalize by topic keyword count (with diminishing returns for many matches)
-    raw_score = total_matches / len(topic_keywords)
-    
-    # Apply sigmoid-like scaling to prevent scores from easily hitting 1.0
+    raw_score = matched_topic_count / valid_topics
+    # Apply scaling with diminishing returns
     normalized_score = min(1.0, raw_score * 1.5)
     
     return round(normalized_score, 3)
@@ -1203,7 +1222,7 @@ def self_check() -> bool:
         result = score_relevance_and_importance(paper, {})
         all_passed &= check("relevance in [0,1]", 0.0 <= result.relevance_score <= 1.0)
         all_passed &= check("novelty in [0,1]", 0.0 <= result.novelty_score <= 1.0)
-        all_passed &= check("importance valid", result.importance in ["high", "medium", "low"])
+        all_passed &= check("importance valid", result.importance in ["high", "medium", "low", "very_low"])
     except Exception as e:
         all_passed &= check(f"failed: {e}", False)
 

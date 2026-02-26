@@ -788,15 +788,15 @@ class TestHardRelevanceGate:
         )
 
     def test_marginally_relevant_paper_can_pass(self, profile):
-        """A paper with some topic overlap should pass even if marginal."""
+        """A paper with enough topic overlap should pass even if marginal."""
         paper = {
             "arxiv_id": "gate-3",
-            "title": "Online Learning and Bandit Optimization Methods",
-            "abstract": "We survey online learning methods related to bandit optimization.",
+            "title": "Online Learning and Multi-Armed Bandit Methods",
+            "abstract": "We survey online learning methods for multi-armed bandit problems.",
             "categories": ["cs.LG"],
         }
         result = self._score(paper, profile)
-        # Should have SOME topic overlap and pass the 0.20 gate
+        # Should have topic overlap (multi+armed from "Multi Armed Bandits") and pass the 0.20 gate
         assert result.scoring_factors["topic_overlap"] > 0
         assert result.relevance_score >= 0.20
 

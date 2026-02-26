@@ -1784,6 +1784,15 @@
             color: var(--text-muted);
         }
 
+        .importance-very_low {
+            background: rgba(239, 68, 68, 0.12);
+            color: #b91c1c;
+        }
+
+        html.dark .importance-very_low {
+            color: #f87171;
+        }
+
         /* Triggered-by attribution badges */
         .triggered-badge {
             display: inline-flex;
@@ -3728,7 +3737,7 @@
                     <!-- Prompt Templates Accordion -->
                     <div class="prompt-templates" id="prompt-templates">
                         <div class="prompt-templates-header" onclick="toggleTemplates()">
-                            <span>Prompt Templates</span>
+                            <span>Supported Prompt Templates</span>
                             <span id="templates-chevron" class="chevron">▶</span>
                         </div>
                         <div class="prompt-templates-content" id="prompt-templates-content">
@@ -5342,7 +5351,7 @@
                     html += `
             <tr>
               <td>${escapeHtml(title.substring(0, 60))}${title.length > 60 ? '...' : ''}</td>
-              <td><span class="importance-badge importance-${importance}">${importance}</span></td>
+              <td><span class="importance-badge importance-${importance}">${importance.replace('_', ' ').toUpperCase()}</span></td>
               <td>${escapeHtml(categories)}</td>
             </tr>
           `;
@@ -5923,7 +5932,7 @@
                             </a>
                             ${isNotRelevant ? '<span class="not-relevant-badge">Not Relevant</span>' : ''}
                             ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="paper-pdf-link" onclick="markPaperRead('${paperId}', event)" title="Download PDF">📄 PDF</a>` : ''}
-                            <span class="importance-badge importance-${importance}">${importance.toUpperCase()}</span>
+                            <span class="importance-badge importance-${importance}">${importance.replace('_', ' ').toUpperCase()}</span>
                         </div>
                         ${authorsText ? `<div class="paper-authors">👤 ${escapeHtml(authorsText)}</div>` : ''}
                         <div class="paper-meta-row">
@@ -6108,7 +6117,7 @@
 
                 <div class="drawer-section">
                     <h4>Importance</h4>
-                    <span class="importance-badge importance-${importance.toLowerCase()}">${importance}</span>
+                    <span class="importance-badge importance-${importance.toLowerCase()}">${importance.replace('_', ' ')}</span>
                 </div>
 
                 <div class="drawer-section">
@@ -9437,7 +9446,7 @@
                     const data = await htmlResp.json();
                     contentEl.innerHTML = `
                         <div class="autonomous-empty">
-                            <p>${data.detail || 'No live document found. Run a research pulse first to generate one.'}</p>
+                            <p>${data.detail || 'No live document found. Run a researchPulse first to generate one.'}</p>
                         </div>
                     `;
                     return;
@@ -9601,13 +9610,19 @@
 
                 const data = await response.json();
 
+                // "What is this?" block — always shown regardless of suggestion count
+                const whatIsThisHtml = `
+                    <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
+                        <strong>What is this?</strong> This section shows <em>Profile Evolution Suggestions</em> generated
+                        autonomously from your research activity and discovered papers. They help you evolve your
+                        <strong>Research Interests</strong> over time. Accept a suggestion to add it to your interests,
+                        or dismiss it to hide it.
+                    </div>
+                `;
+
                 if (!data.suggestions || data.suggestions.length === 0) {
                     contentEl.innerHTML = `
-                        <div style="margin-bottom: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
-                            <strong>What is this?</strong> These are <em>Profile Evolution Suggestions</em> — intelligent recommendations
-                            to refine your research profile based on the papers you discover. Accept or reject each suggestion,
-                            and your profile categories, topics, and interests will update automatically.
-                        </div>
+                        ${whatIsThisHtml}
                         <div class="autonomous-empty">
                             <p>No profile suggestions yet.</p>
                             <p>Run more research sessions to receive personalized recommendations.</p>
@@ -9616,17 +9631,7 @@
                     return;
                 }
 
-                let html = data.suggestions.map(s => {
-                    const typeLabel = (s.suggestion_type || 'suggestion').replace(/_/g, ' ');
-                    const typeIcon = {
-                        'add_topic': '➕',
-                        'remove_topic': '➖',
-                        'refine_topic': '✏️',
-                        'add_category': '📂',
-                        'remove_category': '🗑️',
-                        'merge_topics': '🔀',
-                    }[s.suggestion_type] || '💡';
-
+                let html = whatIsThisHtml + data.suggestions.map(s => {
                     // Build supporting papers list
                     let papersHtml = '';
                     if (s.supporting_papers && s.supporting_papers.length > 0) {
@@ -9643,7 +9648,7 @@
                     return `
                     <div class="suggestion-card">
                         <div class="suggestion-card-header">
-                            <span class="suggestion-field">${typeIcon} ${escapeHtml(typeLabel)}</span>
+                            <span class="suggestion-field">💡 Suggestion</span>
                             <span class="suggestion-status ${s.status}">${s.status}</span>
                         </div>
                         <div class="suggestion-reason">${escapeHtml(s.suggestion_text || '')}</div>
@@ -9655,7 +9660,7 @@
                         ${s.status === 'pending' ? `
                             <div class="suggestion-actions">
                                 <button class="accept-btn" onclick="updateSuggestionStatus('${s.id}', 'accepted')">✓ Accept</button>
-                                <button class="reject-btn" onclick="updateSuggestionStatus('${s.id}', 'rejected')">✕ Reject</button>
+                                <button class="reject-btn" onclick="updateSuggestionStatus('${s.id}', 'rejected')">✕ Dismiss</button>
                             </div>
                         ` : ''}
                     </div>

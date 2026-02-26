@@ -82,7 +82,7 @@ class ScoredPaper(BaseModel):
     pdf_url: Optional[str] = Field(None, description="URL to PDF")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score 0-1")
     novelty_score: float = Field(..., ge=0.0, le=1.0, description="Novelty score 0-1")
-    importance: Literal["high", "medium", "low"] = Field(..., description="Importance level")
+    importance: Literal["high", "medium", "low", "very_low"] = Field(..., description="Importance level")
     explanation: str = Field("", description="Scoring explanation")
 
 
@@ -672,12 +672,12 @@ def generate_summary_email_html(
     """
     from html import escape
     
-    importance_order = {"high": 0, "medium": 1, "low": 2}
-    sorted_papers = sorted(papers, key=lambda p: (importance_order.get(p.importance, 2), -p.relevance_score))
+    importance_order = {"high": 0, "medium": 1, "low": 2, "very_low": 3}
+    sorted_papers = sorted(papers, key=lambda p: (importance_order.get(p.importance, 3), -p.relevance_score))
     
-    groups = {"high": [], "medium": [], "low": []}
+    groups = {"high": [], "medium": [], "low": [], "very_low": []}
     for p in sorted_papers:
-        groups[p.importance].append(p)
+        groups.get(p.importance, groups["very_low"]).append(p)
     
     high_count = len(groups["high"])
     medium_count = len(groups["medium"])
@@ -1746,12 +1746,8 @@ def decide_delivery_action(
                 paper.categories, colleague.arxiv_categories_interest
             )
             
-            # Decide if we should share
+            # Decide if we should share — require genuine interest overlap
             should_share = has_topic_match or has_category_match
-            
-            # For high importance papers, share even with weak matches
-            if paper.importance == "high" and colleague.topics:
-                should_share = True
             
             if not should_share:
                 colleague_actions.append(ColleagueAction(
