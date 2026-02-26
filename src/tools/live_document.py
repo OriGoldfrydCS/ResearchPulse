@@ -581,7 +581,10 @@ class LiveDocumentManager:
     def render_pdf(self, doc: LiveDocumentData) -> bytes:
         """Render the document as a styled PDF by converting HTML with tight spacing."""
         import io
-        from xhtml2pdf import pisa
+        try:
+            from xhtml2pdf import pisa
+        except ImportError:
+            raise RuntimeError("xhtml2pdf is not available in this environment")
 
         markdown = self.render_markdown(doc)
         body_html = self._md_to_html(markdown)

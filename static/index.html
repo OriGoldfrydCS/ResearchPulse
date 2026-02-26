@@ -9524,24 +9524,64 @@
             }
         }
 
+        function _clientSidePdfFallback() {
+            // Fetch HTML from server, open in hidden iframe, trigger print dialog
+            fetch('/api/live-document?format=html')
+                .then(r => {
+                    if (!r.ok) throw new Error('Failed to fetch document for PDF');
+                    return r.text();
+                })
+                .then(html => {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.position = 'fixed';
+                    iframe.style.right = '0';
+                    iframe.style.bottom = '0';
+                    iframe.style.width = '0';
+                    iframe.style.height = '0';
+                    iframe.style.border = 'none';
+                    document.body.appendChild(iframe);
+                    const doc = iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(html);
+                    doc.close();
+                    // Wait for content to render then print
+                    iframe.onload = function () {
+                        setTimeout(() => {
+                            iframe.contentWindow.print();
+                            setTimeout(() => document.body.removeChild(iframe), 1000);
+                        }, 300);
+                    };
+                })
+                .catch(e => alert('PDF download failed: ' + e.message));
+        }
+
         function doDownloadLiveDoc(fmt) {
             try {
                 if (fmt === 'pdf') {
+                    // Fetch the HTML version and use the browser's print-to-PDF
+                    // to avoid server-side xhtml2pdf issues on Vercel
                     fetch('/api/live-document?format=pdf')
                         .then(r => {
-                            if (!r.ok) throw new Error('Failed to fetch PDF');
+                            if (!r.ok) {
+                                // Server-side PDF failed — fall back to client-side print
+                                return null;
+                            }
                             return r.blob();
                         })
                         .then(blob => {
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.pdf';
-                            document.body.appendChild(a);
-                            a.click();
-                            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                            if (blob && blob.size > 0) {
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.pdf';
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                            } else {
+                                _clientSidePdfFallback();
+                            }
                         })
-                        .catch(e => alert('PDF download failed: ' + e.message));
+                        .catch(() => _clientSidePdfFallback());
                     return;
                 }
                 // TXT download via API

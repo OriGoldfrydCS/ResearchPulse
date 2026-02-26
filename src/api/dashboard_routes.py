@@ -5280,7 +5280,14 @@ async def get_live_document(format: str = Query(default="json", regex="^(json|ma
                 headers={"Content-Disposition": "attachment; filename=live_document.txt"},
             )
         elif format == "pdf":
-            pdf_bytes = manager.render_pdf(doc)
+            try:
+                pdf_bytes = manager.render_pdf(doc)
+            except Exception as pdf_err:
+                logger.warning(f"Server-side PDF generation unavailable: {pdf_err}")
+                raise HTTPException(
+                    status_code=501,
+                    detail="Server-side PDF generation is not available. Use browser print instead.",
+                )
             return Response(
                 content=bytes(pdf_bytes),
                 media_type="application/pdf",
