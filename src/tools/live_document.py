@@ -104,15 +104,11 @@ Research Topics: {research_topics}
 **TOP PAPERS THIS PERIOD:**
 {papers_summary}
 
-**TRENDING TOPICS:**
-{trending_topics}
-
 Write a brief, professional summary highlighting:
 1. Overall research focus areas
 2. Notable new papers or directions
-3. Any emerging trends
 
-Keep it concise and actionable."""
+Keep it concise and actionable. Do not mention trending topics or category breakdowns."""
 
 
 # =============================================================================
@@ -240,7 +236,7 @@ class LiveDocumentManager:
             api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
             if not api_key:
                 logger.warning("Live document: neither LLM_API_KEY nor OPENAI_API_KEY is set")
-                return f"This live document summarises the {len(top_papers)} most relevant papers based on your research interests."
+                return f"This live document summarises the most relevant papers based on your research interests."
             client = OpenAI(api_key=api_key, base_url=api_base)
             
             papers_text = "\n".join([
@@ -248,16 +244,9 @@ class LiveDocumentManager:
                 for p in top_papers[:5]
             ])
             
-            topics_text = "\n".join([
-                f"- {t.topic}: {t.paper_count} papers (avg relevance: {t.avg_relevance:.2f})"
-                + (" [EMERGING]" if t.emerging else "")
-                for t in trending_topics[:5]
-            ])
-            
             prompt = EXECUTIVE_SUMMARY_PROMPT.format(
                 research_topics=", ".join(user_profile.get("research_topics", [])),
                 papers_summary=papers_text or "No papers yet",
-                trending_topics=topics_text or "No trends detected",
             )
             
             response = client.chat.completions.create(
@@ -270,7 +259,7 @@ class LiveDocumentManager:
             
         except Exception as e:
             logger.warning(f"Executive summary generation failed: {e}")
-            return f"This live document summarises the {len(top_papers)} most relevant papers based on your research interests."
+            return f"This live document summarises the most relevant papers based on your research interests."
     
     def _build_category_breakdown(self, papers: List[Dict]) -> Dict[str, int]:
         """Build category breakdown from papers."""
@@ -590,54 +579,48 @@ class LiveDocumentManager:
         return html
 
     def render_pdf(self, doc: LiveDocumentData) -> bytes:
-        """Render the document as a PDF binary using fpdf2."""
-        from fpdf import FPDF
+        """Render the document as a styled PDF by converting HTML with tight spacing."""
+        import io
+        from xhtml2pdf import pisa
 
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
+        markdown = self.render_markdown(doc)
+        body_html = self._md_to_html(markdown)
 
-        # Title
-        pdf.set_font("Helvetica", "B", 18)
-        pdf.cell(0, 12, doc.title, new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "I", 9)
-        pdf.cell(0, 6, f"Last updated: {doc.last_updated}", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
+        # PDF-optimized HTML with tighter spacing than the browser version
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>{doc.title}</title>
+    <style>
+        @page {{ size: A4; margin: 2cm; }}
+        body {{ font-family: Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.3; color: #1a1a2e; margin: 0; padding: 0; }}
+        h1 {{ color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 6px; font-size: 18px; margin: 0 0 4px 0; }}
+        h2 {{ color: #1e40af; font-size: 14px; margin: 10px 0 4px 0; }}
+        h3 {{ color: #1e3a8a; font-size: 11px; margin: 6px 0 2px 0; }}
+        p {{ margin: 2px 0; }}
+        blockquote {{ background: #f3f4f6; padding: 6px 8px; border-left: 3px solid #2563eb; margin: 4px 0; }}
+        blockquote p {{ margin: 1px 0; font-size: 9px; }}
+        ul {{ padding-left: 18px; margin: 2px 0; }}
+        li {{ margin: 1px 0; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 6px 0; }}
+        th, td {{ border: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; font-size: 9px; }}
+        th {{ background: #f3f4f6; font-weight: 600; }}
+        a {{ color: #2563eb; text-decoration: none; }}
+        strong {{ color: #111827; }}
+        em {{ color: #374151; }}
+        hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 6px 0; }}
+    </style>
+</head>
+<body>
+{body_html}
+</body>
+</html>"""
 
-        # Executive Summary
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "Executive Summary", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 5, doc.executive_summary)
-        pdf.ln(4)
-
-        # Papers
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, f"Latest Papers ({len(doc.top_papers)})", new_x="LMARGIN", new_y="NEXT")
-
-        for i, paper in enumerate(doc.top_papers, 1):
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.multi_cell(0, 6, f"{i}. {paper.title}")
-
-            pdf.set_font("Helvetica", "", 9)
-            novelty_val = (paper.llm_novelty_score / 100.0) if paper.llm_novelty_score else paper.novelty_score
-            novelty_str = f" | Novelty: {novelty_val:.2f}" if novelty_val else ""
-            combined = paper.relevance_score + (novelty_val or 0)
-            pdf.cell(0, 5, f"Relevance: {paper.relevance_score:.2f}{novelty_str} | Score: {combined:.2f}", new_x="LMARGIN", new_y="NEXT")
-
-            if paper.authors:
-                pdf.cell(0, 5, f"Authors: {', '.join(paper.authors)}", new_x="LMARGIN", new_y="NEXT")
-            if paper.categories:
-                pdf.cell(0, 5, f"Categories: {', '.join(paper.categories)}", new_x="LMARGIN", new_y="NEXT")
-            if paper.abstract_snippet:
-                pdf.set_font("Helvetica", "I", 9)
-                pdf.multi_cell(0, 5, paper.abstract_snippet)
-            if paper.arxiv_url:
-                pdf.set_font("Helvetica", "", 9)
-                pdf.cell(0, 5, paper.arxiv_url, new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(3)
-
-        return pdf.output()
+        buf = io.BytesIO()
+        pisa_status = pisa.CreatePDF(html, dest=buf)
+        if pisa_status.err:
+            raise RuntimeError("PDF generation failed")
+        return buf.getvalue()
 
 
 # =============================================================================

@@ -693,6 +693,7 @@ async def delete_paper(
         
         # Delete the paper view
         deleted = store.delete_paper_view(user_id, paper_uuid)
+        logger.info(f"Paper {paper_uuid} deleted for user {user_id}: {deleted} (live document will exclude on next fetch)")
         
         # Delete Pinecone vectors if requested
         if delete_vectors:
@@ -5160,19 +5161,36 @@ def _filter_live_doc_papers(doc: "LiveDocumentData", user_id: "UUID") -> "LiveDo
     """Filter out deleted papers and keep only the 10 newest by date."""
     try:
         from ..db.database import is_database_configured, get_db_session
-        from ..db.orm_models import Paper
+        from ..db.orm_models import Paper, PaperView
         if is_database_configured():
             arxiv_ids = {p.arxiv_id for p in doc.top_papers}
             arxiv_ids.update(p.arxiv_id for p in doc.recent_papers)
-            with get_db_session() as db:
-                existing = db.query(Paper.external_id).filter(
-                    Paper.external_id.in_(arxiv_ids)
-                ).all()
-                existing_ids = {row[0] for row in existing}
-            doc.top_papers = [p for p in doc.top_papers if p.arxiv_id in existing_ids]
-            doc.recent_papers = [p for p in doc.recent_papers if p.arxiv_id in existing_ids]
-    except Exception:
-        pass  # If filtering fails, serve what we have
+            if arxiv_ids:
+                with get_db_session() as db:
+                    # Query PaperView joined with Paper for this user:
+                    # only keep papers that still have an active (non-deleted) view
+                    active = (
+                        db.query(Paper.external_id)
+                        .join(PaperView, PaperView.paper_id == Paper.id)
+                        .filter(
+                            PaperView.user_id == user_id,
+                            Paper.external_id.in_(arxiv_ids),
+                            PaperView.is_deleted.is_(False),
+                        )
+                        .all()
+                    )
+                    active_ids = {row[0] for row in active}
+                before_top = len(doc.top_papers)
+                before_recent = len(doc.recent_papers)
+                doc.top_papers = [p for p in doc.top_papers if p.arxiv_id in active_ids]
+                doc.recent_papers = [p for p in doc.recent_papers if p.arxiv_id in active_ids]
+                removed = (before_top + before_recent) - (len(doc.top_papers) + len(doc.recent_papers))
+                if removed:
+                    logger.info(
+                        f"Live document filter: removed {removed} deleted/missing papers for user {user_id}"
+                    )
+    except Exception as e:
+        logger.warning(f"Live document paper filter failed: {e}")  # log instead of silently swallowing
 
     # Merge top_papers + recent_papers, deduplicate, sort by combined score (high to low), take 10
     seen = set()
@@ -5189,6 +5207,20 @@ def _filter_live_doc_papers(doc: "LiveDocumentData", user_id: "UUID") -> "LiveDo
     all_papers.sort(key=_combined_score, reverse=True)
     doc.top_papers = all_papers[:10]
     doc.recent_papers = []
+
+    # Patch executive summary so paper count matches reality
+    import re
+    actual_count = len(doc.top_papers)
+    doc.executive_summary = re.sub(
+        r"\bthe\s+\d+\s+most\s+relevant",
+        f"the {actual_count} most relevant",
+        doc.executive_summary,
+    )
+    # Clean stale trending-topics references from executive summary
+    doc.executive_summary = re.sub(
+        r"\s+and\s+\d+\s+trending\s+topics?", "", doc.executive_summary
+    )
+
     return doc
 
 

@@ -106,7 +106,7 @@ def upgrade() -> None:
         sa.Column('user_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, unique=True),
         
         # Document metadata
-        sa.Column('title', sa.String(500), server_default="'Research Pulse - Live Briefing'"),
+        sa.Column('title', sa.String(500), server_default="'ResearchPulse - Live Briefing'"),
         
         # Document content - JSONB for full data, text for rendered
         sa.Column('document_data', postgresql.JSONB(), server_default='{}'),
