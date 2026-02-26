@@ -107,7 +107,10 @@ async def root():
     from fastapi.responses import FileResponse
     index_path = static_path / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(
+            str(index_path),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return {"message": "ResearchPulse API", "docs": "/docs"}
 
 
