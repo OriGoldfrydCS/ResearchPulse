@@ -202,31 +202,96 @@ def _normalize_for_matching(text: str) -> str:
     return text.lower().strip()
 
 
+# Canonical expansions for short/ambiguous ML terms.
+# When a colleague interest is e.g. "rag", we also check for the expanded
+# forms so that substring matching against unrelated words ("storage",
+# "fragmentation") is avoided while genuine papers are still caught.
+_ML_TERM_EXPANSIONS: Dict[str, List[str]] = {
+    "rag": ["retrieval-augmented generation", "retrieval augmented generation", "retrieval-augmented"],
+    "attention": ["attention mechanism", "self-attention", "cross-attention", "multi-head attention"],
+    "transformers": ["transformer model", "transformer architecture", "transformer network"],
+    "transformer": ["transformer model", "transformer architecture", "transformer network"],
+    "llm": ["large language model"],
+    "llms": ["large language models"],
+    "nlp": ["natural language processing"],
+    "gnn": ["graph neural network"],
+    "gnns": ["graph neural networks"],
+    "cnn": ["convolutional neural network"],
+    "rnn": ["recurrent neural network"],
+    "gan": ["generative adversarial network"],
+    "gans": ["generative adversarial networks"],
+    "vae": ["variational autoencoder"],
+    "rl": ["reinforcement learning"],
+    "pca": ["principal component analysis"],
+    "svm": ["support vector machine"],
+}
+
+
+def _is_controlled_substring_match(short: str, long: str) -> bool:
+    """Return True only when *short* is a safe substring match inside *long*.
+
+    Rules:
+    - Terms with 5 or fewer characters: NO substring matching (exact only).
+    - Longer terms: the shorter string must be >= 80% the length of the
+      longer string to avoid "transform" matching "transformers" while
+      still allowing "transformer" ↔ "transformers" (pluralisation).
+    """
+    if len(short) <= 5:
+        return False
+    ratio = len(short) / len(long)
+    return ratio >= 0.80
+
+
 def _topics_overlap(topics1: List[str], topics2: List[str]) -> tuple[bool, List[str]]:
     """
     Check if two topic lists have meaningful overlap.
-    
+
+    Matching strategy (in order):
+    1. Exact normalised-word match.
+    2. ML-term expansion: if a topic has a canonical expansion, check whether
+       any expansion phrase appears in the other list's text.
+    3. Controlled substring: only allowed when both terms are > 5 chars and
+       the shorter term is >= 80 % the length of the longer one.
+
     Returns:
         (has_overlap: bool, matching_topics: List[str])
     """
     if not topics1 or not topics2:
         return False, []
-    
+
     # Normalize topics
     norm1 = {_normalize_for_matching(t) for t in topics1}
     norm2 = {_normalize_for_matching(t) for t in topics2}
-    
-    # Direct matches
+
+    # 1. Direct exact matches
     direct = norm1 & norm2
-    
-    # Partial matches (one contains the other)
+
+    # Build a single lowered text blob from topics1 for phrase searching
+    text1_blob = " " + " ".join(norm1) + " "
+
     partial = set()
-    for t1 in norm1:
-        for t2 in norm2:
-            if t1 != t2:
-                if t1 in t2 or t2 in t1:
-                    partial.add(t2 if t2 in topics2 else t1)
-    
+    for t2 in norm2:
+        if t2 in direct:
+            continue  # already matched exactly
+
+        # 2. ML-term expansion: check if expanded phrases appear in text1
+        expansions = _ML_TERM_EXPANSIONS.get(t2, [])
+        for phrase in expansions:
+            if phrase in text1_blob:
+                partial.add(t2)
+                break
+        if t2 in partial:
+            continue
+
+        # 3. Controlled substring matching
+        for t1 in norm1:
+            if t1 == t2:
+                continue
+            shorter, longer = (t1, t2) if len(t1) <= len(t2) else (t2, t1)
+            if shorter in longer and _is_controlled_substring_match(shorter, longer):
+                partial.add(t2)
+                break
+
     matching = list(direct | partial)
     return len(matching) > 0, matching
 
@@ -1746,8 +1811,11 @@ def decide_delivery_action(
                 paper.categories, colleague.arxiv_categories_interest
             )
             
-            # Decide if we should share — require genuine interest overlap
-            should_share = has_topic_match or has_category_match
+            # Decide if we should share — require topic match.
+            # Category-only match is insufficient because broad ML
+            # categories (cs.LG) would match almost every ML paper
+            # regardless of the colleague's specific interest.
+            should_share = has_topic_match and (has_topic_match or has_category_match)
             
             if not should_share:
                 colleague_actions.append(ColleagueAction(
@@ -1757,7 +1825,7 @@ def decide_delivery_action(
                     colleague_email=colleague.email,
                     paper_id=paper.arxiv_id,
                     paper_title=paper.title,
-                    relevance_reason="No significant topic or category overlap",
+                    relevance_reason="No significant topic overlap with colleague interests",
                 ))
                 continue
             
@@ -2028,12 +2096,14 @@ def process_colleague_surplus(
             )
             
             # Decide if we should share this paper with colleagues.
-            # Strict rule: only share when there is genuine topic OR category
-            # overlap between the paper and the colleague's declared interests.
+            # Strict rule: require genuine TOPIC overlap between the paper
+            # and the colleague's declared interests.  Category-only match
+            # is insufficient (broad categories like cs.LG would match
+            # almost every ML paper regardless of specific interest).
             # NOTE: This is evaluated against the COLLEAGUE's profile, not
             # the user's relevance score.  A paper rated VERY LOW for the
             # owner can still be shared if it matches the colleague.
-            should_share = has_topic_match or has_category_match
+            should_share = has_topic_match
 
             user_importance = paper.importance  # user-relative score
             logger.info(
@@ -2054,7 +2124,7 @@ def process_colleague_surplus(
                     colleague_email=colleague.email,
                     paper_id=paper.arxiv_id,
                     paper_title=paper.title,
-                    relevance_reason="No significant topic or category overlap",
+                    relevance_reason="No significant topic overlap with colleague interests",
                 ))
                 continue
             
