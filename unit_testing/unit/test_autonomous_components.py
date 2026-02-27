@@ -30,10 +30,10 @@ class TestFeatureFlags:
             from src.config.feature_flags import FeatureFlags
             
             flags = FeatureFlags()
-            assert flags.llm_novelty_enabled is False
-            assert flags.audit_log_enabled is False
-            assert flags.profile_evolution_enabled is False
-            assert flags.live_document_enabled is False
+            assert flags.llm_novelty.enabled is False
+            assert flags.audit_log.enabled is False
+            assert flags.profile_evolution.enabled is False
+            assert flags.live_document.enabled is False
 
     def test_flags_read_from_env(self):
         """Flags should read from environment variables."""
@@ -47,14 +47,17 @@ class TestFeatureFlags:
         with patch.dict("os.environ", env_vars, clear=True):
             from src.config.feature_flags import FeatureFlags
             
-            flags = FeatureFlags()
-            assert flags.llm_novelty_enabled is True
-            assert flags.audit_log_enabled is True
-            assert flags.profile_evolution_enabled is True
-            assert flags.live_document_enabled is False
+            flags = FeatureFlags.load()
+            assert flags.llm_novelty.enabled is True
+            assert flags.audit_log.enabled is True
+            assert flags.profile_evolution.enabled is True
+            assert flags.live_document.enabled is False
 
     def test_is_feature_enabled_function(self):
-        """Test the is_feature_enabled helper function."""
+        """Test the is_feature_enabled helper function.
+        
+        is_feature_enabled() always returns True (all features permanently on).
+        """
         env_vars = {"LLM_NOVELTY_ENABLED": "true"}
         
         with patch.dict("os.environ", env_vars, clear=True):
@@ -66,7 +69,7 @@ class TestFeatureFlags:
             from src.config.feature_flags import is_feature_enabled
             
             assert is_feature_enabled("LLM_NOVELTY") is True
-            assert is_feature_enabled("AUDIT_LOG") is False
+            assert is_feature_enabled("AUDIT_LOG") is True
 
 
 # =========================================================================

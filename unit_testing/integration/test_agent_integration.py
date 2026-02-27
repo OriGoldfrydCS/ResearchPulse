@@ -982,4 +982,57 @@ class TestAgentStateIsolation:
 
         assert ep1.final_report is not None
         assert ep2.final_report is not None
-        assert ep1.detected_template != ep2.detected_template or True  # different prompts
+
+
+# ============================================================================
+# TEST SUITE: Out-of-scope topic validation
+# ============================================================================
+
+class TestAgentTopicValidation:
+    """Verify the agent returns a clear message for topics outside arXiv scope."""
+
+    def test_out_of_scope_topic_returns_early(self):
+        """Topics like 'animals' that don't map to any arXiv category should
+        trigger an early return with a clear out-of-scope message."""
+        with AgentTestHarness() as h:
+            with patch(
+                "tools.arxiv_categories.topic_to_categories",
+                return_value=[],
+            ):
+                episode = _run_agent(
+                    "Provide the most recent research papers on animals"
+                )
+
+        assert episode.topic_not_in_categories is True
+        assert episode.searched_topic is not None
+        assert "animals" in episode.searched_topic.lower()
+        assert episode.stop_reason == "topic_outside_arxiv_scope"
+        assert episode.final_report is not None
+        summary = episode.final_report.get("summary", "")
+        assert "arXiv primarily provides papers" in summary
+        assert "RESEARCHPULSE cannot assist" in summary
+
+    def test_out_of_scope_topic_has_zero_papers(self):
+        """An out-of-scope topic should not return any papers."""
+        with AgentTestHarness() as h:
+            with patch(
+                "tools.arxiv_categories.topic_to_categories",
+                return_value=[],
+            ):
+                episode = _run_agent(
+                    "Find recent papers about cooking recipes"
+                )
+
+        assert episode.topic_not_in_categories is True
+        stats = episode.final_report.get("stats", {})
+        assert stats.get("total_fetched_count", -1) == 0
+        assert len(episode.papers_processed) == 0
+
+    def test_valid_topic_still_works(self):
+        """Topics that map to arXiv categories should work normally."""
+        with AgentTestHarness() as h:
+            episode = _run_agent("Papers on machine learning")
+
+        assert episode.topic_not_in_categories is False
+        assert episode.stop_reason != "topic_outside_arxiv_scope"
+        assert episode.total_fetched_count > 0

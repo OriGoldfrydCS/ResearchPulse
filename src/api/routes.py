@@ -804,15 +804,16 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             elif len(episode.papers_processed) == 0 and seen_count == 0 and unseen_count == 0:
                 if getattr(episode, 'topic_not_in_categories', False):
                     searched = getattr(episode, 'searched_topic', None) or "the requested topic"
-                    output_parts.append("⚠️ Topic Not Found on arXiv")
-                    output_parts.append("-" * 40)
-                    output_parts.append(f"No papers were found for '{searched}' on arXiv.")
-                    output_parts.append("arXiv primarily covers Physics, Mathematics, Computer Science,")
-                    output_parts.append("Quantitative Biology, Quantitative Finance, Statistics,")
-                    output_parts.append("Electrical Engineering, and Economics.")
                     output_parts.append("")
-                    output_parts.append("💡 Tip: Try rephrasing the topic or using a more specific term")
-                    output_parts.append("   that aligns with arXiv's subject areas.")
+                    output_parts.append(
+                        f"You asked to search for research papers about '{searched}'.\n\n"
+                        "arXiv primarily provides papers in fields such as computer science, "
+                        "mathematics, physics, statistics, quantitative biology, quantitative "
+                        "finance, and related technical domains.\n\n"
+                        "There are currently no relevant arXiv papers for the requested topic, "
+                        "and RESEARCHPULSE cannot assist with this topic in its current version.\n\n"
+                        "This may be supported in the future — stay tuned 🙂"
+                    )
                     output_parts.append("")
                 else:
                     output_parts.append("⚠️ No Papers Retrieved")
@@ -824,16 +825,21 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             output_parts.append("Summary:")
             output_parts.append(str(episode.final_report))
         
-        # Surface a warning when the topic didn't map to any arXiv category
-        # even if some papers were found via keyword search
+        # The topic_not_in_categories flag with papers > 0 should no longer
+        # occur (we return early for out-of-scope topics), but handle it
+        # defensively in case the taxonomy mapper found categories via fallback.
         if getattr(episode, 'topic_not_in_categories', False) and len(episode.papers_processed) > 0:
             searched = getattr(episode, 'searched_topic', None) or "the requested topic"
             output_parts.append("")
-            output_parts.append("⚠️ Note: Topic Not in arXiv Categories")
-            output_parts.append(f"   '{searched}' is not a standard arXiv subject area.")
-            output_parts.append("   Results were found via keyword search across all categories,")
-            output_parts.append("   but may not be directly relevant. arXiv primarily covers")
-            output_parts.append("   Physics, Math, CS, Biology, Finance, Statistics, and EE.")
+            output_parts.append(
+                f"You asked to search for research papers about '{searched}'.\n\n"
+                "arXiv primarily provides papers in fields such as computer science, "
+                "mathematics, physics, statistics, quantitative biology, quantitative "
+                "finance, and related technical domains.\n\n"
+                "There are currently no relevant arXiv papers for the requested topic, "
+                "and RESEARCHPULSE cannot assist with this topic in its current version.\n\n"
+                "This may be supported in the future — stay tuned 🙂"
+            )
             output_parts.append("")
 
         if episode.artifacts_generated:

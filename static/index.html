@@ -5188,6 +5188,7 @@
             stats.hasFilteredPapers = /New Papers Found but Filtered/.test(responseText);
             stats.hasNoNewPapers = /No New Papers Found/.test(responseText);
             stats.hasNoPapersRetrieved = /No Papers Retrieved/.test(responseText);
+            stats.isOutOfScope = /topic_outside_arxiv_scope/.test(responseText);
             // Extract unseen/filtered counts from the new message format
             const unseenMatch = responseText.match(/Found (\d+) new \(unseen\) papers/);
             if (unseenMatch) stats.unseenCount = parseInt(unseenMatch[1]);
@@ -5219,6 +5220,7 @@
             const isFiltered = isOk && stats.hasFilteredPapers;
             const isNoNew = isOk && stats.hasNoNewPapers;
             const isNoRetrieved = isOk && stats.hasNoPapersRetrieved;
+            const isOutOfScope = isOk && stats.isOutOfScope;
 
             // Build summary HTML
             let html = '<div class="message-bubble chat-summary">';
@@ -5232,6 +5234,8 @@
                 html += '<div class="chat-summary-status ok">📭 You\'re up to date</div>';
             } else if (isNoRetrieved) {
                 html += '<div class="chat-summary-status error">⚠️ No papers retrieved</div>';
+            } else if (isOutOfScope) {
+                html += '<div class="chat-summary-status ok">✅ Run completed</div>';
             } else {
                 html += '<div class="chat-summary-status ok">✅ Run completed</div>';
             }
@@ -5270,6 +5274,18 @@
                     html += '<div style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 10px 0;">';
                     html += 'New papers were discovered but none met your relevance or quality criteria. ';
                     html += 'Adjust your research topics or thresholds in <strong>Settings</strong> to broaden matches.';
+                    html += '</div>';
+                }
+
+                // Out-of-scope topic explanation
+                if (isOutOfScope) {
+                    const topicMatch = (result.response || '').match(/research papers about '([^']+)'/);
+                    const topic = topicMatch ? topicMatch[1] : 'the requested topic';
+                    html += '<div style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 10px 0;white-space:pre-line;">';
+                    html += `You asked to search for research papers about '<strong>${escapeHtml(topic)}</strong>'.\n\n`;
+                    html += 'arXiv primarily provides papers in fields such as computer science, mathematics, physics, statistics, quantitative biology, quantitative finance, and related technical domains.\n\n';
+                    html += 'There are currently no relevant arXiv papers for the requested topic, and <strong>RESEARCHPULSE</strong> cannot assist with this topic in its current version.\n\n';
+                    html += 'This may be supported in the future — stay tuned 🙂';
                     html += '</div>';
                 }
 

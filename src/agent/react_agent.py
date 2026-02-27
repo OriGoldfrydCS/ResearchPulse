@@ -750,21 +750,54 @@ class ResearchReActAgent:
             self._log("INFO", f"Merged prompt-interest categories {user_categories} with profile categories -> {merged}")
             categories_include = merged
         elif prompt_interests_text:
-            # The prompt contains an explicit topic that doesn't map to any known
-            # arXiv category (e.g. "Aviation", "Quantum Biology", "Finance").
-            # Drop the category filter so arXiv API searches across ALL categories
-            # using the keyword query alone.  Without this, the search would be
-            # restricted to the user's *profile* categories (e.g. cs.LG, stat.ML)
-            # where the requested topic likely has zero papers.
-            self._log(
-                "INFO",
-                f"Prompt topic '{prompt_interests_text}' did not map to any arXiv "
-                "categories. Dropping category filter for cross-category keyword search.",
-            )
-            categories_include = []
-            categories_exclude = []  # profile excludes are irrelevant for out-of-profile topics
-            self.episode.topic_not_in_categories = True
-            self.episode.searched_topic = prompt_interests_text
+            # The prompt contains an explicit topic that doesn't map via the
+            # agent's INTEREST_TO_CATEGORY_MAP.  Try the broader taxonomy-based
+            # mapper from arxiv_categories as a secondary check.
+            from tools.arxiv_categories import topic_to_categories as taxonomy_topic_to_categories
+            taxonomy_cats = taxonomy_topic_to_categories(prompt_interests_text)
+            if taxonomy_cats:
+                # Secondary mapping found categories — use them.
+                merged = list(set(categories_include) | set(taxonomy_cats))
+                if len(merged) > 10:
+                    priority = list(dict.fromkeys(taxonomy_cats + categories_include))
+                    merged = priority[:10]
+                self._log(
+                    "INFO",
+                    f"Prompt topic '{prompt_interests_text}' mapped via taxonomy to "
+                    f"{taxonomy_cats}. Merged -> {merged}",
+                )
+                categories_include = merged
+            else:
+                # Neither mapping produced categories — the topic is genuinely
+                # outside arXiv's scope.  Return a clear message instead of
+                # doing a broad keyword search that yields unrelated papers.
+                self._log(
+                    "INFO",
+                    f"Prompt topic '{prompt_interests_text}' could not be mapped "
+                    "to any arXiv categories. Returning out-of-scope message.",
+                )
+                self.episode.topic_not_in_categories = True
+                self.episode.searched_topic = prompt_interests_text
+
+                out_of_scope_msg = (
+                    f"You asked to search for research papers about '{prompt_interests_text}'.\n\n"
+                    "arXiv primarily provides papers in fields such as computer science, "
+                    "mathematics, physics, statistics, quantitative biology, quantitative "
+                    "finance, and related technical domains.\n\n"
+                    "There are currently no relevant arXiv papers for the requested topic, "
+                    "and RESEARCHPULSE cannot assist with this topic in its current version.\n\n"
+                    "This may be supported in the future — stay tuned 🙂"
+                )
+                self.episode.final_report = {
+                    "summary": out_of_scope_msg,
+                    "stats": {
+                        "total_fetched_count": 0,
+                        "unseen_papers_count": 0,
+                        "seen_papers_count": 0,
+                        "papers_filtered_count": 0,
+                    },
+                }
+                return self._finalize_episode("topic_outside_arxiv_scope")
         
         # Map exclude interests if provided
         if not categories_exclude:
@@ -1316,7 +1349,15 @@ class ResearchReActAgent:
         self.episode.papers_filtered_count = papers_filtered_count
         
         if success and report_result:
-            self.episode.final_report = report_result.get("report_json", {})
+            generated = report_result.get("report_json", {})
+            if self.episode.topic_not_in_categories:
+                # Preserve the out-of-scope message set earlier; merge stats
+                # from the generated report into the existing final_report.
+                existing = self.episode.final_report or {}
+                existing.setdefault("stats", {}).update(generated.get("stats", {}))
+                self.episode.final_report = existing
+            else:
+                self.episode.final_report = generated
         
         self._log("INFO", f"Episode completed. Processed {len(self._scored_papers)} papers, made {len(self._decisions)} decisions")
         
@@ -1541,8 +1582,9 @@ class ResearchReActAgent:
         
         # 3b. Query-based profile suggestion (bypasses cooldown)
         # When the user searches for a topic not in their profile, suggest adding it.
+        # Skip when topic is outside arXiv scope — no point suggesting non-arXiv topics.
         try:
-            if is_feature_enabled("PROFILE_EVOLUTION", user_uuid) and self._parsed_prompt:
+            if is_feature_enabled("PROFILE_EVOLUTION", user_uuid) and self._parsed_prompt and not self.episode.topic_not_in_categories:
                 query_topic = getattr(self._parsed_prompt, 'interests_only', '') or ''
                 if query_topic:
                     from agent.profile_evolution import suggest_query_topic_if_off_profile
