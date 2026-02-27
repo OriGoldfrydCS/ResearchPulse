@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import uuid
 import smtplib
@@ -227,74 +228,63 @@ _ML_TERM_EXPANSIONS: Dict[str, List[str]] = {
 }
 
 
-def _is_controlled_substring_match(short: str, long: str) -> bool:
-    """Return True only when *short* is a safe substring match inside *long*.
-
-    Rules:
-    - Terms with 5 or fewer characters: NO substring matching (exact only).
-    - Longer terms: the shorter string must be >= 85% the length of the
-      longer string.  This blocks "attention" inside "inattention" (81%)
-      and "transform" inside "transformers" (75%) while allowing
-      "transformer" ↔ "transformers" (91%) and "bandit" ↔ "bandits" (85%).
+def _paper_matches_colleague_topics(
+    paper_text: str,
+    colleague_topics: List[str],
+) -> tuple[bool, List[str]]:
     """
-    if len(short) <= 5:
-        return False
-    ratio = len(short) / len(long)
-    return ratio >= 0.85
+    Check whether a paper's full text matches any of a colleague's topics.
 
+    This replaces the old word-tokenize-then-set-intersect approach which
+    fundamentally could not match multi-word phrases or short acronyms
+    reliably.  Instead we search the *original* paper text with
+    word-boundary regex, which works for:
 
-def _topics_overlap(topics1: List[str], topics2: List[str]) -> tuple[bool, List[str]]:
-    """
-    Check if two topic lists have meaningful overlap.
+    - Short acronyms: "RAG", "LLM", "GAN" etc.
+    - Multi-word phrases: "reinforcement learning", "graph neural networks"
+    - Expanded forms via ``_ML_TERM_EXPANSIONS``: colleague says "rag",
+      paper says "retrieval-augmented generation" → matched.
 
-    Matching strategy (in order):
-    1. Exact normalised-word match.
-    2. ML-term expansion: if a topic has a canonical expansion, check whether
-       any expansion phrase appears in the other list's text.
-    3. Controlled substring: only allowed when both terms are > 5 chars and
-       the shorter term is >= 85 % the length of the longer one.
+    Args:
+        paper_text: The paper's title + abstract (original casing is fine;
+            matching is case-insensitive).
+        colleague_topics: The colleague's declared research interests.
 
     Returns:
-        (has_overlap: bool, matching_topics: List[str])
+        (has_match, list_of_matched_topics)
     """
-    if not topics1 or not topics2:
+    if not paper_text or not colleague_topics:
         return False, []
 
-    # Normalize topics
-    norm1 = {_normalize_for_matching(t) for t in topics1}
-    norm2 = {_normalize_for_matching(t) for t in topics2}
+    text_lower = paper_text.lower()
+    matched: List[str] = []
 
-    # 1. Direct exact matches
-    direct = norm1 & norm2
-
-    # Build a single lowered text blob from topics1 for phrase searching
-    text1_blob = " " + " ".join(norm1) + " "
-
-    partial = set()
-    for t2 in norm2:
-        if t2 in direct:
-            continue  # already matched exactly
-
-        # 2. ML-term expansion: check if expanded phrases appear in text1
-        expansions = _ML_TERM_EXPANSIONS.get(t2, [])
-        for phrase in expansions:
-            if phrase in text1_blob:
-                partial.add(t2)
-                break
-        if t2 in partial:
+    for topic in colleague_topics:
+        topic_norm = topic.lower().strip()
+        if not topic_norm:
             continue
 
-        # 3. Controlled substring matching
-        for t1 in norm1:
-            if t1 == t2:
-                continue
-            shorter, longer = (t1, t2) if len(t1) <= len(t2) else (t2, t1)
-            if shorter in longer and _is_controlled_substring_match(shorter, longer):
-                partial.add(t2)
-                break
+        # 1. Word-boundary match of the topic itself in the paper text.
+        #    \b handles punctuation boundaries, so "RAG" in "(RAG)" or
+        #    "RAG-based" is correctly captured.
+        if re.search(r'\b' + re.escape(topic_norm) + r'\b', text_lower):
+            matched.append(topic)
+            continue
 
-    matching = list(direct | partial)
-    return len(matching) > 0, matching
+        # 2. Check canonical expansions (e.g. "rag" → "retrieval-augmented
+        #    generation").  This lets short acronyms match the spelled-out
+        #    form even when the acronym itself doesn't appear.
+        expansions = _ML_TERM_EXPANSIONS.get(topic_norm, [])
+        found_expansion = False
+        for phrase in expansions:
+            if re.search(r'\b' + re.escape(phrase.lower()) + r'\b', text_lower):
+                matched.append(topic)
+                found_expansion = True
+                break
+        if found_expansion:
+            continue
+
+    return len(matched) > 0, matched
 
 
 def _categories_overlap(cats1: List[str], cats2: List[str]) -> bool:
@@ -1777,15 +1767,11 @@ def decide_delivery_action(
     elif (policy.get("allow_colleague_sharing", False) and 
         colleague_sharing_settings.get("enabled", True)):
         
-        # Extract paper topics from title and abstract for matching
-        # Use >= 3 chars to include short research acronyms (VLM, NLP, LLM, etc.)
-        paper_text = f"{paper.title} {paper.abstract}".lower()
-        paper_topics = []
-        # Simple keyword extraction from paper
-        for word in paper_text.split():
-            word = word.strip(".,!?;:()[]{}\"'")
-            if len(word) >= 3:
-                paper_topics.append(word)
+        # Build the full paper text for matching colleague topics.
+        # Use the original text (not tokenised words) so that word-boundary
+        # regex can correctly match acronyms, multi-word phrases, and
+        # hyphenated terms in context.
+        paper_text = f"{paper.title} {paper.abstract}"
         
         for colleague in colleague_objs:
             # Skip on_request colleagues unless explicitly requested
@@ -1803,8 +1789,8 @@ def decide_delivery_action(
                 continue
             
             # Check topic overlap
-            has_topic_match, matching_topics = _topics_overlap(
-                paper_topics, colleague.topics
+            has_topic_match, matching_topics = _paper_matches_colleague_topics(
+                paper_text, colleague.topics
             )
             
             # Check category overlap
@@ -2062,14 +2048,8 @@ def process_colleague_surplus(
         paper = ScoredPaper(**paper_dict)
         also_for_owner = paper.arxiv_id in owner_ids_set  # Track if also in owner's results
         
-        # Extract paper topics from title and abstract for matching
-        # Use >= 3 chars to include short research acronyms (VLM, NLP, LLM, etc.)
-        paper_text = f"{paper.title} {paper.abstract}".lower()
-        paper_topics = []
-        for word in paper_text.split():
-            word = word.strip(".,!?;:()[]{}\"'")
-            if len(word) >= 3:
-                paper_topics.append(word)
+        # Build the full paper text for matching colleague topics.
+        paper_text = f"{paper.title} {paper.abstract}"
         
         for colleague in auto_send_colleagues:
             # Skip on_request colleagues unless explicitly requested
@@ -2087,8 +2067,8 @@ def process_colleague_surplus(
                 continue
             
             # Check topic overlap
-            has_topic_match, matching_topics = _topics_overlap(
-                paper_topics, colleague.topics
+            has_topic_match, matching_topics = _paper_matches_colleague_topics(
+                paper_text, colleague.topics
             )
             
             # Check category overlap
