@@ -86,18 +86,19 @@ class TestLLMNoveltyScoring:
         result = LLMNoveltyResult(
             arxiv_id="2401.00001",
             llm_novelty_score=85,
+            normalized_score=0.85,
             reasoning="Highly novel methodology",
             sub_scores=NoveltySubScores(
-                methodology=90,
-                application=80,
-                theoretical=70,
-                dataset=60,
+                methodology=0.90,
+                application=0.80,
+                theoretical=0.70,
+                dataset=0.60,
             ),
         )
         
         assert result.llm_novelty_score == 85
-        assert result.sub_scores.methodology == 90
-        assert result.confidence == 1.0
+        assert result.sub_scores.methodology == 0.90
+        assert result.normalized_score == 0.85
 
     def test_scorer_initialization(self):
         """Test scorer initializes with config."""
