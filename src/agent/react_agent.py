@@ -189,7 +189,10 @@ INTEREST_TO_CATEGORY_MAP = {
     "gnns": ["cs.LG"],
     "knowledge graphs": ["cs.AI", "cs.CL"],
     "embeddings": ["cs.CL", "cs.LG"],
+    "attention": ["cs.LG", "cs.CL"],
     "attention mechanisms": ["cs.LG", "cs.CL"],
+    "self-attention": ["cs.LG", "cs.CL"],
+    "cross-attention": ["cs.LG", "cs.CL"],
     "prompt engineering": ["cs.CL"],
     "in-context learning": ["cs.CL", "cs.LG"],
     "fine-tuning": ["cs.CL", "cs.LG"],
@@ -768,36 +771,19 @@ class ResearchReActAgent:
                 )
                 categories_include = merged
             else:
-                # Neither mapping produced categories — the topic is genuinely
-                # outside arXiv's scope.  Return a clear message instead of
-                # doing a broad keyword search that yields unrelated papers.
+                # Neither mapping produced categories — but categories_include
+                # already has defaults from the profile or fallback.  Instead of
+                # declaring out-of-scope, proceed with a keyword search using
+                # the existing categories.  The topic_query mechanism below will
+                # add the user's topic as an arXiv keyword filter, which is the
+                # correct behavior for legitimate research terms that simply
+                # aren't in our static mapping (e.g. "attention", "diffusion").
                 self._log(
                     "INFO",
                     f"Prompt topic '{prompt_interests_text}' could not be mapped "
-                    "to any arXiv categories. Returning out-of-scope message.",
+                    f"to specific arXiv categories. Proceeding with keyword search "
+                    f"using existing categories: {categories_include}",
                 )
-                self.episode.topic_not_in_categories = True
-                self.episode.searched_topic = prompt_interests_text
-
-                out_of_scope_msg = (
-                    f"You asked to search for research papers about '{prompt_interests_text}'.\n\n"
-                    "arXiv primarily provides papers in fields such as computer science, "
-                    "mathematics, physics, statistics, quantitative biology, quantitative "
-                    "finance, and related technical domains.\n\n"
-                    "There are currently no relevant arXiv papers for the requested topic, "
-                    "and RESEARCHPULSE cannot assist with this topic in its current version.\n\n"
-                    "This may be supported in the future — stay tuned 🙂"
-                )
-                self.episode.final_report = {
-                    "summary": out_of_scope_msg,
-                    "stats": {
-                        "total_fetched_count": 0,
-                        "unseen_papers_count": 0,
-                        "seen_papers_count": 0,
-                        "papers_filtered_count": 0,
-                    },
-                }
-                return self._finalize_episode("topic_outside_arxiv_scope")
         
         # Map exclude interests if provided
         if not categories_exclude:
