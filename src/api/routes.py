@@ -115,72 +115,82 @@ AGENT_INFO = {
         ]
     },
     "prompt_examples": [
+        # ── Example 1: Main template with exclusions (Continual Learning, ML, LoRA) ──
         {
-            "prompt": "Find recent papers on transformer architectures and large language models",
+            "prompt": "Find recent research papers related to the following research interests: Continual learning, Machine learning, LoRA. Exclude the following topics if applicable: RAG, Attention. Focus on papers published within the last 3 months.",
             "full_response": (
                 "ResearchPulse Agent Run Complete\n"
                 "========================================\n"
-                "Processed 15 papers from arXiv\n"
-                "High importance: 3 papers (email + calendar)\n"
-                "Medium importance: 5 papers (reading list)\n"
-                "Low importance: 7 papers (logged only)\n\n"
+                "Processed 18 papers from arXiv\n"
+                "High importance: 4 papers (email + calendar)\n"
+                "Medium importance: 6 papers (reading list)\n"
+                "Low importance: 8 papers (logged only)\n\n"
                 "Top papers found:\n"
-                "1. 'Efficient Attention Mechanisms for LLMs' - High relevance (0.85)\n"
-                "2. 'Scaling Laws for Neural Language Models' - High novelty (0.72)\n"
-                "3. 'Multi-Modal Transformers Survey' - Added to reading list"
+                "1. 'Parameter-Efficient Continual Learning via LoRA Composition' - High relevance (0.93)\n"
+                "2. 'Mitigating Catastrophic Forgetting with Low-Rank Adaptation' - High novelty (0.81)\n"
+                "3. 'Lifelong Learning in Large Language Models' - High relevance (0.87)\n"
+                "4. 'Continual Pre-Training with Sparse LoRA Updates' - Added to reading list\n\n"
+                "Note: 3 papers excluded due to topic filter (RAG, Attention)."
             ),
             "steps": [
                 {
                     "step_number": 1,
-                    "module": "FetchArxivPapers",
-                    "description": "Fetch recent papers from arXiv matching category and keyword criteria.",
-                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CL", "cs.LG"], "keywords": ["transformer", "large language model"], "max_results": 30},
-                    "response": {"papers_fetched": 30, "status": "success"}
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters (topics, exclusions, time period).",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Find recent research papers related to the following research interests: Continual learning, Machine learning, LoRA. Exclude the following topics if applicable: RAG, Attention. Focus on papers published within the last 3 months."},
+                    "response": {"in_scope": True, "topics": ["Continual learning", "Machine learning", "LoRA"], "exclude": ["RAG", "Attention"], "time_period": "3 months"}
                 },
                 {
                     "step_number": 2,
-                    "module": "CheckSeenPapers",
-                    "description": "Deduplicate against previously processed papers stored in Supabase.",
-                    "prompt": {"action": "check_seen_papers", "paper_count": 30},
-                    "response": {"new_papers": 15, "already_seen": 15}
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv matching category and keyword criteria for continual learning, machine learning, and LoRA.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.LG", "cs.AI", "cs.CL"], "keywords": ["continual learning", "machine learning", "LoRA", "low-rank adaptation"], "max_results": 30, "time_period": "3 months"},
+                    "response": {"papers_fetched": 27, "status": "success"}
                 },
                 {
                     "step_number": 3,
-                    "module": "RetrieveSimilarFromPinecone",
-                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
-                    "prompt": {"action": "retrieve_similar", "query": "Efficient Attention Mechanisms for LLMs", "top_k": 5},
-                    "response": {"matches": 3, "max_similarity": 0.65}
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 27},
+                    "response": {"new_papers": 21, "already_seen": 6}
                 },
                 {
                     "step_number": 4,
-                    "module": "ScoreRelevanceAndImportance",
-                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
-                    "prompt": {"action": "score_paper", "paper_id": "2601.05167", "title": "Efficient Attention Mechanisms"},
-                    "response": {"relevance": 0.85, "novelty": 0.72, "importance": "high"}
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Parameter-Efficient Continual Learning via LoRA Composition", "top_k": 5},
+                    "response": {"matches": 2, "max_similarity": 0.52}
                 },
                 {
                     "step_number": 5,
-                    "module": "DecideDeliveryAction",
-                    "description": "Decide delivery actions based on importance level and delivery policy (email, calendar, reading list, colleague sharing).",
-                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2601.05167"},
-                    "response": {"actions": ["email_summary", "calendar_event", "reading_list"]}
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty. Exclude papers matching filtered topics (RAG, Attention).",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.11234", "title": "Parameter-Efficient Continual Learning via LoRA Composition", "exclude_topics": ["RAG", "Attention"]},
+                    "response": {"relevance": 0.93, "novelty": 0.81, "importance": "high", "excluded_count": 3}
                 },
                 {
                     "step_number": 6,
-                    "module": "PersistState",
-                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
-                    "prompt": {"action": "persist_state", "paper_id": "2601.05167", "decision": "saved", "importance": "high"},
-                    "response": {"persisted": True, "paper_id": "2601.05167"}
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy (email, calendar, reading list, colleague sharing).",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.11234"},
+                    "response": {"actions": ["email_summary", "calendar_event", "reading_list"]}
                 },
                 {
                     "step_number": 7,
-                    "module": "GenerateReport",
-                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
-                    "prompt": {"action": "generate_report"},
-                    "response": {"papers_processed": 15, "decisions_made": 15, "artifacts_generated": 8}
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.11234", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.11234"}
                 },
                 {
                     "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 18, "excluded": 3, "decisions_made": 18, "artifacts_generated": 10}
+                },
+                {
+                    "step_number": 9,
                     "module": "TerminateRun",
                     "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
                     "prompt": {"action": "terminate_run", "stop_reason": "completed"},
@@ -188,76 +198,614 @@ AGENT_INFO = {
                 }
             ]
         },
+        # ── Example 2: Template 1 - Topic + Time (Robotics, last week) ──
         {
-            "prompt": "Find recent research papers related to the following research interests: VLM, Robotics. Focus on papers published within the last 6 months.",
+            "prompt": "Provide recent research papers on Robotics published within the last week.",
             "full_response": (
                 "ResearchPulse Agent Run Complete\n"
                 "========================================\n"
-                "Processed 12 papers from arXiv\n"
+                "Processed 9 papers from arXiv\n"
                 "High importance: 2 papers (email + calendar)\n"
-                "Medium importance: 4 papers (reading list)\n"
-                "Low importance: 6 papers (logged only)\n\n"
+                "Medium importance: 3 papers (reading list)\n"
+                "Low importance: 4 papers (logged only)\n\n"
                 "Top papers found:\n"
-                "1. 'Vision-Language Models for Robotic Manipulation' - High relevance (0.91)\n"
-                "2. 'Grounding VLMs in Physical Environments' - High novelty (0.78)\n"
-                "3. 'Multi-Modal Perception for Autonomous Robots' - Added to reading list"
+                "1. 'Real-Time Motion Planning for Legged Robots Using Diffusion Models' - High relevance (0.88)\n"
+                "2. 'Sim-to-Real Transfer for Dexterous Manipulation' - High novelty (0.76)\n"
+                "3. 'Collaborative Multi-Robot Task Allocation' - Added to reading list"
             ),
             "steps": [
                 {
                     "step_number": 1,
-                    "module": "FetchArxivPapers",
-                    "description": "Fetch recent papers from arXiv matching category and keyword criteria.",
-                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CV", "cs.RO", "cs.AI"], "keywords": ["VLM", "vision language model", "robotics"], "max_results": 30},
-                    "response": {"papers_fetched": 28, "status": "success"}
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Provide recent research papers on Robotics published within the last week."},
+                    "response": {"in_scope": True, "topics": ["Robotics"], "time_period": "1 week"}
                 },
                 {
                     "step_number": 2,
-                    "module": "CheckSeenPapers",
-                    "description": "Deduplicate against previously processed papers stored in Supabase.",
-                    "prompt": {"action": "check_seen_papers", "paper_count": 28},
-                    "response": {"new_papers": 12, "already_seen": 16}
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv matching robotics categories and keywords within the last week.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.RO", "cs.AI", "cs.SY"], "keywords": ["robotics", "robot"], "max_results": 30, "time_period": "1 week"},
+                    "response": {"papers_fetched": 14, "status": "success"}
                 },
                 {
                     "step_number": 3,
-                    "module": "RetrieveSimilarFromPinecone",
-                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
-                    "prompt": {"action": "retrieve_similar", "query": "Vision-Language Models for Robotic Manipulation", "top_k": 5},
-                    "response": {"matches": 2, "max_similarity": 0.58}
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 14},
+                    "response": {"new_papers": 9, "already_seen": 5}
                 },
                 {
                     "step_number": 4,
-                    "module": "ScoreRelevanceAndImportance",
-                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
-                    "prompt": {"action": "score_paper", "paper_id": "2601.08234", "title": "Vision-Language Models for Robotic Manipulation"},
-                    "response": {"relevance": 0.91, "novelty": 0.78, "importance": "high"}
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Real-Time Motion Planning for Legged Robots Using Diffusion Models", "top_k": 5},
+                    "response": {"matches": 1, "max_similarity": 0.47}
                 },
                 {
                     "step_number": 5,
-                    "module": "DecideDeliveryAction",
-                    "description": "Decide delivery actions based on importance level and delivery policy (email, calendar, reading list, colleague sharing).",
-                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2601.08234"},
-                    "response": {"actions": ["email_summary", "calendar_event"]}
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.14501", "title": "Real-Time Motion Planning for Legged Robots Using Diffusion Models"},
+                    "response": {"relevance": 0.88, "novelty": 0.76, "importance": "high"}
                 },
                 {
                     "step_number": 6,
-                    "module": "PersistState",
-                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
-                    "prompt": {"action": "persist_state", "paper_id": "2601.08234", "decision": "saved", "importance": "high"},
-                    "response": {"persisted": True, "paper_id": "2601.08234"}
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.14501"},
+                    "response": {"actions": ["email_summary", "calendar_event"]}
                 },
                 {
                     "step_number": 7,
-                    "module": "GenerateReport",
-                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
-                    "prompt": {"action": "generate_report"},
-                    "response": {"papers_processed": 12, "decisions_made": 12, "artifacts_generated": 5}
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.14501", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.14501"}
                 },
                 {
                     "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 9, "decisions_made": 9, "artifacts_generated": 5}
+                },
+                {
+                    "step_number": 9,
                     "module": "TerminateRun",
                     "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
                     "prompt": {"action": "terminate_run", "stop_reason": "completed"},
                     "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 3: Template 2 - Topic Only (RAG) ──
+        {
+            "prompt": "Provide the most recent research papers on RAG.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 22 papers from arXiv\n"
+                "High importance: 5 papers (email + calendar)\n"
+                "Medium importance: 8 papers (reading list)\n"
+                "Low importance: 9 papers (logged only)\n\n"
+                "Top papers found:\n"
+                "1. 'Adaptive Retrieval-Augmented Generation for Knowledge-Intensive Tasks' - High relevance (0.94)\n"
+                "2. 'Graph-Based RAG for Multi-Hop Reasoning' - High novelty (0.83)\n"
+                "3. 'Benchmarking RAG Pipelines Across Domains' - High relevance (0.89)\n"
+                "4. 'Self-Reflective RAG with Iterative Retrieval' - High novelty (0.80)\n"
+                "5. 'RAG-Fusion: Multi-Query Retrieval Strategies' - Added to reading list"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Provide the most recent research papers on RAG."},
+                    "response": {"in_scope": True, "topics": ["RAG", "Retrieval-Augmented Generation"], "time_period": "default"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch the most recent papers from arXiv matching RAG-related categories and keywords.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CL", "cs.IR", "cs.AI"], "keywords": ["retrieval-augmented generation", "RAG"], "max_results": 30},
+                    "response": {"papers_fetched": 30, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 30},
+                    "response": {"new_papers": 22, "already_seen": 8}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Adaptive Retrieval-Augmented Generation for Knowledge-Intensive Tasks", "top_k": 5},
+                    "response": {"matches": 4, "max_similarity": 0.61}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.09871", "title": "Adaptive Retrieval-Augmented Generation for Knowledge-Intensive Tasks"},
+                    "response": {"relevance": 0.94, "novelty": 0.83, "importance": "high"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.09871"},
+                    "response": {"actions": ["email_summary", "calendar_event", "reading_list", "colleague_share"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.09871", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.09871"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 22, "decisions_made": 22, "artifacts_generated": 13}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 4: Repeated prompt (RAG again) - demonstrates deduplication ──
+        {
+            "prompt": "Provide the most recent research papers on RAG.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 3 papers from arXiv\n"
+                "High importance: 1 paper (email + calendar)\n"
+                "Medium importance: 1 paper (reading list)\n"
+                "Low importance: 1 paper (logged only)\n\n"
+                "Note: 22 papers were already processed in a previous run and were deduplicated.\n\n"
+                "Top papers found:\n"
+                "1. 'Contextual Compression for Efficient RAG Pipelines' - High relevance (0.86)\n"
+                "2. 'RAG with Structured Knowledge Graphs' - Added to reading list"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Provide the most recent research papers on RAG."},
+                    "response": {"in_scope": True, "topics": ["RAG", "Retrieval-Augmented Generation"], "time_period": "default"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch the most recent papers from arXiv matching RAG-related categories and keywords.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.CL", "cs.IR", "cs.AI"], "keywords": ["retrieval-augmented generation", "RAG"], "max_results": 30},
+                    "response": {"papers_fetched": 25, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase. Most papers were already seen in the prior run.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 25},
+                    "response": {"new_papers": 3, "already_seen": 22}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Contextual Compression for Efficient RAG Pipelines", "top_k": 5},
+                    "response": {"matches": 5, "max_similarity": 0.74}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.13402", "title": "Contextual Compression for Efficient RAG Pipelines"},
+                    "response": {"relevance": 0.86, "novelty": 0.55, "importance": "high"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.13402"},
+                    "response": {"actions": ["email_summary", "calendar_event"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.13402", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.13402"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report. Most papers were already seen, so only newly published papers were processed.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 3, "already_seen_skipped": 22, "decisions_made": 3, "artifacts_generated": 2}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 5: Template 3 - Time Only (last 6 months) ──
+        {
+            "prompt": "Provide recent research papers published within the last 6 months.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 30 papers from arXiv\n"
+                "High importance: 5 papers (email + calendar)\n"
+                "Medium importance: 12 papers (reading list)\n"
+                "Low importance: 13 papers (logged only)\n\n"
+                "Note: No specific topic was provided. Papers were fetched based on the researcher's profile interests and scored accordingly.\n\n"
+                "Top papers found:\n"
+                "1. 'Efficient Fine-Tuning Strategies for Foundation Models' - High relevance (0.90)\n"
+                "2. 'Scalable Distributed Training with Communication Compression' - High novelty (0.82)\n"
+                "3. 'A Survey of Autonomous AI Agents' - High relevance (0.88)\n"
+                "4. 'Continual Learning Without Forgetting via Modular Networks' - High novelty (0.79)\n"
+                "5. 'Multi-Agent Collaboration in Open-Ended Environments' - Added to reading list"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain. No specific topic detected; the agent will use the researcher's profile interests.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Provide recent research papers published within the last 6 months."},
+                    "response": {"in_scope": True, "topics": [], "time_period": "6 months", "fallback": "use_profile_interests"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv using the researcher's profile interests as keywords since no topic was specified.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.LG", "cs.AI", "cs.CL", "cs.CV"], "keywords": ["from_profile"], "max_results": 30, "time_period": "6 months"},
+                    "response": {"papers_fetched": 30, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 30},
+                    "response": {"new_papers": 30, "already_seen": 0}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Efficient Fine-Tuning Strategies for Foundation Models", "top_k": 5},
+                    "response": {"matches": 3, "max_similarity": 0.63}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.07891", "title": "Efficient Fine-Tuning Strategies for Foundation Models"},
+                    "response": {"relevance": 0.90, "novelty": 0.82, "importance": "high"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.07891"},
+                    "response": {"actions": ["email_summary", "calendar_event", "reading_list"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.07891", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.07891"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 30, "decisions_made": 30, "artifacts_generated": 17}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 6: Template 4 - Key/Influential Papers (Reinforcement Learning) ──
+        {
+            "prompt": "List key and influential research papers that help understand the field of Reinforcement Learning.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 20 papers from arXiv\n"
+                "High importance: 6 papers (email + calendar)\n"
+                "Medium importance: 7 papers (reading list)\n"
+                "Low importance: 7 papers (logged only)\n\n"
+                "Top papers found:\n"
+                "1. 'Proximal Policy Optimization Algorithms' - High relevance (0.96)\n"
+                "2. 'Offline Reinforcement Learning: Tutorial and Survey' - High relevance (0.93)\n"
+                "3. 'Human-Level Control Through Deep Reinforcement Learning' - Foundational (0.95)\n"
+                "4. 'Decision Transformer: Reinforcement Learning via Sequence Modeling' - High novelty (0.84)\n"
+                "5. 'Model-Based Reinforcement Learning: A Survey' - High relevance (0.91)\n"
+                "6. 'Multi-Agent RL for Cooperative Tasks' - Added to reading list"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "List key and influential research papers that help understand the field of Reinforcement Learning."},
+                    "response": {"in_scope": True, "topics": ["Reinforcement Learning"], "mode": "key_influential"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch highly cited and foundational papers from arXiv matching reinforcement learning categories.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.LG", "cs.AI", "cs.RO"], "keywords": ["reinforcement learning", "RL", "policy optimization"], "max_results": 30, "sort_by": "relevance"},
+                    "response": {"papers_fetched": 30, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 30},
+                    "response": {"new_papers": 20, "already_seen": 10}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Proximal Policy Optimization Algorithms", "top_k": 5},
+                    "response": {"matches": 5, "max_similarity": 0.78}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance and influence. Papers are ranked by foundational impact and citation significance.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.04312", "title": "Proximal Policy Optimization Algorithms"},
+                    "response": {"relevance": 0.96, "novelty": 0.45, "importance": "high", "note": "foundational paper"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.04312"},
+                    "response": {"actions": ["email_summary", "calendar_event", "reading_list"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.04312", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.04312"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 20, "decisions_made": 20, "artifacts_generated": 13}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 7: Template 5 - Emerging Trends (Federated Learning) ──
+        {
+            "prompt": "Identify emerging research trends based on recent papers on Federated Learning.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 16 papers from arXiv\n"
+                "High importance: 3 papers (email + calendar)\n"
+                "Medium importance: 6 papers (reading list)\n"
+                "Low importance: 7 papers (logged only)\n\n"
+                "Emerging trends identified:\n"
+                "1. Personalized Federated Learning with heterogeneous data distributions\n"
+                "2. Federated Learning combined with differential privacy guarantees\n"
+                "3. Communication-efficient aggregation protocols for edge devices\n\n"
+                "Top papers found:\n"
+                "1. 'Personalized Federated Learning via Adaptive Model Aggregation' - High novelty (0.89)\n"
+                "2. 'Privacy-Preserving Federated Learning at Scale' - High relevance (0.85)\n"
+                "3. 'Communication-Efficient Federated Optimization' - High novelty (0.82)"
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Identify emerging research trends based on recent papers on Federated Learning."},
+                    "response": {"in_scope": True, "topics": ["Federated Learning"], "mode": "emerging_trends"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch recent papers from arXiv matching federated learning categories and keywords.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.LG", "cs.DC", "cs.CR"], "keywords": ["federated learning", "federated optimization"], "max_results": 30},
+                    "response": {"papers_fetched": 26, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 26},
+                    "response": {"new_papers": 16, "already_seen": 10}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Personalized Federated Learning via Adaptive Model Aggregation", "top_k": 5},
+                    "response": {"matches": 2, "max_similarity": 0.54}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance and novelty. Papers introducing new directions or methods are scored higher for trend identification.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.16789", "title": "Personalized Federated Learning via Adaptive Model Aggregation"},
+                    "response": {"relevance": 0.85, "novelty": 0.89, "importance": "high"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.16789"},
+                    "response": {"actions": ["email_summary", "calendar_event", "colleague_share"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.16789", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.16789"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, emerging trends identified, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 16, "trends_identified": 3, "decisions_made": 16, "artifacts_generated": 9}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 8: Topic Only (Music) - niche/unusual topic ──
+        {
+            "prompt": "Provide the most recent research papers on music.",
+            "full_response": (
+                "ResearchPulse Agent Run Complete\n"
+                "========================================\n"
+                "Processed 11 papers from arXiv\n"
+                "High importance: 1 paper (email + calendar)\n"
+                "Medium importance: 4 papers (reading list)\n"
+                "Low importance: 6 papers (logged only)\n\n"
+                "Top papers found:\n"
+                "1. 'Music Generation with Latent Diffusion Transformers' - High novelty (0.77)\n"
+                "2. 'Automatic Music Transcription Using Sequence-to-Sequence Models' - Added to reading list\n"
+                "3. 'Cross-Modal Retrieval for Music and Text' - Added to reading list\n\n"
+                "Note: Music-related papers are primarily found in cs.SD (Sound), cs.MM (Multimedia), and eess.AS (Audio and Speech Processing) categories."
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain and extract structured parameters.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "Provide the most recent research papers on music."},
+                    "response": {"in_scope": True, "topics": ["music", "music generation", "music information retrieval"], "time_period": "default"}
+                },
+                {
+                    "step_number": 2,
+                    "module": "FetchArxivPapers",
+                    "description": "Fetch the most recent papers from arXiv matching music-related categories and keywords.",
+                    "prompt": {"action": "fetch_arxiv_papers", "categories": ["cs.SD", "cs.MM", "eess.AS", "cs.AI"], "keywords": ["music", "music generation", "music information retrieval"], "max_results": 30},
+                    "response": {"papers_fetched": 18, "status": "success"}
+                },
+                {
+                    "step_number": 3,
+                    "module": "CheckSeenPapers",
+                    "description": "Deduplicate against previously processed papers stored in Supabase.",
+                    "prompt": {"action": "check_seen_papers", "paper_count": 18},
+                    "response": {"new_papers": 11, "already_seen": 7}
+                },
+                {
+                    "step_number": 4,
+                    "module": "RetrieveSimilarFromPinecone",
+                    "description": "Query Pinecone vector store (RAG) to find semantically similar papers for novelty assessment.",
+                    "prompt": {"action": "retrieve_similar", "query": "Music Generation with Latent Diffusion Transformers", "top_k": 5},
+                    "response": {"matches": 1, "max_similarity": 0.39}
+                },
+                {
+                    "step_number": 5,
+                    "module": "ScoreRelevanceAndImportance",
+                    "description": "Score each paper's relevance to the researcher's profile and assess novelty using heuristic and RAG-based signals.",
+                    "prompt": {"action": "score_paper", "paper_id": "2602.19012", "title": "Music Generation with Latent Diffusion Transformers"},
+                    "response": {"relevance": 0.62, "novelty": 0.77, "importance": "high"}
+                },
+                {
+                    "step_number": 6,
+                    "module": "DecideDeliveryAction",
+                    "description": "Decide delivery actions based on importance level and delivery policy.",
+                    "prompt": {"action": "decide_action", "importance": "high", "paper_id": "2602.19012"},
+                    "response": {"actions": ["email_summary", "calendar_event"]}
+                },
+                {
+                    "step_number": 7,
+                    "module": "PersistState",
+                    "description": "Persist paper decision, scores, and metadata to Supabase database.",
+                    "prompt": {"action": "persist_state", "paper_id": "2602.19012", "decision": "saved", "importance": "high"},
+                    "response": {"persisted": True, "paper_id": "2602.19012"}
+                },
+                {
+                    "step_number": 8,
+                    "module": "GenerateReport",
+                    "description": "Generate the final run report summarizing all papers processed, decisions made, and artifacts generated.",
+                    "prompt": {"action": "generate_report"},
+                    "response": {"papers_processed": 11, "decisions_made": 11, "artifacts_generated": 5}
+                },
+                {
+                    "step_number": 9,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode and finalize the run with stop reason and metrics.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "completed"},
+                    "response": {"terminated": True, "stop_reason": "completed"}
+                }
+            ]
+        },
+        # ── Example 9: Out-of-scope prompt - "what is the time?" ──
+        {
+            "prompt": "what is the time?",
+            "full_response": (
+                "I'm sorry, but that request is outside the scope of ResearchPulse. "
+                "I am an autonomous research agent designed to help you discover, filter, "
+                "and organize academic papers from arXiv.\n\n"
+                "Here are some examples of what I can help with:\n"
+                "- Find recent research papers related to your research interests\n"
+                "- Provide the most recent papers on a specific topic\n"
+                "- List key and influential papers in a field\n"
+                "- Identify emerging research trends\n\n"
+                "Please try a research-related prompt and I will be happy to assist."
+            ),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "module": "ScopeGate",
+                    "description": "Validate that the user prompt is within the agent's research-paper domain. The prompt is not related to academic paper discovery.",
+                    "prompt": {"action": "scope_gate", "user_prompt": "what is the time?"},
+                    "response": {"in_scope": False, "reason": "The prompt is not related to research paper discovery, filtering, or academic literature.", "suggestion": "Please provide a research-related prompt such as: 'Find recent papers on transformer architectures'."}
+                },
+                {
+                    "step_number": 2,
+                    "module": "TerminateRun",
+                    "description": "Terminate the agent episode early because the prompt is out of scope. No papers are fetched or processed.",
+                    "prompt": {"action": "terminate_run", "stop_reason": "out_of_scope"},
+                    "response": {"terminated": True, "stop_reason": "out_of_scope", "papers_processed": 0}
                 }
             ]
         }
