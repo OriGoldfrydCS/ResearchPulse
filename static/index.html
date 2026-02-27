@@ -3742,24 +3742,6 @@
                         </div>
                         <div class="prompt-templates-content" id="prompt-templates-content">
                             <div id="templates-list" class="templates-list"></div>
-                            <div class="add-template-form" id="add-template-form" style="display:none;">
-                                <div class="form-row">
-                                    <label>Template Name:</label>
-                                    <input type="text" id="new-template-name" placeholder="Enter template name" />
-                                </div>
-                                <div class="form-row">
-                                    <label>Template Text:</label>
-                                    <textarea id="new-template-text" rows="3"
-                                        placeholder="Enter template text with <PLACEHOLDERS>"></textarea>
-                                </div>
-                                <div class="form-actions">
-                                    <button onclick="saveNewTemplate()" class="action-btn primary">Save
-                                        Template</button>
-                                    <button onclick="cancelAddTemplate()" class="action-btn">Cancel</button>
-                                </div>
-                            </div>
-                            <button onclick="showAddTemplateForm()" id="add-template-btn" class="action-btn small">➕ Add
-                                New Template</button>
                         </div>
                     </div>
 
@@ -9360,16 +9342,12 @@
             for (const t of sortedTemplates) {
                 const preview = t.text.length > 60 ? t.text.substring(0, 60) + '...' : t.text;
                 const builtinBadge = t.is_builtin ? '<span class="template-builtin-badge">Built-in</span>' : '';
-                const deleteBtn = !t.is_builtin ? `<button class="template-delete-btn" onclick="deleteTemplate(event, '${t.id}')" title="Delete">🗑️</button>` : '';
 
                 html += `
                     <div class="template-item" onclick="insertTemplate('${t.id}')">
                         <div class="template-info">
                             <div class="template-name">${escapeHtml(t.name)}${builtinBadge}</div>
                             <div class="template-preview">${escapeHtml(preview)}</div>
-                        </div>
-                        <div class="template-actions">
-                            ${deleteBtn}
                         </div>
                     </div>
                 `;
@@ -9788,80 +9766,22 @@
 
         function insertTemplate(templateId) {
             const template = promptTemplates.find(t => t.id === templateId);
-            if (template) {
-                document.getElementById('message-input').value = template.text;
-                autoResizeTextarea(document.getElementById('message-input'));
-                document.getElementById('message-input').focus();
+            if (!template) return;
 
-                // Auto-collapse the templates panel after selection
-                if (templatesExpanded) {
-                    toggleTemplates();
-                }
+            // Insert the template text as-is with placeholders visible.
+            // The user fills in parameters before sending.
+            // Execution goes through the same /api/execute pipeline as "Search for me".
+            document.getElementById('message-input').value = template.text;
+            autoResizeTextarea(document.getElementById('message-input'));
+            document.getElementById('message-input').focus();
+
+            // Auto-collapse the templates panel after selection
+            if (templatesExpanded) {
+                toggleTemplates();
             }
         }
 
-        function showAddTemplateForm() {
-            document.getElementById('add-template-form').style.display = 'block';
-            document.getElementById('add-template-btn').style.display = 'none';
-            document.getElementById('new-template-name').value = '';
-            document.getElementById('new-template-text').value = '';
-        }
-
-        function cancelAddTemplate() {
-            document.getElementById('add-template-form').style.display = 'none';
-            document.getElementById('add-template-btn').style.display = 'block';
-        }
-
-        async function saveNewTemplate() {
-            const name = document.getElementById('new-template-name').value.trim();
-            const text = document.getElementById('new-template-text').value.trim();
-
-            if (!name || !text) {
-                alert('Please enter both template name and text.');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/templates', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, text })
-                });
-
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.error || 'Failed to save template');
-                }
-
-                cancelAddTemplate();
-                fetchTemplates();
-            } catch (err) {
-                alert('Error saving template: ' + err.message);
-            }
-        }
-
-        async function deleteTemplate(event, templateId) {
-            event.stopPropagation();
-
-            if (!confirm('Are you sure you want to delete this template?')) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/templates/${templateId}`, {
-                    method: 'DELETE'
-                });
-
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.error || 'Failed to delete template');
-                }
-
-                fetchTemplates();
-            } catch (err) {
-                alert('Error deleting template: ' + err.message);
-            }
-        }
+        // Add/delete template functions removed — only built-in templates are supported
 
         // Fetch templates on page load
         fetchTemplates();

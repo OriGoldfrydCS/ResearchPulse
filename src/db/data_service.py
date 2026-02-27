@@ -2126,16 +2126,11 @@ def seed_default_templates() -> int:
 # =============================================================================
 
 BUILTIN_PROMPT_TEMPLATES = [
-    {"name": "Template 1: Topic + Venue + Time", "text": "Provide recent research papers on <TOPIC> published in <VENUE> within the last <TIME_PERIOD>."},
-    {"name": "Template 2: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
-    {"name": "Template 3: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
-    {"name": "Template 4: Top-K Papers", "text": "Provide the top <K> most relevant or influential research papers on <TOPIC>."},
-    {"name": "Template 5: Top-K + Time", "text": "Provide the top <K> research papers on <TOPIC> from the last <TIME_PERIOD>."},
-    {"name": "Template 6: Survey / Review", "text": "Provide recent survey or review papers on <TOPIC>."},
-    {"name": "Template 7: Method-Focused", "text": "Provide recent papers on <TOPIC> that focus on <METHOD_OR_APPROACH>."},
-    {"name": "Template 8: Application-Focused", "text": "Provide recent papers on <TOPIC> applied to <APPLICATION_DOMAIN>."},
-    {"name": "Template 9: Emerging Trends", "text": "Identify emerging research trends based on recent papers on <TOPIC>."},
-    {"name": "Template 10: Structured Output", "text": "Provide recent papers on <TOPIC> including title, authors, venue, year, and a one-sentence summary."},
+    {"name": "Template 1: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
+    {"name": "Template 2: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
+    {"name": "Template 3: Time Only", "text": "Provide recent research papers published within <TIME_RANGE>."},
+    {"name": "Template 4: Method-Focused", "text": "Provide recent papers on <TOPIC> that focus on <METHOD_OR_APPROACH>."},
+    {"name": "Template 5: Emerging Trends", "text": "Identify emerging research trends based on recent papers on <TOPIC>."},
 ]
 
 
@@ -2220,6 +2215,7 @@ def seed_builtin_prompt_templates() -> int:
     
     Call this on server startup to ensure the 10 default templates are available.
     Templates are matched by name to avoid duplicates.
+    Also removes stale builtin templates no longer in BUILTIN_PROMPT_TEMPLATES.
     
     Returns:
         Number of templates seeded
@@ -2231,6 +2227,16 @@ def seed_builtin_prompt_templates() -> int:
     seeded = 0
     try:
         with get_db_session() as db:
+            # Remove stale builtin templates that are no longer defined
+            valid_names = {t["name"] for t in BUILTIN_PROMPT_TEMPLATES}
+            stale = db.query(PromptTemplate).filter(
+                PromptTemplate.is_builtin == True,
+                ~PromptTemplate.name.in_(valid_names)
+            ).all()
+            for t in stale:
+                logger.info(f"Removing stale builtin template: {t.name}")
+                db.delete(t)
+
             for template_data in BUILTIN_PROMPT_TEMPLATES:
                 existing = db.query(PromptTemplate).filter_by(name=template_data["name"]).first()
                 if not existing:

@@ -101,6 +101,7 @@ class PromptTemplate(str, Enum):
     EMERGING_TRENDS = "emerging_trends"            # Template 9
     STRUCTURED_OUTPUT = "structured_output"        # Template 10
     FETCH_BY_ID = "fetch_by_id"                     # Template 11 — single paper lookup
+    TIME_ONLY = "time_only"                         # Template 12 — time range only
     UNRECOGNIZED = "unrecognized"                   # Fallback
 
 
@@ -556,6 +557,10 @@ class PromptParser:
         # Template 3: Topic Only
         if has_topic:
             return PromptTemplate.TOPIC_ONLY
+        
+        # Template 12: Time Only (has time but no specific topic)
+        if has_time and not has_topic:
+            return PromptTemplate.TIME_ONLY
         
         return PromptTemplate.UNRECOGNIZED
 
