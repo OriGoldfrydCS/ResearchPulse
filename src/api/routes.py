@@ -768,8 +768,25 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
         )
         
     except Exception as e:
-        error_msg = str(e)
-        run_manager.add_log(run_id, "ERROR", f"Agent failed: {error_msg}")
+        raw = str(e).lower()
+        # Classify the error into a human-readable message
+        if "rate limit" in raw or "429" in raw:
+            error_msg = "The external API rate limit has been exceeded. Please wait a few minutes and try again."
+        elif "timeout" in raw or "timed out" in raw:
+            error_msg = "The request timed out while processing your query. This may be due to heavy load on arXiv or the LLM provider. Please try again shortly."
+        elif "openai" in raw or "api key" in raw or "authentication" in raw or "401" in raw:
+            error_msg = "Failed to authenticate with the LLM provider (OpenAI). The server API key may be missing or invalid. Please contact the administrator."
+        elif "supabase" in raw or "postgres" in raw or "database" in raw or "connection refused" in raw:
+            error_msg = "Could not connect to the database. The Supabase/PostgreSQL service may be temporarily unavailable. Please try again later."
+        elif "pinecone" in raw or "vector" in raw or "embedding" in raw:
+            error_msg = "The vector store (Pinecone) is temporarily unavailable. RAG-based retrieval could not be completed. Please try again later."
+        elif "arxiv" in raw or "urllib" in raw or "connectionerror" in raw or "dns" in raw:
+            error_msg = "Could not reach the arXiv API. This may be due to a network issue or arXiv maintenance. Please try again later."
+        elif "cancelled" in raw or "canceled" in raw:
+            error_msg = "The agent run was cancelled before it could complete."
+        else:
+            error_msg = "An unexpected internal error occurred while processing your research query. Please try again or contact support if the problem persists."
+        run_manager.add_log(run_id, "ERROR", f"Agent failed: {str(e)}")
         run_manager.set_error(run_id, error_msg)
         return ExecuteResponse(
             status="error",
