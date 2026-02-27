@@ -2129,7 +2129,7 @@ BUILTIN_PROMPT_TEMPLATES = [
     {"name": "Template 1: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
     {"name": "Template 2: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
     {"name": "Template 3: Time Only", "text": "Provide recent research papers published within <TIME_RANGE>."},
-    {"name": "Template 4: Method-Focused", "text": "Provide recent papers on <TOPIC> that focus on <METHOD_OR_APPROACH>."},
+    {"name": "Template 4: Key Papers", "text": "List key and influential research papers that help understand the field of <TOPIC>."},
     {"name": "Template 5: Emerging Trends", "text": "Identify emerging research trends based on recent papers on <TOPIC>."},
 ]
 
