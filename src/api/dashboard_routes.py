@@ -21,11 +21,8 @@ import io
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from ..tools.live_document import LiveDocumentData
 
 # Load .env file if present (must be done before any os.getenv calls)
 try:
@@ -3508,7 +3505,7 @@ async def bulk_email_summary(paper_ids: List[str] = Body(embed=False)):
                 tools_path = str(Path(__file__).parent.parent / "tools")
                 if tools_path not in sys.path:
                     sys.path.insert(0, tools_path)
-                from decide_delivery import _send_email_smtp  # type: ignore[import-not-found]
+                from decide_delivery import _send_email_smtp
             email_sent = _send_email_smtp(
                 to_email=user_email,
                 subject=subject,
