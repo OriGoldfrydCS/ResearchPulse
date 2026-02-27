@@ -63,29 +63,49 @@ TEAM_INFO = {
 # GET /api/agent_info - EXACT format from Course Project
 AGENT_INFO = {
     "description": (
-        "ResearchPulse is an autonomous AI agent that continuously monitors the arXiv "
-        "research repository and acts on behalf of researchers without runtime user interaction. "
-        "It exhibits three core agent capabilities: (1) Perception — it observes its environment "
-        "by fetching new papers from arXiv, querying vector-store memory (Pinecone) for semantic "
-        "similarity, and reading the researcher's profile and state from Supabase; "
-        "(2) Reasoning — it uses a ReAct (Reasoning + Acting) loop powered by an LLM to score "
-        "paper relevance and novelty, classify importance, and decide which delivery actions to take; "
-        "(3) Action — it autonomously generates email summaries, creates calendar reminders (.ics), "
-        "updates reading lists, shares discoveries with colleagues, and persists all decisions to "
-        "the database. The agent operates as a bounded episodic system: each run is triggered by a "
-        "user prompt, executes its full pipeline autonomously, and terminates when a configurable "
-        "stop condition is met."
+        "ResearchPulse is a fully autonomous AI research agent that continuously monitors "
+        "the arXiv research repository and acts independently on behalf of researchers, "
+        "requiring no runtime user interaction. The agent autonomously reasons, plans, and "
+        "executes multi-step workflows end-to-end without human intervention. It is equipped "
+        "with 28 specialized tools, inter alia, arXiv paper fetching, LLM-based relevance "
+        "and novelty scoring, email summarization, calendar invite generation (.ics), colleague "
+        "sharing, paper summarization, vector-based retrieval (RAG), and persistent state "
+        "management. The agent exhibits three core dimensions: "
+        "(1) Perception: the agent autonomously observes its environment by fetching newly "
+        "published papers from arXiv across configurable categories and keywords, querying its "
+        "long-term vector-store memory (Pinecone) for semantic similarity to previously encountered "
+        "work, reading the researcher's evolving profile and preferences from Supabase, and "
+        "detecting inbound email replies to adapt its behavior accordingly; "
+        "(2) Reasoning: the agent employs a ReAct (Reasoning + Acting) loop powered by a large "
+        "language model to score each paper on relevance, novelty, and impact, classify papers "
+        "into importance tiers (high, medium, low), determine which delivery actions to execute, "
+        "and autonomously decide when to stop processing based on configurable stop conditions; "
+        "(3) Action: the agent independently generates and sends email summaries, creates calendar "
+        "reminders (.ics) for high-priority papers, updates personalized reading lists, shares "
+        "discoveries with colleagues, produces concise paper summaries, rescores papers when the "
+        "researcher's profile evolves, and persists all decisions and artifacts to the database. "
+        "The agent operates as a bounded episodic system: each run is triggered by a user prompt, "
+        "the agent then autonomously executes its full pipeline through multiple reasoning-action "
+        "cycles, and terminates when a configurable stop condition is met."
     ),
     "purpose": (
-        "To automate the discovery, filtering, and dissemination of relevant research papers "
-        "from arXiv. The agent saves researchers time by autonomously fetching papers, scoring "
-        "them for relevance and novelty against the researcher's profile and existing knowledge "
-        "(via RAG/Pinecone), and organizing high-importance papers through email summaries, "
-        "calendar reminders, reading lists, and colleague sharing — all without requiring ongoing "
-        "user interaction during a run."
+        "Researchers, academics, and students struggle with information overload when trying to "
+        "keep up with new work. In fast-moving fields that rely on preprints, the daily stream of "
+        "papers creates a paradox of choice: more items to consider makes it harder to decide what "
+        "truly deserves attention. ResearchPulse addresses this pain point as an autonomous "
+        "ReAct-based research agent that helps researchers deal with information overload by "
+        "continuously collecting, ranking, and selecting newly published academic papers. The agent "
+        "runs an ongoing reasoning loop to judge how useful each paper is based on relevance, "
+        "novelty, and impact, and independently decides when to alert the user, create short "
+        "summaries, or schedule dedicated time for reading. By autonomously fetching papers from "
+        "arXiv, scoring them against the researcher's profile and existing knowledge (via "
+        "RAG/Pinecone), and organizing high-importance papers through email summaries, calendar "
+        "reminders, reading lists, and colleague sharing, ResearchPulse eliminates the manual "
+        "effort of literature monitoring and ensures researchers never miss critical work in "
+        "their field."
     ),
     "prompt_template": {
-        "template": "Find recent research papers on {topic} published within the last {time_period}.",
+        "template": "Find recent research papers related to the following research interests: {topic}. Exclude the following topics if applicable: {topics_to_exclude}. Focus on papers published within the last {time_period}.",
         "all_templates": [
             {"name": "Template 1: Topic + Time", "text": "Provide recent research papers on <TOPIC> published within the last <TIME_PERIOD>."},
             {"name": "Template 2: Topic Only", "text": "Provide the most recent research papers on <TOPIC>."},
