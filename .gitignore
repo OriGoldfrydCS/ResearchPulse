@@ -85,6 +85,8 @@ VERIFICATION_CHECKLIST.md
 pytest.ini
 COURSE_COMPLIANCE.md
 api_inspector.ipynb
-
+_prompt_results
+_build_examples.py
+_run_prompts.py
 # ── uv lock file (optional — remove this line if you want to pin deps) ──────
 # uv.lock
