@@ -115,11 +115,28 @@ class ColleagueInfo(BaseModel):
         colleague_to_dict() returns 'categories' but this model expects
         'arxiv_categories_interest'.  Accept both so the model works with
         raw DB dicts AND explicit test fixtures.
+
+        If 'topics' is empty but 'interests' or 'research_interests'
+        contains a comma-separated string, parse it into topics so that
+        colleague matching works even when the DB topics column was
+        never explicitly populated.
         """
         if isinstance(data, dict):
+            data = dict(data)  # avoid mutating caller's dict
             if 'categories' in data and 'arxiv_categories_interest' not in data:
-                data = dict(data)  # avoid mutating caller's dict
                 data['arxiv_categories_interest'] = data['categories']
+            # Ensure topics is populated from interests text if empty
+            if not data.get('topics'):
+                interests_text = (
+                    data.get('interests')
+                    or data.get('research_interests')
+                    or ""
+                )
+                if interests_text and isinstance(interests_text, str):
+                    data['topics'] = [
+                        t.strip() for t in interests_text.split(',')
+                        if t.strip()
+                    ]
         return data
 
 
