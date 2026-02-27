@@ -578,7 +578,7 @@ async def get_research_profile():
 
 
 @router.put("/profile")
-async def update_research_profile(data: ProfileUpdate):
+async def update_research_profile(data: ProfileUpdate, background_tasks: BackgroundTasks):
     """Update the researcher's profile (stored in database)."""
     try:
         store = get_default_store()
@@ -614,9 +614,21 @@ async def update_research_profile(data: ProfileUpdate):
         if data.keywords_exclude is not None:
             update_dict["keywords_exclude"] = data.keywords_exclude
         
+        # Detect whether interest-related fields changed (triggers paper re-scoring)
+        _INTEREST_KEYS = {
+            "research_topics", "arxiv_categories_include", "arxiv_categories_exclude",
+            "interests_include", "interests_exclude", "avoid_topics",
+        }
+        interests_changed = bool(set(update_dict) & _INTEREST_KEYS)
+
         # Update user in database
         updated_user = store.update_user(user_id, update_dict)
-        
+
+        # Re-score existing papers in the background when interests change
+        if interests_changed:
+            from ..tools.rescore_papers import rescore_papers_for_user
+            background_tasks.add_task(rescore_papers_for_user, user_id)
+
         # Return in profile format
         return {
             "researcher_name": updated_user.get("name", ""),
@@ -5205,7 +5217,17 @@ def _apply_suggestion_to_profile(store, user_id: UUID, suggestion_id: UUID) -> b
             user.arxiv_categories_exclude = cats_exclude
             user.updated_at = __import__('datetime').datetime.utcnow()
             db.commit()
-            
+
+        # Re-score existing papers with the new profile
+        try:
+            from ..tools.rescore_papers import rescore_papers_for_user
+            rescore_papers_for_user(user_id)
+        except Exception as rescore_err:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Post-suggestion paper re-scoring failed (non-critical): {rescore_err}"
+            )
+
         return True
         
     except Exception as e:
