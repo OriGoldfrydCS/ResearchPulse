@@ -197,6 +197,29 @@ _GENERAL_OFF_TOPIC = [
 _ARXIV_RE = re.compile("|".join(_ARXIV_PATTERNS), re.IGNORECASE)
 _GENERAL_RE = re.compile("|".join(_GENERAL_OFF_TOPIC), re.IGNORECASE)
 
+# Strong arXiv signals that should override an off-topic match — these prove
+# the user is actually talking about arXiv / scientific research, not the
+# off-topic subject itself.  Generic words like "paper" or "research" are
+# intentionally excluded so that "find papers on cooking recipes" still
+# triggers the off-topic gate.
+_STRONG_ARXIV_PATTERNS = [
+    r"arxiv",
+    r"arxiv\.org",
+    r"\d{4}\.\d{4,5}",                       # arXiv ID like 2301.12345
+    r"preprint[s]?",
+    r"cs\.[A-Z]{2}",
+    r"stat\.\w+",
+    r"math\.\w+",
+    r"eess\.\w+",
+    r"q-bio\.\w+",
+    r"q-fin\.\w+",
+    r"quant-ph",
+    r"hep-\w+",
+    r"cond-mat",
+    r"astro-ph",
+]
+_STRONG_ARXIV_RE = re.compile("|".join(_STRONG_ARXIV_PATTERNS), re.IGNORECASE)
+
 
 # =============================================================================
 # "Explain X" detector — research redirect
@@ -254,8 +277,11 @@ def classify_user_request(
     # 1. Check for clearly general / off-topic requests FIRST
     # ------------------------------------------------------------------
     if _GENERAL_RE.search(text_lower):
-        # But if the message ALSO mentions papers / arXiv, keep in-scope
-        if _ARXIV_RE.search(text_lower):
+        # Only override if the message contains a *strong* arXiv signal
+        # (arXiv ID, category code, "preprint", etc.).  Generic words
+        # like "paper" or "research" are NOT enough — "find papers on
+        # cooking recipes" must still be rejected.
+        if _STRONG_ARXIV_RE.search(text_lower):
             pass  # fall through to in-scope checks
         else:
             logger.info("[SCOPE_GATE] scope=OUT_OF_SCOPE_GENERAL, reason=general_off_topic")
