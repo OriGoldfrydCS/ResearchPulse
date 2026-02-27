@@ -563,7 +563,14 @@ async def execute_agent(request: ExecuteRequest) -> ExecuteResponse:
             status="ok",
             error=None,
             response=scope_result.response or "",
-            steps=[],
+            steps=[{
+                "step": 1,
+                "thought": f"Scope gate classified the request as {scope_result.scope.value} "
+                           f"(reason: {scope_result.reason}).",
+                "action": "scope_gate",
+                "action_input": {"user_prompt": request.prompt},
+                "observation": scope_result.response or "Request is out of scope.",
+            }],
         )
 
     # If in-scope but has an early response (e.g. missing topic / need arXiv link)
