@@ -251,7 +251,7 @@ class TestResponseTemplates:
 
     def test_out_of_scope_general_template(self):
         assert "arXiv" in RESPONSE_OUT_OF_SCOPE_GENERAL
-        assert "autonomous agent" in RESPONSE_OUT_OF_SCOPE_GENERAL
+        assert "ResearchPulse" in RESPONSE_OUT_OF_SCOPE_GENERAL
         assert len(RESPONSE_OUT_OF_SCOPE_GENERAL) > 50
 
     def test_out_of_scope_arxiv_only_template(self):

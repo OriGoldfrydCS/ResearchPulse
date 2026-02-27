@@ -193,6 +193,46 @@ _GENERAL_OFF_TOPIC = [
     r"celebrity",
     r"gossip",
     r"horoscope",
+    # Broad non-scientific topics that don't map to arXiv categories
+    r"\banimals?\b",
+    r"\bpets?\b",
+    r"\bcooking\b",
+    r"\bfood\b",
+    r"\bfashion\b",
+    r"\bclothing\b",
+    r"\bgardening\b",
+    r"\bfitness\b",
+    r"\bworkout[s]?\b",
+    r"\bdiet(?:ing|s)?\b",
+    r"\bmusic\b",
+    r"\bsong[s]?\b",
+    r"\bdancing?\b",
+    r"\bpoetry\b",
+    r"\bnovels?\b(?!\s*(?:method|approach|algorithm|architecture|framework|technique|model|loss|representation|scheme|formulation|contribution|idea|metric|design|mechanism|strategy|solution|way|pipeline))",
+    r"\bhistory\s+of\b",
+    r"\bpolitics?\b",
+    r"\belection[s]?\b",
+    r"\breligion[s]?\b",
+    r"\bastrology\b",
+    r"\bcraft[s]?\b",
+    r"\bDIY\b",
+    r"\bhobby|hobbies\b",
+    r"\bvideo\s*game[s]?\b",
+    r"\bgaming\b",
+    r"\bfurniture\b",
+    r"\breal\s+estate\b",
+    r"\bmortgage\b",
+    r"\binsurance\b",
+    r"\blegal\s+advice\b",
+    r"\blawyer[s]?\b",
+    r"\bsoccer\b",
+    r"\bfootball\b",
+    r"\bbasketball\b",
+    r"\bbaseball\b",
+    r"\btennis\b",
+    r"\bcinema\b",
+    r"\btv\s+show[s]?\b",
+    r"\bcelebrities\b",
 ]
 
 # Compile once for performance
@@ -221,6 +261,20 @@ _STRONG_ARXIV_PATTERNS = [
     r"astro-ph",
 ]
 _STRONG_ARXIV_RE = re.compile("|".join(_STRONG_ARXIV_PATTERNS), re.IGNORECASE)
+
+# Scientific / technical terms that prove the user is asking about research,
+# even if the query also contains an off-topic keyword (e.g. "animal
+# locomotion in robotics").  These override the off-topic gate in step 1.
+_SCIENTIFIC_OVERRIDE_WORDS = {
+    "algorithm", "algorithms", "architecture", "benchmark", "classification",
+    "contrastive", "cnn", "dataset", "detection", "diffusion", "embedding",
+    "evaluation", "federated", "fine-tuning", "finetune", "gan",
+    "generative", "gradient", "inference", "llm", "locomotion", "model",
+    "models", "multimodal", "multi-modal", "network", "neural", "optimization",
+    "pretrain", "pretraining", "regression", "reinforcement", "representation",
+    "robotics", "segmentation", "self-supervised", "simulation", "supervised",
+    "transformer", "training", "unsupervised", "vae",
+}
 
 
 # =============================================================================
@@ -280,10 +334,12 @@ def classify_user_request(
     # ------------------------------------------------------------------
     if _GENERAL_RE.search(text_lower):
         # Only override if the message contains a *strong* arXiv signal
-        # (arXiv ID, category code, "preprint", etc.).  Generic words
-        # like "paper" or "research" are NOT enough — "find papers on
-        # cooking recipes" must still be rejected.
-        if _STRONG_ARXIV_RE.search(text_lower):
+        # (arXiv ID, category code, "preprint", etc.) OR an unambiguous
+        # scientific/technical term (e.g. "robotics", "segmentation").
+        # Generic words like "paper" or "research" are NOT enough —
+        # "find papers on cooking recipes" must still be rejected.
+        words = set(text_lower.split())
+        if _STRONG_ARXIV_RE.search(text_lower) or (words & _SCIENTIFIC_OVERRIDE_WORDS):
             pass  # fall through to in-scope checks
         else:
             logger.info("[SCOPE_GATE] scope=OUT_OF_SCOPE_GENERAL, reason=general_off_topic")
@@ -408,7 +464,11 @@ def classify_user_request(
         "transformer", "bert", "gpt", "llm", "cnn", "rnn", "gan",
         "vae", "rl", "optimization", "gradient", "architecture",
         "network", "embedding", "fine-tuning", "finetune", "pretrain",
-        "pretraining", "survey", "review",
+        "pretraining", "survey", "review", "segmentation", "detection",
+        "classification", "regression", "robotics", "locomotion",
+        "simulation", "reinforcement", "supervised", "unsupervised",
+        "generative", "adversarial", "contrastive", "representation",
+        "self-supervised", "federated", "multi-modal", "multimodal",
     }
     words = set(text_lower.split())
     if words & _RESEARCH_HINTS:
