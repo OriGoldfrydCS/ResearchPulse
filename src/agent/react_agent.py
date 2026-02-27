@@ -739,11 +739,15 @@ class ResearchReActAgent:
         # ONLY the extracted research interests (e.g. "Multi Armed Bandits, PCA,
         # TSNE, Behavioral Economics") — NOT exclude terms or meta-text.
         prompt_interests_text = getattr(self._parsed_prompt, 'interests_only', '') or ''
+        # Track whether the prompt topic was successfully mapped to categories
+        # so we can decide downstream whether 0 results means "out of scope".
+        prompt_topic_mapped = False
         if prompt_interests_text:
             user_categories = map_interests_to_categories(prompt_interests_text)
         else:
             user_categories = []
         if user_categories:
+            prompt_topic_mapped = True
             merged = list(set(categories_include) | set(user_categories))
             # Cap at 10 categories to keep arXiv query URL short and reduce 503 errors.
             # Prefer prompt-derived categories, then fill with profile ones.
@@ -760,6 +764,7 @@ class ResearchReActAgent:
             taxonomy_cats = taxonomy_topic_to_categories(prompt_interests_text)
             if taxonomy_cats:
                 # Secondary mapping found categories — use them.
+                prompt_topic_mapped = True
                 merged = list(set(categories_include) | set(taxonomy_cats))
                 if len(merged) > 10:
                     priority = list(dict.fromkeys(taxonomy_cats + categories_include))
@@ -771,19 +776,20 @@ class ResearchReActAgent:
                 )
                 categories_include = merged
             else:
-                # Neither mapping produced categories — but categories_include
-                # already has defaults from the profile or fallback.  Instead of
-                # declaring out-of-scope, proceed with a keyword search using
-                # the existing categories.  The topic_query mechanism below will
-                # add the user's topic as an arXiv keyword filter, which is the
-                # correct behavior for legitimate research terms that simply
-                # aren't in our static mapping (e.g. "attention", "diffusion").
+                # Neither mapping produced categories.  Instead of declaring
+                # out-of-scope, drop the category filter entirely and let the
+                # arXiv API do a pure keyword search across ALL categories.
+                # This handles legitimate topics that simply aren't in our
+                # static mapping (e.g. niche sub-fields).  If the keyword
+                # search also returns 0 papers we'll show a proper message
+                # downstream.
                 self._log(
                     "INFO",
                     f"Prompt topic '{prompt_interests_text}' could not be mapped "
-                    f"to specific arXiv categories. Proceeding with keyword search "
-                    f"using existing categories: {categories_include}",
+                    f"to specific arXiv categories. Will perform keyword-only "
+                    f"search across all arXiv categories.",
                 )
+                categories_include = []  # clear so arXiv searches all categories
         
         # Map exclude interests if provided
         if not categories_exclude:
@@ -867,6 +873,37 @@ class ResearchReActAgent:
         # NOTE: Don't increment papers_checked here - it should track papers actually PROCESSED (scored),
         # not papers fetched. We'll increment it as we process each paper.
         self._log("INFO", f"Fetched {len(self._fetched_papers)} papers from arXiv")
+
+        # If arXiv returned 0 papers AND the topic didn't map to any
+        # categories, the topic is genuinely outside arXiv's coverage.
+        if len(self._fetched_papers) == 0 and prompt_interests_text and not prompt_topic_mapped:
+            self._log(
+                "INFO",
+                f"Keyword search for '{prompt_interests_text}' returned 0 papers. "
+                "Topic appears to be outside arXiv coverage.",
+            )
+            self.episode.topic_not_in_categories = True
+            self.episode.searched_topic = prompt_interests_text
+
+            out_of_scope_msg = (
+                f"You asked to search for research papers about '{prompt_interests_text}'.\n\n"
+                "arXiv primarily provides papers in fields such as computer science, "
+                "mathematics, physics, statistics, quantitative biology, quantitative "
+                "finance, and related technical domains.\n\n"
+                "There are currently no relevant arXiv papers for the requested topic, "
+                "and RESEARCHPULSE cannot assist with this topic in its current version.\n\n"
+                "This may be supported in the future — stay tuned 🙂"
+            )
+            self.episode.final_report = {
+                "summary": out_of_scope_msg,
+                "stats": {
+                    "total_fetched_count": 0,
+                    "unseen_papers_count": 0,
+                    "seen_papers_count": 0,
+                    "papers_filtered_count": 0,
+                },
+            }
+            return self._finalize_episode("topic_outside_arxiv_scope")
         
         # Step 2: Check which papers are unseen
         self._log("INFO", "Step 2: Checking seen/unseen papers...")
