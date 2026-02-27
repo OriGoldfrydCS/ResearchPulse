@@ -53,7 +53,7 @@ try:
         SENDER_DISPLAY_NAME,
     )
 except ImportError:
-    from outbound_email import (
+    from outbound_email import (  # type: ignore[import-not-found]
         send_outbound_email,
         EmailType,
         apply_subject_tag,
