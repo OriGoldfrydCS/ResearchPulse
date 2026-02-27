@@ -134,17 +134,17 @@ Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the age
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-HIGH-dc2626?style=flat-square" /></td>
-    <td><strong>Red - HIGH Importance</strong><br/>Paper with relevance ≥ 0.65 and novelty ≥ 0.5. Triggers email + calendar + reading list.</td>
+    <td><strong>Red - HIGH Importance</strong><br/>Triggers email + calendar + reading list.</td>
     <td>HIGH Importance path</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-MEDIUM-d97706?style=flat-square" /></td>
-    <td><strong>Amber - MEDIUM Importance</strong><br/>Paper with relevance ≥ 0.4 (or ≥ 0.3 + novelty ≥ 0.6). Added to reading list.</td>
+    <td><strong>Amber - MEDIUM Importance</strong><br/>Added to reading list.</td>
     <td>MEDIUM Importance path</td>
   </tr>
   <tr>
     <td><img src="https://img.shields.io/badge/●-LOW-16a34a?style=flat-square" /></td>
-    <td><strong>Green - LOW Importance</strong><br/>Paper below thresholds. Logged only, no actions triggered.</td>
+    <td><strong>Green - LOW Importance</strong><br/>Logged only, no actions triggered.</td>
     <td>LOW Importance path</td>
   </tr>
 </table>
