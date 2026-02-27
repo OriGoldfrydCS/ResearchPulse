@@ -242,17 +242,18 @@ def _calculate_topic_overlap(paper_keywords: set, profile_topics: List[str]) -> 
                 hit_count += 1.0
                 continue
             # Partial match (substring): e.g., "bandit" matches "bandits"
-            # Guard: the shorter term must be > 3 chars AND >= 80% the
+            # Guard: the shorter term must be > 3 chars AND >= 85% the
             # length of the longer term.  This prevents "transform" (9)
-            # from matching "transformers" (12) — ratio 0.75 < 0.80 —
-            # while still allowing "transformer" (11) ↔ "transformers" (12).
+            # from matching "transformers" (12) and "attention" (9) from
+            # matching "inattention" (11), while still allowing
+            # "transformer" (11) ↔ "transformers" (12).
             for pk in paper_keywords:
                 if pk == tk:
                     continue
                 shorter, longer = (pk, tk) if len(pk) <= len(tk) else (tk, pk)
                 if (shorter in longer
                         and len(shorter) > 3
-                        and len(shorter) / len(longer) >= 0.80):
+                        and len(shorter) / len(longer) >= 0.85):
                     hit_count += 0.5
                     break  # one partial match per topic keyword is enough
         

@@ -232,14 +232,15 @@ def _is_controlled_substring_match(short: str, long: str) -> bool:
 
     Rules:
     - Terms with 5 or fewer characters: NO substring matching (exact only).
-    - Longer terms: the shorter string must be >= 80% the length of the
-      longer string to avoid "transform" matching "transformers" while
-      still allowing "transformer" ↔ "transformers" (pluralisation).
+    - Longer terms: the shorter string must be >= 85% the length of the
+      longer string.  This blocks "attention" inside "inattention" (81%)
+      and "transform" inside "transformers" (75%) while allowing
+      "transformer" ↔ "transformers" (91%) and "bandit" ↔ "bandits" (85%).
     """
     if len(short) <= 5:
         return False
     ratio = len(short) / len(long)
-    return ratio >= 0.80
+    return ratio >= 0.85
 
 
 def _topics_overlap(topics1: List[str], topics2: List[str]) -> tuple[bool, List[str]]:
@@ -251,7 +252,7 @@ def _topics_overlap(topics1: List[str], topics2: List[str]) -> tuple[bool, List[
     2. ML-term expansion: if a topic has a canonical expansion, check whether
        any expansion phrase appears in the other list's text.
     3. Controlled substring: only allowed when both terms are > 5 chars and
-       the shorter term is >= 80 % the length of the longer one.
+       the shorter term is >= 85 % the length of the longer one.
 
     Returns:
         (has_overlap: bool, matching_topics: List[str])
