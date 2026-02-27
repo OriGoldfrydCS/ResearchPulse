@@ -455,7 +455,7 @@ def _topic_matches_arxiv_domain(text_lower: str) -> bool:
     phrases via substring search.  This is intentionally generous — if
     ANY domain word appears, the topic is accepted.
     """
-    words = set(text_lower.split())
+    words = set(w.strip(".,;:!?()[]{}\"'") for w in text_lower.split())
     if words & _DOMAIN_SINGLE_WORDS:
         return True
     for phrase in _DOMAIN_PHRASES:
@@ -525,7 +525,7 @@ def classify_user_request(
         # scientific/technical term (e.g. "robotics", "segmentation").
         # Generic words like "paper" or "research" are NOT enough —
         # "find papers on cooking recipes" must still be rejected.
-        words = set(text_lower.split())
+        words = set(w.strip(".,;:!?()[]{}\"'") for w in text_lower.split())
         if _STRONG_ARXIV_RE.search(text_lower) or (words & _DOMAIN_SINGLE_WORDS) or _topic_matches_arxiv_domain(text_lower):
             pass  # fall through to in-scope checks
         else:
@@ -679,7 +679,7 @@ def classify_user_request(
         "generative", "adversarial", "contrastive", "representation",
         "self-supervised", "federated", "multi-modal", "multimodal",
     }
-    words = set(text_lower.split())
+    words = set(w.strip(".,;:!?()[]{}\"'") for w in text_lower.split())
     if words & _RESEARCH_HINTS:
         logger.info("[SCOPE_GATE] scope=IN_SCOPE, reason=research_hint_fallback")
         return ScopeResult(
