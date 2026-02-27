@@ -2839,6 +2839,30 @@
             margin: 4px 0;
         }
 
+        .faq-category {
+            margin-top: 20px;
+        }
+
+        .faq-category:first-child {
+            margin-top: 0;
+        }
+
+        .faq-category-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 4px 8px 4px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text);
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 10px;
+        }
+
+        .faq-category-icon {
+            font-size: 1.1rem;
+        }
+
         .about-content kbd {
             display: inline-block;
             padding: 2px 6px;
@@ -3037,6 +3061,41 @@
             margin-top: 12px;
             border-top: 1px solid var(--border);
             background: transparent;
+        }
+
+        .download-dropdown-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 4px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 120px;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .download-dropdown.open .download-dropdown-menu {
+            display: block;
+        }
+
+        .download-dropdown-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            border: none;
+            background: none;
+            text-align: left;
+            font-size: 0.85rem;
+            cursor: pointer;
+            color: var(--text);
+        }
+
+        .download-dropdown-menu button:hover {
+            background: var(--surface);
         }
 
         .autonomous-loading {
@@ -4156,275 +4215,397 @@
 
                     <h3 style="margin: 0 0 16px 0; font-size: 1.1rem;">Frequently Asked Questions</h3>
                     <div class="faq-list" id="faq-list">
-                        <!-- Getting Started -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do I get started with ResearchPulse?</span>
-                                <span class="faq-chevron">▶</span>
+
+                        <!-- ═══ Getting Started ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">🚀</span> Getting Started
                             </div>
-                            <div class="faq-answer">
-                                <p>1. Go to <strong>My Settings</strong> and fill in your Research Profile — your name,
-                                    interests, and any topics to exclude.</p>
-                                <p>2. Back on the <strong>Home</strong> tab, click <strong>"Search for me"</strong> to
-                                    let the AI agent build a query from your profile, or type your own prompt.</p>
-                                <p>3. The agent searches arXiv, scores each paper for relevance and novelty, and pushes
-                                    results to the <strong>Papers</strong> tab.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How do I get started with ResearchPulse?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>1. Go to <strong>My Settings</strong> and fill in your Research Profile — your
+                                        name,
+                                        interests, and any topics to exclude.</p>
+                                    <p>2. Back on the <strong>Home</strong> tab, click <strong>"Search for me"</strong>
+                                        to
+                                        let the AI agent build a query from your profile, or type your own prompt.</p>
+                                    <p>3. The agent searches arXiv, scores each paper for relevance and novelty, and
+                                        pushes
+                                        results to the <strong>Papers</strong> tab.</p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>Can I switch between light and dark mode?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Yes — use the sun/moon toggle in the top navigation bar to switch between light
+                                        and
+                                        dark themes. Your preference is saved automatically.</p>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Search & Discovery -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What does "Search for me" actually do behind the scenes?</span>
-                                <span class="faq-chevron">▶</span>
+                        <!-- ═══ Search & Discovery ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">🔍</span> Search & Discovery
                             </div>
-                            <div class="faq-answer">
-                                <p>It reads your saved research interests and preferred time period from your profile,
-                                    then generates a targeted arXiv search query. The ReAct agent fetches papers, checks
-                                    them against your history via Pinecone RAG to avoid duplicates, scores each paper's
-                                    relevance and novelty, and decides what action to take (notify you, share with a
-                                    colleague, or just log it).</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What does "Search for me" actually do behind the scenes?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>It reads your saved research interests and preferred time period from your
+                                        profile,
+                                        then generates a targeted arXiv search query. The ReAct agent fetches papers,
+                                        checks
+                                        them against your history via Pinecone RAG to avoid duplicates, scores each
+                                        paper's
+                                        relevance and novelty, and decides what action to take (notify you, share with a
+                                        colleague, or just log it).</p>
+                                </div>
                             </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do Prompt Templates work?</span>
-                                <span class="faq-chevron">▶</span>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How do Prompt Templates work?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Prompt Templates are reusable search queries shown at the bottom of the Home tab.
+                                        Click any template to insert it into the chat input, then send it as-is or edit
+                                        before sending. You can also create and save your own custom templates for
+                                        searches
+                                        you run frequently.</p>
+                                </div>
                             </div>
-                            <div class="faq-answer">
-                                <p>Prompt Templates are reusable search queries shown at the bottom of the Home tab.
-                                    Click any template to insert it into the chat input, then send it as-is or edit
-                                    before sending. You can also create and save your own custom templates for searches
-                                    you run frequently.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What paper sources does ResearchPulse search?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>ResearchPulse searches <strong>arXiv</strong>, covering fields such as computer
+                                        science, physics, mathematics, biology, economics, and more. You can control
+                                        which
+                                        arXiv categories to include or exclude in your settings to narrow down results.
+                                    </p>
+                                </div>
                             </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What paper sources does ResearchPulse search?</span>
-                                <span class="faq-chevron">▶</span>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How does the AI decide which papers are relevant to me?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>The agent uses a multi-step process:</p>
+                                    <ul>
+                                        <li><strong>Relevance scoring</strong> — compares each paper's abstract against
+                                            your
+                                            research interests using the LLM.</li>
+                                        <li><strong>Novelty detection</strong> — queries Pinecone vector search to see
+                                            if
+                                            similar papers have already been recommended.</li>
+                                        <li><strong>Importance ranking</strong> — assigns high / medium / low importance
+                                            based on both relevance and novelty scores.</li>
+                                    </ul>
+                                    <p>Only papers that pass the minimum importance threshold trigger an action.</p>
+                                </div>
                             </div>
-                            <div class="faq-answer">
-                                <p>ResearchPulse searches <strong>arXiv</strong>, covering fields such as computer
-                                    science, physics, mathematics, biology, economics, and more. You can control which
-                                    arXiv categories to include or exclude in your settings to narrow down results.</p>
-                            </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How does the AI decide which papers are relevant to me?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>The agent uses a multi-step process:</p>
-                                <ul>
-                                    <li><strong>Relevance scoring</strong> — compares each paper's abstract against your
-                                        research interests using the LLM.</li>
-                                    <li><strong>Novelty detection</strong> — queries Pinecone vector search to see if
-                                        similar papers have already been recommended.</li>
-                                    <li><strong>Importance ranking</strong> — assigns high / medium / low importance
-                                        based on both relevance and novelty scores.</li>
-                                </ul>
-                                <p>Only papers that pass the minimum importance threshold (configurable in Execution
-                                    Settings) trigger an action.</p>
-                            </div>
-                        </div>
-
-                        <!-- Papers & Organization -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How can I organize and manage my papers?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>In the <strong>Papers</strong> tab you can:</p>
-                                <ul>
-                                    <li>⭐ <strong>Star</strong> papers to bookmark them for later</li>
-                                    <li>Toggle <strong>read / unread</strong> status</li>
-                                    <li>Mark papers as <strong>"not relevant"</strong> so they're filtered out</li>
-                                    <li>Use <strong>bulk actions</strong> — select multiple papers and star, delete, or
-                                        mark them in one click</li>
-                                    <li><strong>Sort</strong> by date, title, relevance, or importance</li>
-                                    <li><strong>Filter</strong> by starred, unread, importance level, or arXiv category
-                                    </li>
-                                    <li><strong>Export to CSV</strong> for use in reference managers or spreadsheets
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>Can I get an AI summary of a paper?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>Yes. Open any paper's detail drawer and click <strong>"Summarize Paper"</strong>. The
-                                    AI reads the PDF and generates a concise summary highlighting key contributions,
-                                    methods, and findings. You can also click <strong>"Regenerate"</strong> to get a
-                                    fresh summary if needed.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How does novelty detection prevent duplicate recommendations?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Every paper the agent processes is embedded as a vector and stored in
+                                        <strong>Pinecone</strong>. On future runs, new papers are compared against this
+                                        vector store using semantic similarity. If a paper is too similar to something
+                                        you've already seen, it's flagged as low-novelty and deprioritized — so you only
+                                        see
+                                        genuinely new research.
+                                    </p>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Live Document & Profile Suggestions -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What is the Live Document?</span>
-                                <span class="faq-chevron">▶</span>
+                        <!-- ═══ Papers & Organization ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">📄</span> Papers & Organization
                             </div>
-                            <div class="faq-answer">
-                                <p>The <strong>Live Document</strong> is an auto-updating report generated after each
-                                    agent run. It summarizes the latest findings, actions taken, and key statistics from
-                                    the run — giving you a quick at-a-glance view of what the agent discovered and did.
-                                    Access it from the Home tab.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How can I organize and manage my papers?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>In the <strong>Papers</strong> tab you can:</p>
+                                    <ul>
+                                        <li>⭐ <strong>Star</strong> papers to bookmark them for later</li>
+                                        <li>Toggle <strong>read / unread</strong> status</li>
+                                        <li>Mark papers as <strong>"not relevant"</strong> so they're filtered out</li>
+                                        <li>Use <strong>bulk actions</strong> — select multiple papers and star, toggle
+                                            read, mark not relevant, download PDFs, email a summary, create calendar
+                                            reminders, or delete them in one click</li>
+                                        <li><strong>Sort</strong> by date, title, relevance, or importance</li>
+                                        <li><strong>Filter</strong> by starred, unread, importance level, or arXiv
+                                            category
+                                        </li>
+                                        <li><strong>Export to CSV</strong> for use in reference managers or spreadsheets
+                                        </li>
+                                    </ul>
+                                </div>
                             </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What are Profile Suggestions?</span>
-                                <span class="faq-chevron">▶</span>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>Can I get an AI summary of a paper?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Yes. Open any paper's detail drawer and click <strong>"Summarize Paper"</strong>.
+                                        The
+                                        AI reads the PDF and generates a concise summary highlighting key contributions,
+                                        methods, and findings. You can also click <strong>"Regenerate"</strong> to get a
+                                        fresh summary if needed.</p>
+                                </div>
                             </div>
-                            <div class="faq-answer">
-                                <p><strong>Profile Suggestions</strong> analyze patterns in the papers you've starred or
-                                    marked as relevant and recommend updates to your research profile. This helps the
-                                    agent get better at finding papers you care about over time — a form of profile
-                                    evolution.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What is the Live Document?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>The <strong>Live Document</strong> is an auto-updating report generated after
+                                        each
+                                        agent run. It summarizes the latest findings, actions taken, and key statistics
+                                        from
+                                        the run — giving you a quick at-a-glance view of what the agent discovered and
+                                        did.
+                                        Access it from the Home tab.</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <!-- Colleagues & Sharing -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do I share papers with colleagues?</span>
-                                <span class="faq-chevron">▶</span>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>Does my profile improve over time?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Yes. ResearchPulse has a <strong>profile evolution</strong> feature. As you star
+                                        papers, mark items as relevant or irrelevant, and interact with results, the
+                                        system
+                                        learns your preferences. Use the <strong>Profile Suggestions</strong> button on
+                                        the
+                                        Home tab to see AI-generated recommendations for refining your research
+                                        interests.
+                                    </p>
+                                </div>
                             </div>
-                            <div class="faq-answer">
-                                <p>1. Add colleagues in the <strong>Colleagues</strong> tab with their name, email, and
-                                    research interests.</p>
-                                <p>2. When the agent finds papers matching a colleague's interests, it can automatically
-                                    share them via email.</p>
-                                <p>3. Track all shares and their delivery status (sent, pending, failed) in the
-                                    <strong>Shares</strong> tab.
-                                </p>
-                            </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What is the Colleague Join Code?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>The <strong>Join Code</strong> is a passphrase you set in <strong>My
-                                        Settings</strong>. When colleagues receive a link to join your ResearchPulse
-                                    network, they must enter this code. It prevents unauthorized people from adding
-                                    themselves as your colleagues.</p>
-                            </div>
-                        </div>
-
-                        <!-- Emails, Calendar & Alerts -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do email notifications work?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>Once your email is configured in My Settings, ResearchPulse can:</p>
-                                <ul>
-                                    <li>Send you <strong>digest emails</strong> summarizing high-importance papers from
-                                        a run</li>
-                                    <li>Automatically <strong>share papers</strong> with colleagues whose interests
-                                        match</li>
-                                    <li>Monitor your <strong>inbox</strong> for replies (e.g., a colleague responding to
-                                        a shared paper)</li>
-                                </ul>
-                                <p>You can view all sent and pending emails in the <strong>Emails</strong> tab.</p>
-                            </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How do Calendar Alerts work?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>The agent can create reading reminders as calendar events. You can:</p>
-                                <ul>
-                                    <li>Download <strong>.ics files</strong> and import them into Google Calendar,
-                                        Outlook, or Apple Calendar</li>
-                                    <li>Let the AI <strong>auto-suggest</strong> calendar events for high-importance
-                                        papers</li>
-                                    <li>Manage all events in the <strong>Alerts</strong> tab</li>
-                                </ul>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What are Profile Suggestions?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p><strong>Profile Suggestions</strong> analyze patterns in the papers you've
+                                        starred or
+                                        marked as relevant and recommend updates to your research profile. This helps
+                                        the
+                                        agent get better at finding papers you care about over time — a form of profile
+                                        evolution.</p>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Inbox & Automation -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What is Inbox Check and how do I configure it?</span>
-                                <span class="faq-chevron">▶</span>
+                        <!-- ═══ Colleagues & Sharing ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">👥</span> Colleagues & Sharing
                             </div>
-                            <div class="faq-answer">
-                                <p><strong>Inbox Check</strong> automatically monitors your email for replies from
-                                    colleagues you've shared papers with. Configure the check frequency in <strong>My
-                                        Settings → Inbox Check Settings</strong>. You can also trigger a manual check
-                                    with the <strong>"Check Now"</strong> button.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How do I share papers with colleagues?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>1. Add colleagues in the <strong>Colleagues</strong> tab with their name, email,
+                                        and
+                                        research interests.</p>
+                                    <p>2. When the agent finds papers matching a colleague's interests, it can
+                                        automatically
+                                        share them via email.</p>
+                                    <p>3. Track all shares and their delivery status (sent, pending, failed) in the
+                                        <strong>Shares</strong> tab.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What is the Colleague Join Code?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>The <strong>Join Code</strong> is a secret passphrase you set in <strong>My
+                                            Settings → Colleague Join Code</strong>. It acts as a gatekeeper: only
+                                        people who know the code can join your ResearchPulse network.</p>
+                                    <p>There are <strong>two ways</strong> a colleague can join:</p>
+                                    <ul>
+                                        <li><strong>Via invite link</strong> — you add them in the Colleagues tab, they
+                                            receive an email with a personalized link, and enter the join code on the
+                                            web form to confirm.</li>
+                                        <li><strong>Via email (autonomous)</strong> — a colleague can send an email
+                                            directly to the ResearchPulse inbox mentioning they want to join and
+                                            including the join code in the message body. The system's <strong>Inbox
+                                                Monitor</strong> automatically detects the join request, verifies the
+                                            code,
+                                            and adds them — no manual action needed from you.</li>
+                                    </ul>
+                                    <p>Share the code privately with trusted colleagues only.</p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>Can colleagues manage their own preferences?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Yes. Each colleague receives self-service links in the emails they get:</p>
+                                    <ul>
+                                        <li><strong>Update Interests</strong> — they can update their own research
+                                            interests and preferred arXiv categories via a personal web form, so the
+                                            agent shares more relevant papers with them.</li>
+                                        <li><strong>Unsubscribe</strong> — a one-click link to remove themselves from
+                                            your network at any time.</li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Settings & Advanced -->
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>What are Execution Settings?</span>
-                                <span class="faq-chevron">▶</span>
+                        <!-- ═══ Emails, Calendar & Alerts ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">📧</span> Emails, Calendar & Alerts
                             </div>
-                            <div class="faq-answer">
-                                <p>Execution Settings let you control how the agent runs:</p>
-                                <ul>
-                                    <li><strong>Max runtime</strong> — how long a run can last before being stopped</li>
-                                    <li><strong>Max papers checked</strong> — limit on papers evaluated per run</li>
-                                    <li><strong>Min importance to act</strong> — only papers above this threshold
-                                        trigger notifications or shares</li>
-                                    <li><strong>Stop if no new papers</strong> — end the run early if everything has
-                                        been seen before</li>
-                                </ul>
-                                <p>Find these under <strong>My Settings</strong>.</p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How do email notifications work?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Once your email is configured in My Settings, ResearchPulse can:</p>
+                                    <ul>
+                                        <li>Send you <strong>digest emails</strong> summarizing high-importance papers
+                                            from
+                                            a run</li>
+                                        <li>Automatically <strong>share papers</strong> with colleagues whose interests
+                                            match</li>
+                                        <li>Monitor your <strong>inbox</strong> for replies (e.g., a colleague
+                                            responding to
+                                            a shared paper)</li>
+                                    </ul>
+                                    <p>You can view all sent and pending emails in the <strong>Emails</strong> tab.</p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>How do Calendar Alerts work?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>The agent can create reading reminders as calendar events. You can:</p>
+                                    <ul>
+                                        <li>Download <strong>.ics files</strong> and import them into Google Calendar,
+                                            Outlook, or Apple Calendar</li>
+                                        <li>Let the AI <strong>auto-suggest</strong> calendar events for high-importance
+                                            papers</li>
+                                        <li>Manage all events in the <strong>Alerts</strong> tab</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What is Inbox Check and how do I configure it?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p><strong>Inbox Check</strong> automatically monitors your email for replies from
+                                        colleagues you've shared papers with. Configure the check frequency in
+                                        <strong>My
+                                            Settings → Inbox Check Settings</strong>. You can also trigger a manual
+                                        check
+                                        with the <strong>"Check Now"</strong> button.</p>
+                                </div>
                             </div>
                         </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>How does novelty detection prevent duplicate recommendations?</span>
-                                <span class="faq-chevron">▶</span>
+
+                        <!-- ═══ Settings & Advanced ═══ -->
+                        <div class="faq-category">
+                            <div class="faq-category-header">
+                                <span class="faq-category-icon">⚙️</span> Settings & Advanced
                             </div>
-                            <div class="faq-answer">
-                                <p>Every paper the agent processes is embedded as a vector and stored in
-                                    <strong>Pinecone</strong>. On future runs, new papers are compared against this
-                                    vector store using semantic similarity. If a paper is too similar to something
-                                    you've already seen, it's flagged as low-novelty and deprioritized — so you only see
-                                    genuinely new research.
-                                </p>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What are the Papers per Run and Execution Mode settings?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Under <strong>My Settings</strong> you'll find two configurable cards:</p>
+                                    <ul>
+                                        <li><strong>Papers per Run</strong> — controls how many papers the agent fetches
+                                            from arXiv each run. Higher values consume more tokens and take longer.</li>
+                                        <li><strong>Execution Mode</strong> — choose <em>Manual only</em> (you trigger
+                                            each run) or <em>Keep alive (scheduled)</em> to have the agent run
+                                            automatically on a schedule (daily, every X days, weekly, or monthly).</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What are History Logs?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p><strong>History Logs</strong> provide a complete audit trail of every research
+                                        run.
+                                        Each entry shows how many papers were retrieved, scored, shared, and discarded,
+                                        along with timing and stop-reason details. Access them via the
+                                        <strong>"📋 History Logs"</strong> button on the Home tab.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>Can I stop or cancel a running agent?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>Yes. While the agent is running, the <strong>"Run Agent"</strong> button turns
+                                        into
+                                        a <strong>Stop</strong> button. Click it to cancel the current run immediately.
+                                        Any papers already processed will still appear in your results.</p>
+                                </div>
+                            </div>
+                            <div class="faq-item">
+                                <div class="faq-question" onclick="toggleFaq(this)">
+                                    <span>What does the System Health check show?</span>
+                                    <span class="faq-chevron">▶</span>
+                                </div>
+                                <div class="faq-answer">
+                                    <p>In <strong>My Settings</strong>, the <strong>System Health</strong> section shows
+                                        the
+                                        connection status of your Database, Pinecone vector store, and Email Provider.
+                                        Click <strong>"🔍 Check Health"</strong> to verify all services are reachable.
+                                    </p>
+                                </div>
                             </div>
                         </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>Does my profile improve over time?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>Yes. ResearchPulse has a <strong>profile evolution</strong> feature. As you star
-                                    papers, mark items as relevant or irrelevant, and interact with results, the system
-                                    learns your preferences. Use the <strong>Profile Suggestions</strong> button on the
-                                    Home tab to see AI-generated recommendations for refining your research interests.
-                                </p>
-                            </div>
-                        </div>
-                        <div class="faq-item">
-                            <div class="faq-question" onclick="toggleFaq(this)">
-                                <span>Can I switch between light and dark mode?</span>
-                                <span class="faq-chevron">▶</span>
-                            </div>
-                            <div class="faq-answer">
-                                <p>Yes — use the sun/moon toggle in the top navigation bar to switch between light and
-                                    dark themes. Your preference is saved automatically.</p>
-                            </div>
-                        </div>
+
                     </div>
 
                 </div>
@@ -9483,8 +9664,14 @@
                 actionsBar.innerHTML = `
                     <button id="toggle-modal-size" onclick="toggleModalSize()" class="action-btn" style="font-size: 0.82rem;">↔️ Expand / Collapse</button>
                     <div style="display: flex; gap: 8px;">
-                        <button onclick="doDownloadLiveDoc('txt')" class="action-btn">⬇️ Download .txt</button>
-                        <button onclick="doDownloadLiveDoc('pdf')" class="action-btn">⬇️ Download .pdf</button>
+                        <div class="download-dropdown" style="position: relative;">
+                            <button onclick="this.parentElement.classList.toggle('open')" class="action-btn">⬇️ Download ▾</button>
+                            <div class="download-dropdown-menu">
+                                <button onclick="doDownloadLiveDoc('txt'); this.closest('.download-dropdown').classList.remove('open');">.txt</button>
+                                <button onclick="doDownloadLiveDoc('html'); this.closest('.download-dropdown').classList.remove('open');">.html</button>
+                                <button onclick="doDownloadLiveDoc('pdf'); this.closest('.download-dropdown').classList.remove('open');">.pdf (print)</button>
+                            </div>
+                        </div>
                         <button onclick="resetLiveDocument()" class="action-btn" style="color: var(--error); border-color: var(--error);">🗑️ Reset</button>
                     </div>
                 `;
@@ -9541,8 +9728,20 @@
         function doDownloadLiveDoc(fmt) {
             try {
                 if (fmt === 'pdf') {
-                    // Use client-side print-to-PDF (works on all platforms including Vercel)
                     _clientSidePdfFallback();
+                    return;
+                }
+                if (fmt === 'html') {
+                    const html = window._liveDocHtml;
+                    if (!html) { alert('Please open the Live Document first.'); return; }
+                    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'research_briefing_' + new Date().toISOString().slice(0, 10) + '.html';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
                     return;
                 }
                 // TXT download via API

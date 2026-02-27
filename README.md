@@ -48,7 +48,7 @@ The agent observes the research landscape by pulling fresh data from external so
 |-----------|-------------|
 | **arXiv API** | Fetches recent papers filtered by your chosen categories and time period. Supports **paper-by-ID** retrieval (e.g. `2301.12345`) and **pagination** to fetch the next batch of unseen papers on re-runs |
 | **Pinecone RAG** | Queries the vector store to detect novelty - has this topic been seen before? |
-| **Inbox Monitor** | Checks email for colleague replies and feedback on shared papers |
+| **Inbox Monitor** | Checks email for colleague replies, reschedule requests, and **autonomous colleague join requests** (join code verified automatically) |
 | **Profile Loader** | Reads your research interests, exclusions, and delivery preferences |
 | **Delivered Tracker** | Tracks which papers were actually delivered (saved/shared/logged) vs. merely seen, so re-runs fetch genuinely new papers |
 
@@ -86,9 +86,10 @@ Once reasoning is complete, the agent executes real-world actions:
 | 📧 **Email Digest** | High-importance paper found | HTML email sent to your inbox |
 | 📅 **Calendar Reminder** | Paper worth reading soon | `.ics` file for Google Calendar / Outlook |
 | 📤 **Colleague Share** | Paper matches a colleague's interests | Targeted email with paper summary |
+| 📨 **Autonomous Colleague Join** | Inbox detects a join-request email with valid code | Colleague auto-added, confirmation email sent |
 | ⭐ **Paper Tagging** | Relevance/importance scored | Paper saved with metadata to your library |
 | 📝 **AI Summary** | On-demand via dashboard | LLM-generated summary of the full PDF |
-| � **Live Document** | After every run | Rolling research briefing with TXT and PDF export |
+| 📑 **Live Document** | After every run | Rolling research briefing with TXT and PDF export |
 | 💡 **Profile Evolution** | Patterns detected in your feedback | Deduplicated suggestions to refine your research interests |
 
 > [!NOTE]
@@ -164,13 +165,14 @@ Unlike a simple linear pipeline, ResearchPulse is a **decision graph** - the age
 | 🔍 **Smart Search** | "Search for me" generates queries from your profile automatically |
 | 📊 **Relevance + Novelty** | Dual scoring via LLM + Pinecone vector similarity |
 | 👥 **Colleague Sharing** | Auto-match papers to colleagues by research interests |
-| 📄 **Paper Summaries** | One-click AI summarization of any paper's PDF |
+| � **Autonomous Colleague Join** | Colleagues can email the system with a join code to self-register — no manual invite needed |
+| �📄 **Paper Summaries** | One-click AI summarization of any paper's PDF |
 | 📬 **Inbox Monitoring** | Detects and processes colleague replies |
 | 🧬 **Profile Evolution** | Learns from your stars and feedback to improve over time (with duplicate suggestion dedup) |
 | 📑 **Live Document** | Rolling research briefing updated after every run, exportable as **TXT** or **PDF** |
 | 📥 **CSV Export** | Export your paper library for reference managers |
 | 🌓 **Dark / Light Mode** | Theme toggle with persistent preference |
-| 🔐 **Join Code Security** | Colleagues need a passphrase to join your network |
+| 🔐 **Join Code Security** | Colleagues need a passphrase to join your network — works via invite link *or* direct email |
 | 📈 **Execution Controls** | Max runtime, max papers, min importance - all configurable |
 | 🩺 **Health Dashboard** | Real-time status of database, Pinecone, and email connections |
 
@@ -360,6 +362,29 @@ After each run, the agent analyzes high-scoring papers and generates advisory su
 
 ---
 
+## 👥 Colleague Collaboration & Autonomous Join
+
+ResearchPulse supports a full colleague collaboration workflow with **two ways to join**:
+
+### Manual Invite Flow
+1. You add a colleague in the **Colleagues** tab with their name and email
+2. They receive a personalized invite email with a secure link
+3. They click the link, enter the **Join Code** (set in My Settings), and submit their research interests
+4. The agent starts sharing matching papers with them automatically
+
+### Autonomous Email Join Flow
+1. You share your **Join Code** privately with a trusted colleague
+2. The colleague sends an email directly to the ResearchPulse inbox, mentioning they want to join and including the join code in the message body
+3. The **Inbox Monitor** (running on a configurable schedule) detects the join request, validates the code, and automatically adds the colleague
+4. A confirmation email is sent — **zero manual action required from the owner**
+
+### Colleague Self-Service
+Every colleague also gets **self-service links** in their emails:
+- **Update Interests** — update their own research interests and preferred arXiv categories via a personal web form
+- **Unsubscribe** — one-click removal from your network at any time
+
+---
+
 ## 🖥️ Dashboard Tabs
 
 | Tab | Icon | What you'll find |
@@ -369,7 +394,7 @@ After each run, the agent analyzes high-scoring papers and generates advisory su
 | **Emails** | 📧 | All sent email digests and colleague notifications |
 | **Alerts** | 📅 | Calendar events and reading reminders (.ics download) |
 | **Shares** | 📤 | Papers shared with colleagues and delivery status |
-| **Colleagues** | 👥 | Manage collaborators, their interests, and join codes |
+| **Colleagues** | 👥 | Manage collaborators, their interests, join codes, and self-service links |
 | **My Settings** | ⚙️ | Research profile, execution settings, inbox config, health checks |
 | **Q&A** | ❓ | FAQ and help for every feature |
 
