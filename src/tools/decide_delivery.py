@@ -2030,13 +2030,20 @@ def process_colleague_surplus(
             # Decide if we should share this paper with colleagues.
             # Strict rule: only share when there is genuine topic OR category
             # overlap between the paper and the colleague's declared interests.
+            # NOTE: This is evaluated against the COLLEAGUE's profile, not
+            # the user's relevance score.  A paper rated VERY LOW for the
+            # owner can still be shared if it matches the colleague.
             should_share = has_topic_match or has_category_match
 
+            user_importance = paper.importance  # user-relative score
             logger.info(
-                "[COLLEAGUE_FILTER] paper=%s colleague=%s topic_match=%s "
-                "category_match=%s matching_topics=%s share=%s",
-                paper.arxiv_id, colleague.name, has_topic_match,
-                has_category_match, matching_topics, should_share,
+                "[COLLEAGUE_ROUTING] paper=%s user_relevance=%s "
+                "colleague=%s topic_match=%s category_match=%s "
+                "matching_topics=%s -> route=%s",
+                paper.arxiv_id, user_importance,
+                colleague.name, has_topic_match,
+                has_category_match, matching_topics,
+                "DELIVER" if should_share else "SKIP",
             )
             
             if not should_share:

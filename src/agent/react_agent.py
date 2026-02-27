@@ -1171,13 +1171,11 @@ class ResearchReActAgent:
         if self._parsed_prompt:
             self._log("INFO", f"Enforcing output limit: {self._parsed_prompt.output_count} papers requested by user")
             
-            # Save ALL scored papers for colleague surplus processing BEFORE truncation
-            # This is critical: colleagues only get papers NOT selected for owner
-            # Exclude very_low papers — they aren't relevant to anyone's interests
-            self._all_scored_papers_for_surplus = [
-                p for p in self._scored_papers
-                if p.get("importance") != "very_low"
-            ]
+            # Save ALL scored papers for colleague surplus processing BEFORE truncation.
+            # Include every paper (even very_low for the *user*) because relevance
+            # is re-evaluated against each colleague's own interests/categories
+            # inside process_colleague_surplus.
+            self._all_scored_papers_for_surplus = list(self._scored_papers)
             
             # Apply output enforcement - truncate to exactly K papers
             enforced_result = self._prompt_controller.enforce_output(
@@ -1230,7 +1228,8 @@ class ResearchReActAgent:
         # ==================================================================
         if self._colleagues and hasattr(self, '_all_scored_papers_for_surplus'):
             owner_paper_ids = [p.get("arxiv_id") for p in self._scored_papers]
-            self._log("INFO", f"Processing colleague surplus: {len(self._all_scored_papers_for_surplus)} total papers, {len(owner_paper_ids)} for owner")
+            very_low_count = sum(1 for p in self._all_scored_papers_for_surplus if p.get("importance") == "very_low")
+            self._log("INFO", f"Processing colleague surplus: {len(self._all_scored_papers_for_surplus)} total papers ({very_low_count} very_low for user), {len(owner_paper_ids)} for owner")
             
             try:
                 surplus_result = process_colleague_surplus(

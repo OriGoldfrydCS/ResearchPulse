@@ -84,6 +84,7 @@ course_project_tests.ipynb
 VERIFICATION_CHECKLIST.md
 pytest.ini
 COURSE_COMPLIANCE.md
+api_inspector.ipynb
 
 # ── uv lock file (optional — remove this line if you want to pin deps) ──────
 # uv.lock

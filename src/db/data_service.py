@@ -1746,6 +1746,20 @@ def save_artifact_to_db(
                                 status="sent",
                             )
                             logger.info(f"[ARTIFACT] Share email sent successfully to {resolved_colleague_email}")
+                            # ── Record in ColleagueEmailLog so Email Activity updates ──
+                            try:
+                                store.log_colleague_email(
+                                    colleague_id=db_colleague_id,
+                                    user_id=uuid.UUID(user_id),
+                                    subject=share_subject,
+                                    email_type="paper_recommendation",
+                                    snippet=(content or "")[:200],
+                                    paper_id=db_paper_id,
+                                    paper_arxiv_id=paper_id,
+                                )
+                                logger.info(f"[ARTIFACT] Logged colleague email activity for {resolved_colleague_name}")
+                            except Exception as log_err:
+                                logger.warning(f"[ARTIFACT] Failed to log colleague email activity: {log_err}")
                         else:
                             store.update_share_status(
                                 share_id=uuid.UUID(str(share_id)),
