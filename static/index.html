@@ -9844,7 +9844,6 @@
                         <div style="margin-top:6px;font-size:0.9em;color:#6b7280;">
                             ${escapeHtml(s.reasoning || '')}
                         </div>
-                        ${s.confidence ? `<div style="margin-top:4px;font-size:0.8em;color:#9ca3af;">Confidence: ${Math.round(s.confidence * 100)}%</div>` : ''}
                         ${papersHtml}
                         ${s.status === 'pending' ? `
                             <div class="suggestion-actions">
