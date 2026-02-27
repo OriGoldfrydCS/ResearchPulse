@@ -62,11 +62,13 @@ class ScopeResult:
 # =============================================================================
 
 RESPONSE_OUT_OF_SCOPE_GENERAL = (
-    "ResearchPulse is focused on finding, filtering, and summarizing relevant "
-    "scientific papers from arXiv. It is an autonomous agent that perceives its "
-    "environment and reasons about paper relevance, novelty, and delivery actions — "
-    "including email summaries, calendar reminders, colleague sharing, and reading-list "
-    "management. I can't help with general requests in this version. "
+    "arXiv primarily provides papers in fields such as computer science, "
+    "mathematics, physics, statistics, quantitative biology, quantitative "
+    "finance, and related technical domains.\n\n"
+    "The requested topic does not appear to fall within arXiv's coverage, "
+    "and ResearchPulse cannot assist with this topic in its current version.\n\n"
+    "If you believe your topic is related to one of these fields, try rephrasing "
+    "your query with more specific scientific keywords."
 )
 
 RESPONSE_OUT_OF_SCOPE_ARXIV_ONLY = (
