@@ -276,6 +276,143 @@ _SCIENTIFIC_OVERRIDE_WORDS = {
     "transformer", "training", "unsupervised", "vae",
 }
 
+# ---- Weak vs strong arXiv pattern split (for step 6 topic validation) -------
+# "Weak" patterns are generic words like "paper", "research" that appear in
+# both scientific and non-scientific requests.  When ONLY weak patterns match,
+# step 6 requires the topic itself to contain arXiv-domain vocabulary.
+_WEAK_ARXIV_PATTERNS = {
+    r"paper[s]?",
+    r"find\s.*paper", r"search\s.*paper", r"recent\s.*paper",
+    r"latest\s.*paper", r"new\s.*paper", r"top\s.*paper",
+    r"show\s.*paper", r"get\s.*paper", r"fetch\s.*paper",
+    r"look\s.*paper", r"recommend\s.*paper", r"suggest\s.*paper",
+    r"summarize\s.*paper", r"summarise\s.*paper",
+    r"abstract", r"research\s.*interest", r"research\s.*topic",
+    r"what.s new",
+}
+_WEAK_ARXIV_RE = re.compile("|".join(_WEAK_ARXIV_PATTERNS), re.IGNORECASE)
+
+# Patterns from _ARXIV_PATTERNS that are NOT weak — if any of these match,
+# the query is definitively arXiv-related and needs no topic validation.
+_STRONG_TOPIC_PATTERNS = [p for p in _ARXIV_PATTERNS if p not in _WEAK_ARXIV_PATTERNS]
+_STRONG_TOPIC_RE = re.compile("|".join(_STRONG_TOPIC_PATTERNS), re.IGNORECASE)
+
+# ---- arXiv domain vocabulary ------------------------------------------------
+# Words/phrases that map to arXiv's actual coverage areas.  Built from arXiv
+# category names + common research terms.  Used in step 6 to validate that
+# "papers on X" has an X that arXiv actually covers.  This is an allowlist
+# approach — if none of these words appear in the topic, we reject.
+_ARXIV_DOMAIN_VOCAB = {
+    # --- Computer Science ---
+    "ai", "artificial intelligence", "machine learning", "deep learning",
+    "neural", "nlp", "natural language", "computer vision",
+    "reinforcement learning", "robotics", "automation", "autonomous",
+    "cryptography", "security", "databases", "distributed",
+    "parallel", "cluster", "computing", "computational",
+    "software", "programming", "compiler", "operating system",
+    "information retrieval", "data structures", "networking",
+    "internet", "multimedia", "graphics", "human-computer",
+    "multiagent", "game theory", "logic", "formal",
+    "complexity", "geometry", "numerical", "symbolic",
+    # --- Physics ---
+    "physics", "quantum", "relativity", "cosmology", "astrophysics",
+    "astronomy", "galaxy", "galaxies", "stellar", "solar",
+    "condensed matter", "superconductivity", "magnetism",
+    "particle", "hadron", "collider", "lattice", "phenomenology",
+    "nuclear", "plasma", "optics", "photonics", "laser",
+    "fluid dynamics", "thermodynamics", "entropy", "turbulence",
+    "semiconductor", "nanoscale", "mesoscale", "gravitation",
+    "gravitational", "dark matter", "dark energy", "neutrino",
+    "boson", "fermion", "quark", "lepton", "higgs",
+    "string theory", "field theory", "gauge", "hamiltonian",
+    "lagrangian", "perturbation", "scattering", "spectroscopy",
+    "wavelength", "electromagnetic", "radiation",
+    # --- Mathematics ---
+    "mathematics", "math", "algebra", "topology", "calculus",
+    "differential", "equations", "probability", "stochastic",
+    "combinatorics", "number theory", "group theory", "manifold",
+    "homology", "cohomology", "category theory", "operator",
+    "functional analysis", "harmonic", "fourier", "integral",
+    "theorem", "conjecture", "proof", "lemma",
+    "optimization", "convex", "linear", "nonlinear",
+    "dynamical systems", "chaos", "bifurcation", "ergodic",
+    # --- Statistics ---
+    "statistics", "statistical", "bayesian", "frequentist",
+    "hypothesis", "regression", "estimation", "variance",
+    "inference", "sampling", "monte carlo", "markov",
+    "time series", "causal", "econometrics",
+    # --- Quantitative Biology ---
+    "genomics", "proteomics", "bioinformatics", "molecular",
+    "biomolecular", "protein", "gene", "genome", "dna", "rna",
+    "cell", "cellular", "neuroscience", "cognition", "neuron",
+    "neurons", "brain", "evolution", "population genetics",
+    "epidemiology", "systems biology", "biochemistry",
+    # --- Quantitative Finance ---
+    "portfolio", "risk management", "derivatives", "pricing",
+    "financial", "econometric", "trading", "market microstructure",
+    # --- Electrical Engineering ---
+    "signal processing", "image processing", "video processing",
+    "speech", "audio", "control systems", "circuits",
+    "antenna", "wireless", "radar", "communications",
+    # --- Common research/ML terms ---
+    "transformer", "transformers", "attention", "bert", "gpt", "llm", "llms", "lora",
+    "cnn", "cnns", "rnn", "rnns", "lstm", "gan", "gans", "vae", "vaes", "autoencoder",
+    "diffusion", "generative", "adversarial", "contrastive",
+    "self-supervised", "semi-supervised", "unsupervised", "supervised",
+    "federated", "meta-learning", "few-shot", "zero-shot",
+    "transfer learning", "fine-tuning", "pretraining",
+    "embedding", "representation", "encoder", "decoder",
+    "segmentation", "detection", "classification", "recognition",
+    "tracking", "localization", "reconstruction", "synthesis",
+    "benchmark", "dataset", "evaluation", "metric",
+    "gradient", "backpropagation", "loss function",
+    "regularization", "dropout", "batch normalization",
+    "convolution", "pooling", "activation",
+    "hyperparameter", "architecture", "backbone",
+    "simulation", "modeling", "modelling", "model", "models",
+    "algorithm", "algorithms", "heuristic", "approximation",
+    "language", "graph", "network", "networks", "node", "edge",
+    "knowledge graph", "ontology", "semantic",
+    "sentiment", "translation", "summarization",
+    "question answering", "dialogue", "chatbot",
+    "recommendation", "collaborative filtering",
+    "anomaly detection", "outlier", "fraud",
+    "clustering", "dimensionality reduction", "pca",
+    "uncertainty", "calibration", "robustness",
+    "fairness", "bias", "interpretability", "explainability",
+    "privacy", "differential privacy", "encryption",
+    "blockchain", "consensus", "decentralized",
+    "energy", "renewable", "solar cell", "photovoltaic",
+    "battery", "catalyst", "materials science",
+    "drug discovery", "drug design", "clinical",
+    "medical imaging", "radiology", "pathology",
+    "climate", "atmospheric", "ocean", "geophysics",
+    "seismology", "remote sensing", "satellite",
+    # --- Catch-all research identifiers ---
+    "preprint", "preprints", "arxiv",
+}
+
+# Pre-split multi-word vocab entries for efficient substring matching.
+# Single words are checked via set intersection; multi-word phrases via 'in'.
+_DOMAIN_SINGLE_WORDS = {v for v in _ARXIV_DOMAIN_VOCAB if " " not in v}
+_DOMAIN_PHRASES = [v for v in _ARXIV_DOMAIN_VOCAB if " " in v]
+
+
+def _topic_matches_arxiv_domain(text_lower: str) -> bool:
+    """Return True if *text_lower* contains at least one arXiv-domain term.
+
+    Checks single-word entries via fast set intersection and multi-word
+    phrases via substring search.  This is intentionally generous — if
+    ANY domain word appears, the topic is accepted.
+    """
+    words = set(text_lower.split())
+    if words & _DOMAIN_SINGLE_WORDS:
+        return True
+    for phrase in _DOMAIN_PHRASES:
+        if phrase in text_lower:
+            return True
+    return False
+
 
 # =============================================================================
 # "Explain X" detector — research redirect
@@ -339,7 +476,7 @@ def classify_user_request(
         # Generic words like "paper" or "research" are NOT enough —
         # "find papers on cooking recipes" must still be rejected.
         words = set(text_lower.split())
-        if _STRONG_ARXIV_RE.search(text_lower) or (words & _SCIENTIFIC_OVERRIDE_WORDS):
+        if _STRONG_ARXIV_RE.search(text_lower) or (words & _DOMAIN_SINGLE_WORDS) or _topic_matches_arxiv_domain(text_lower):
             pass  # fall through to in-scope checks
         else:
             logger.info("[SCOPE_GATE] scope=OUT_OF_SCOPE_GENERAL, reason=general_off_topic")
@@ -432,13 +569,35 @@ def classify_user_request(
 
     # ------------------------------------------------------------------
     # 6. Positive match: arXiv / paper-related keywords
+    #    If a *strong* pattern matched (arXiv IDs, category codes, specific
+    #    technical terms), accept immediately.  If only a *weak* pattern
+    #    matched ("paper", "recent paper", etc.), verify the topic itself
+    #    maps to an arXiv domain — this prevents "papers on flowers" from
+    #    slipping through while keeping "papers on quantum computing" in.
     # ------------------------------------------------------------------
     if _ARXIV_RE.search(text_lower):
-        logger.info("[SCOPE_GATE] scope=IN_SCOPE, reason=arxiv_keyword_match")
-        return ScopeResult(
-            scope=ScopeClass.IN_SCOPE,
-            reason="arxiv_keyword_match",
-        )
+        if _STRONG_TOPIC_RE.search(text_lower) or _topic_matches_arxiv_domain(text_lower):
+            logger.info("[SCOPE_GATE] scope=IN_SCOPE, reason=arxiv_keyword_match")
+            return ScopeResult(
+                scope=ScopeClass.IN_SCOPE,
+                reason="arxiv_keyword_match",
+            )
+        # Before rejecting, check if this is an operational request that
+        # happens to mention "paper" (e.g. "share this paper with my
+        # colleague").  Let those fall through to step 7.
+        if any(kw in text_lower for kw in _OPERATIONAL_KEYWORDS):
+            pass  # fall through to step 7 (operational keywords)
+        else:
+            # Only weak patterns matched and topic has no arXiv domain words.
+            logger.info(
+                "[SCOPE_GATE] scope=OUT_OF_SCOPE_GENERAL, "
+                "reason=weak_arxiv_signal_no_domain_topic"
+            )
+            return ScopeResult(
+                scope=ScopeClass.OUT_OF_SCOPE_GENERAL,
+                reason="weak_arxiv_signal_no_domain_topic",
+                response=RESPONSE_OUT_OF_SCOPE_GENERAL,
+            )
 
     # ------------------------------------------------------------------
     # 7. Operational keywords (colleague, email, settings, etc.)
