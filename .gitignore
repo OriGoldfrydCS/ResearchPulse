@@ -85,7 +85,7 @@ course_project_tests.ipynb
 VERIFICATION_CHECKLIST.md
 pytest.ini
 COURSE_COMPLIANCE.md
-api_inspector.ipynb
+# api_inspector.ipynb
 _prompt_results
 _build_examples.py
 _run_prompts.py

@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .run_manager import RunManager, RunStatus, run_manager
 from .schema_guard import validate_team_info, validate_agent_info, validate_execute_response
@@ -165,6 +165,13 @@ class ExecuteRequest(BaseModel):
         None,
         description="Optional run ID for cancellation tracking. If provided, will be used instead of generating a new one."
     )
+
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def prompt_must_be_string(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            raise ValueError("prompt must be a string")
+        return v
 
 
 class ExecuteStepLog(BaseModel):

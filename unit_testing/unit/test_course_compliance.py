@@ -268,3 +268,64 @@ class TestSchemaGuard:
         }
         result = validate_execute_response(good)
         assert result == good
+
+
+# =========================================================================
+# POST /api/execute — missing / invalid prompt validation
+# =========================================================================
+
+def _assert_error_shape(data: dict) -> None:
+    """Assert the payload matches the Course Project error JSON schema."""
+    assert set(data.keys()) >= {"status", "error", "response", "steps"}
+    assert data["status"] == "error"
+    assert isinstance(data["error"], str) and len(data["error"]) > 0
+    assert data["response"] is None
+    assert isinstance(data["steps"], list)
+
+
+class TestExecuteMissingPrompt:
+    """POST /api/execute must return spec-compliant error when prompt is missing or invalid."""
+
+    def test_unknown_key_no_prompt(self):
+        """Case A: { 'not_prompt': 'x' } => error shape."""
+        resp = client.post("/api/execute", json={"not_prompt": "x"})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_empty_body(self):
+        """Case B: {} => error shape."""
+        resp = client.post("/api/execute", json={})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_empty_string_prompt(self):
+        """Case C: { 'prompt': '' } => error shape."""
+        resp = client.post("/api/execute", json={"prompt": ""})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_whitespace_only_prompt(self):
+        """Case C: { 'prompt': '   ' } => error shape."""
+        resp = client.post("/api/execute", json={"prompt": "   "})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_integer_prompt(self):
+        """Case D: { 'prompt': 123 } => error shape."""
+        resp = client.post("/api/execute", json={"prompt": 123})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_null_prompt(self):
+        """Case D: { 'prompt': null } => error shape."""
+        resp = client.post("/api/execute", json={"prompt": None})
+        assert resp.status_code == 200
+        _assert_error_shape(resp.json())
+
+    def test_valid_prompt_with_extra_keys(self):
+        """Case E: { 'prompt': 'valid', 'not_prompt': 'x' } => ok (extra key ignored)."""
+        resp = client.post("/api/execute", json={"prompt": "What is the weather today?", "not_prompt": "x"})
+        data = resp.json()
+        assert data["status"] in ("ok", "error")  # may be out-of-scope "ok" or in-scope
+        for key in ("status", "error", "response", "steps"):
+            assert key in data

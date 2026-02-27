@@ -15,8 +15,10 @@ from pathlib import Path
 from datetime import datetime
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # Add src to path for imports
@@ -89,6 +91,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Custom validation-error handler for /api/execute — returns the Course Project
+# spec-compliant error JSON instead of FastAPI's default 422 shape.
+# ---------------------------------------------------------------------------
+@app.exception_handler(RequestValidationError)
+async def _execute_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    if request.url.path.rstrip("/") == "/api/execute":
+        messages = []
+        for err in exc.errors():
+            loc = " -> ".join(str(l) for l in err.get("loc", []))
+            messages.append(f"{loc}: {err['msg']}")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "error": "Invalid request: " + "; ".join(messages),
+                "response": None,
+                "steps": [],
+            },
+        )
+    # For all other endpoints keep the default 422 behaviour
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": exc.errors()}))
+
 
 # Include API routes
 app.include_router(router, prefix="/api")
