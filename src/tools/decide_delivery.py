@@ -228,6 +228,41 @@ _ML_TERM_EXPANSIONS: Dict[str, List[str]] = {
 }
 
 
+# Common English suffixes, ordered longest-first so we strip the
+# most specific ending first (e.g. "isation" before "ion").
+_STEM_SUFFIXES = [
+    "isation", "ization", "ologies", "ology",
+    "ation", "ment", "ness", "ence", "ance",
+    "ious", "eous", "tics", "ting", "ible",
+    "able", "ment", "sion", "tion",
+    "ing", "ics", "ity", "ous", "ive",
+    "ful", "ism", "ist", "ial", "ial",
+    "ers", "ors", "ies", "tic", "ic",
+    "al", "ly", "ed", "er", "or",
+    "es", "en", "s",
+]
+
+
+def _stem_variants(topic: str) -> List[str]:
+    """Return stem-based variants of a topic for fuzzy word-boundary matching.
+
+    For a topic like "Robotics" this produces the stem "robot" so that
+    papers mentioning "robot", "robotic", "robots", etc. are matched.
+
+    The stem is only used when it is >= 4 characters to avoid spurious
+    very-short-stem matches (e.g. "AI" → "A" would be nonsensical).
+    """
+    lower = topic.lower().strip()
+    variants: List[str] = []
+    for suffix in _STEM_SUFFIXES:
+        if lower.endswith(suffix):
+            stem = lower[: -len(suffix)]
+            if len(stem) >= 4:
+                variants.append(stem)
+            break  # only strip the first (longest) matching suffix
+    return variants
+
+
 def _paper_matches_colleague_topics(
     paper_text: str,
     colleague_topics: List[str],
@@ -244,6 +279,8 @@ def _paper_matches_colleague_topics(
     - Multi-word phrases: "reinforcement learning", "graph neural networks"
     - Expanded forms via ``_ML_TERM_EXPANSIONS``: colleague says "rag",
       paper says "retrieval-augmented generation" → matched.
+    - Morphological stem variants: "Robotics" matches "robot",
+      "robotic", "robots", etc.
 
     Args:
         paper_text: The paper's title + abstract (original casing is fine;
@@ -283,6 +320,14 @@ def _paper_matches_colleague_topics(
                 break
         if found_expansion:
             continue
+
+        # 3. Stem-based matching: strip common suffixes and check if the
+        #    stem appears as a word-prefix in the paper text.  This lets
+        #    "Robotics" match "robot", "robotic", "robots", etc.
+        for stem in _stem_variants(topic_norm):
+            if re.search(r'\b' + re.escape(stem) + r'\w*\b', text_lower):
+                matched.append(topic)
+                break
 
     return len(matched) > 0, matched
 

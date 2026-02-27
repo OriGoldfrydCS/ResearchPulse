@@ -1298,7 +1298,7 @@ class ResearchReActAgent:
                 )
                 
                 if surplus_result.get("success"):
-                    surplus_count = surplus_result.get("surplus_count", 0)
+                    surplus_count = surplus_result.get("paper_count", 0)
                     total_shares = surplus_result.get("total_shares", 0)
                     self._log("INFO", f"Colleague surplus: {surplus_count} surplus papers, {total_shares} shares queued")
                     
