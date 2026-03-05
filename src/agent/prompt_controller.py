@@ -214,21 +214,96 @@ NUMBER_PATTERNS = [
     r'\b(\d+)\s+recent\b',                 # "5 recent papers"
 ]
 
+# =============================================================================
+# Word-Number Parser (for "last twenty two weeks" etc.)
+# =============================================================================
+
+_WORD_ONES = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
+    'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
+    'nineteen': 19,
+}
+
+_WORD_TENS = {
+    'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50,
+    'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90,
+}
+
+
+def _parse_word_number(text: str) -> Optional[int]:
+    """Parse a word-based number (up to 99) into an integer.
+
+    Supports:
+      - single words: "two" -> 2, "fifteen" -> 15
+      - compound words: "twenty two" -> 22, "forty five" -> 45
+      - plain digits pass through: "22" -> 22
+
+    Returns None if the text is not a recognised number.
+    """
+    text = text.strip().lower()
+    # Plain digit string
+    if text.isdigit():
+        return int(text)
+    parts = text.split()
+    if len(parts) == 1:
+        return _WORD_ONES.get(parts[0]) or _WORD_TENS.get(parts[0])
+    if len(parts) == 2:
+        tens = _WORD_TENS.get(parts[0])
+        ones = _WORD_ONES.get(parts[1])
+        if tens is not None and ones is not None:
+            return tens + ones
+    return None
+
+
+# Regex fragment that matches a numeric value expressed as digits OR
+# up to two English number words (e.g. "22", "two", "twenty two").
+_NUM_WORD = r'(?:\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)'
+
+
+def _time_converter_days(x):
+    """Convert a matched number string to days."""
+    v = _parse_word_number(x)
+    return v if v is not None else int(x)
+
+
+def _time_converter_weeks(x):
+    """Convert a matched number string to days (weeks * 7)."""
+    v = _parse_word_number(x)
+    return (v if v is not None else int(x)) * 7
+
+
+def _time_converter_months(x):
+    """Convert a matched number string to days (months * 30)."""
+    v = _parse_word_number(x)
+    return (v if v is not None else int(x)) * 30
+
+
 # Pattern to extract time periods
+# NOTE: Specific patterns ("within the last N weeks") MUST come BEFORE the
+# generic "recent" fallback so they are evaluated first.
 TIME_PATTERNS = [
-    (r'\b(?:last|past)\s+(\d+)\s+days?\b', lambda x: int(x)),
-    (r'\b(?:last|past)\s+(\d+)\s+weeks?\b', lambda x: int(x) * 7),
-    (r'\b(?:last|past)\s+(\d+)\s+months?\b', lambda x: int(x) * 30),
+    # --- Specific patterns first ---
+    (r'\bwithin\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+days?\b', _time_converter_days),
+    (r'\bwithin\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+weeks?\b', _time_converter_weeks),
+    (r'\bwithin\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+months?\b', _time_converter_months),
+    (r'\bwithin\s+(' + _NUM_WORD + r')\s+days?\b', _time_converter_days),
+    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+days?\b', _time_converter_days),
+    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+weeks?\b', _time_converter_weeks),
+    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+(' + _NUM_WORD + r')\s+months?\b', _time_converter_months),
+    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+week\b', lambda _: 7),
+    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+month\b', lambda _: 30),
+    (r'\b(?:last|past)\s+(' + _NUM_WORD + r')\s+days?\b', _time_converter_days),
+    (r'\b(?:last|past)\s+(' + _NUM_WORD + r')\s+weeks?\b', _time_converter_weeks),
+    (r'\b(?:last|past)\s+(' + _NUM_WORD + r')\s+months?\b', _time_converter_months),
     (r'\b(?:last|past)\s+year\b', lambda _: 365),
-    (r'\b(?:last|past)\s+week\b', lambda _: 7),      # singular week without number
-    (r'\b(?:last|past)\s+month\b', lambda _: 30),    # singular month without number
+    (r'\b(?:last|past)\s+week\b', lambda _: 7),
+    (r'\b(?:last|past)\s+month\b', lambda _: 30),
     (r'\bthis\s+week\b', lambda _: 7),
     (r'\bthis\s+month\b', lambda _: 30),
-    (r'\brecent(?:ly)?\b', lambda _: 7),  # Default "recent" to 7 days
-    (r'\bwithin\s+(\d+)\s+days?\b', lambda x: int(x)),
-    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+(\d+)\s+days?\b', lambda x: int(x)),
-    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+week\b', lambda _: 7),   # "from the last week"
-    (r'\bfrom\s+(?:the\s+)?(?:last|past)\s+month\b', lambda _: 30), # "from the past month"
+    # --- Generic fallback last ---
+    (r'\brecent(?:ly)?\b', lambda _: 7),
 ]
 
 # Keywords for template detection
@@ -400,6 +475,33 @@ class PromptParser:
                 return topics
         return []
 
+    @staticmethod
+    def _strip_temporal_context(text: str) -> str:
+        """Remove temporal clauses that leak into extracted topics.
+
+        Only removes phrases that contain BOTH:
+          - a bridge word (published / from / within / during)
+          - a time construction (last/past + number/word-number + time unit)
+
+        Safe examples that are NOT removed:
+          - "Recent Advances in Graph Neural Networks"
+          - "Recent Trends in Drug Discovery"
+        """
+        # Patterns require bridge + last/past + number + unit
+        # Allow optional chained prepositions: "published within the last …"
+        _BRIDGE = r'(?:published|from|within|during)'
+        _OPTIONAL_PREP = r'(?:\s+(?:within|from|during|in))?' 
+        _THE = r'(?:\s+the)?'
+        _NUM_WORD_RE = r'(?:\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)'
+        _TEMPORAL_CLEANUP = [
+            r'\b' + _BRIDGE + _OPTIONAL_PREP + _THE + r'\s+(?:last|past)\s+' + _NUM_WORD_RE + r'\s+(?:days?|weeks?|months?|years?)\b',
+            r'\b' + _BRIDGE + _OPTIONAL_PREP + _THE + r'\s+(?:last|past)\s+(?:week|month|year)\b',
+        ]
+        result = text
+        for pattern in _TEMPORAL_CLEANUP:
+            result = re.sub(pattern, '', result, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', result).strip()
+
     def _extract_interests_only(self, prompt: str, parsed: ParsedPrompt) -> str:
         """
         Extract ONLY the research interest keywords from the prompt.
@@ -426,7 +528,7 @@ class PromptParser:
                 # Remove any remaining meta text
                 raw = re.sub(r'\s*[Ee]xclude\s+.*$', '', raw, flags=re.DOTALL).strip()
                 if raw:
-                    return raw
+                    return self._strip_temporal_context(raw)
         
         # Strategy 2: If topic is available, strip the exclude portion from it
         # This is a fallback for prompts that don't match explicit patterns
@@ -435,7 +537,7 @@ class PromptParser:
         topic = re.sub(r'\s*[Ee]xclude\s+.*$', '', topic, flags=re.DOTALL).strip()
         # Remove common instruction words
         topic = re.sub(r'\s*(?:Focus on|Published|Find|Search).*$', '', topic, flags=re.IGNORECASE | re.DOTALL).strip()
-        return topic.rstrip('.')
+        return self._strip_temporal_context(topic.rstrip('.'))
 
     def _extract_topic(self, prompt: str, parsed: ParsedPrompt) -> str:
         """
@@ -637,6 +739,15 @@ class OutputEnforcer:
             result.message = (
                 f"You requested {k} papers, but only {len(sorted_papers)} "
                 f"high-quality papers were found matching your criteria."
+            )
+
+        # Guardrail: warn when all returned papers have very low relevance
+        if result.papers and all(
+            float(p.get(sort_key, 0) or 0) <= 0.10 for p in result.papers
+        ):
+            low_rel_msg = "Found results but none were strongly relevant to your query."
+            result.message = (
+                f"{result.message} {low_rel_msg}" if result.message else low_rel_msg
             )
         
         return result

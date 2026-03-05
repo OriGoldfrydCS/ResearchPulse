@@ -360,6 +360,23 @@ def _fetch_mock_papers(
     )
 
 
+def _build_topic_clause(topic: str) -> str:
+    """Build an arXiv query clause for a single topic.
+
+    Single-word topics produce a simple (ti:WORD OR abs:WORD) clause.
+    Multi-word topics produce a hybrid clause combining:
+      - phrase match (precision): ti:"phrase" OR abs:"phrase"
+      - token AND match in title (recall): ti:word1 AND ti:word2 AND ...
+    """
+    words = topic.split()
+    if len(words) == 1:
+        return f"(ti:{topic} OR abs:{topic})"
+    # Multi-word: phrase match + token AND match
+    phrase_clause = f'(ti:"{topic}" OR abs:"{topic}")'
+    token_and = " AND ".join(f"ti:{w}" for w in words)
+    return f"({phrase_clause} OR ({token_and}))"
+
+
 def _fetch_real_papers(
     categories_include: List[str],
     categories_exclude: List[str],
@@ -397,7 +414,7 @@ def _fetch_real_papers(
             abs_parts = " OR ".join(f'abs:"{t}"' for t in topics)
             query_parts.append(f"({ti_parts} OR {abs_parts})")
         else:
-            query_parts.append(f"(ti:{query} OR abs:{query})")
+            query_parts.append(_build_topic_clause(topics[0]))
     
     search_query = " AND ".join(query_parts) if query_parts else "cat:cs.CL"
     
