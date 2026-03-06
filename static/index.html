@@ -5322,11 +5322,12 @@
                         stepsData.deliveredPapers.forEach(p => { html += renderPaperCard(p); });
                         html += '</div>';
                     }
-                    // New candidates (unseen but not delivered)
-                    if (stepsData.unseenPapers.length > 0) {
-                        html += `<div class="paper-group-label new">🆕 New Candidates (${stepsData.unseenPapers.length})</div>`;
+                    // New candidates (unseen but not delivered) – only show papers that were actually scored
+                    const scoredUnseen = stepsData.unseenPapers.filter(p => typeof p.relevance === 'number');
+                    if (scoredUnseen.length > 0) {
+                        html += `<div class="paper-group-label new">🆕 New Candidates (${scoredUnseen.length})</div>`;
                         html += '<div class="chat-summary-papers">';
-                        stepsData.unseenPapers.forEach(p => { html += renderPaperCard(p); });
+                        scoredUnseen.forEach(p => { html += renderPaperCard(p); });
                         html += '</div>';
                     }
                     // Already seen
