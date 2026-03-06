@@ -160,6 +160,11 @@ MEDIUM_NOVELTY_THRESHOLD = 0.6
 NOVELTY_BASE = 1.0
 NOVELTY_DECAY_FACTOR = 0.85  # How much high similarity reduces novelty
 
+# Semantic similarity threshold: if cosine similarity between the query
+# and the paper text is at or above this value, the zero-overlap hard cap
+# is skipped (the paper is likely relevant despite keyword mismatch).
+SEMANTIC_MATCH_THRESHOLD = 0.35
+
 # Feedback-based scoring adjustments
 FEEDBACK_AUTHOR_PENALTY_WEIGHT = 0.15  # Penalty per not_relevant author match
 FEEDBACK_TOPIC_PENALTY_WEIGHT = 0.10   # Penalty per not_relevant topic match  
@@ -171,6 +176,33 @@ MAX_FEEDBACK_BONUS = 0.3               # Maximum feedback bonus
 
 # Importance level order for threshold comparison
 IMPORTANCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def _compute_semantic_similarity(text_a: str, text_b: str) -> Optional[float]:
+    """Return cosine similarity between two texts using the project's embeddings.
+
+    Returns None if the embedding service is unavailable so the caller can
+    fall back to the existing keyword-only behaviour.
+    """
+    try:
+        from rag.embeddings import EmbeddingConfig, embed_texts
+
+        if not EmbeddingConfig.is_configured():
+            return None
+
+        vectors = embed_texts([text_a, text_b])
+        if len(vectors) != 2:
+            return None
+
+        # Cosine similarity
+        dot = sum(a * b for a, b in zip(vectors[0], vectors[1]))
+        norm_a = sum(a * a for a in vectors[0]) ** 0.5
+        norm_b = sum(b * b for b in vectors[1]) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return None
+        return dot / (norm_a * norm_b)
+    except Exception:
+        return None
 
 
 # =============================================================================
@@ -584,6 +616,7 @@ def score_relevance_and_importance(
     rag_results: Optional[Dict[str, Any]] = None,
     min_importance_to_act: Optional[str] = None,
     user_feedback: Optional[Dict[str, Any]] = None,
+    query_text: Optional[str] = None,
 ) -> ScoringResult:
     """
     Score a paper's relevance, novelty, and determine importance.
@@ -722,9 +755,17 @@ def score_relevance_and_importance(
     # This is the FUNDAMENTAL gate: positive evidence of topic relevance is
     # REQUIRED. Without it, category-only match produces at most 0.10.
     if topic_overlap == 0 and title_topic_match == 0:
-        # No topic keywords matched at all — this paper doesn't mention
-        # anything the researcher cares about. Cap to near-zero.
-        relevance_score = min(relevance_score, 0.10)
+        # No topic keywords matched at all — check semantic similarity
+        # before capping.  If the query is semantically close to the
+        # paper (e.g. "continual learning" vs "lifelong learning"),
+        # skip the hard cap so the paper keeps its category-based score.
+        apply_cap = True
+        if query_text:
+            sem_sim = _compute_semantic_similarity(query_text, paper_text)
+            if sem_sim is not None and sem_sim >= SEMANTIC_MATCH_THRESHOLD:
+                apply_cap = False
+        if apply_cap:
+            relevance_score = min(relevance_score, 0.10)
     
     # Apply avoid penalty — hard-exclude if an avoid topic phrase appears in the title
     if avoid_penalty > 0:
@@ -812,6 +853,7 @@ def score_relevance_and_importance_json(
     rag_results: Optional[Dict[str, Any]] = None,
     min_importance_to_act: Optional[str] = None,
     user_feedback: Optional[Dict[str, Any]] = None,
+    query_text: Optional[str] = None,
 ) -> dict:
     """
     JSON-serializable version of score_relevance_and_importance.
@@ -832,6 +874,7 @@ def score_relevance_and_importance_json(
         rag_results=rag_results,
         min_importance_to_act=min_importance_to_act,
         user_feedback=user_feedback,
+        query_text=query_text,
     )
     return result.model_dump()
 

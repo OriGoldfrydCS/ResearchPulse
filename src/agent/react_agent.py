@@ -1010,6 +1010,13 @@ class ResearchReActAgent:
                     self.stop_controller.increment_rag_queries(1)
             
             # 3b: Score relevance and importance
+            # Merge query-derived topics with stored profile topics so the
+            # scorer always considers the user's current query intent.
+            profile_topics = self._research_profile.get("research_topics", [])
+            query_interests = getattr(self._parsed_prompt, 'interests_only', '') if self._parsed_prompt else ''
+            query_topics = [t.strip() for t in query_interests.split(',') if t.strip()] if query_interests else []
+            topics_for_scoring = list(set(profile_topics + query_topics))
+
             score_result, success, error = self._invoke_tool(
                 "score_relevance_and_importance",
                 paper={
@@ -1022,7 +1029,7 @@ class ResearchReActAgent:
                     "link": paper.get("link"),
                 },
                 research_profile={
-                    "research_topics": self._research_profile.get("research_topics", []),
+                    "research_topics": topics_for_scoring,
                     "avoid_topics": avoid_topics,
                     "arxiv_categories_include": self._research_profile.get("arxiv_categories_include", []),
                     "arxiv_categories_exclude": self._research_profile.get("arxiv_categories_exclude", []),
@@ -1030,6 +1037,7 @@ class ResearchReActAgent:
                 },
                 rag_results=rag_results if rag_results and rag_results.get("success") else None,
                 min_importance_to_act=self.config.stop_policy.min_importance_to_act,
+                query_text=query_interests or None,
             )
             
             if not success:
