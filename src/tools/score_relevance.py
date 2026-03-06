@@ -754,6 +754,7 @@ def score_relevance_and_importance(
     #
     # This is the FUNDAMENTAL gate: positive evidence of topic relevance is
     # REQUIRED. Without it, category-only match produces at most 0.10.
+    semantic_match = False
     if topic_overlap == 0 and title_topic_match == 0:
         # No topic keywords matched at all — check semantic similarity
         # before capping.  If the query is semantically close to the
@@ -764,6 +765,7 @@ def score_relevance_and_importance(
             sem_sim = _compute_semantic_similarity(query_text, paper_text)
             if sem_sim is not None and sem_sim >= SEMANTIC_MATCH_THRESHOLD:
                 apply_cap = False
+                semantic_match = True
         if apply_cap:
             relevance_score = min(relevance_score, 0.10)
     
@@ -813,6 +815,7 @@ def score_relevance_and_importance(
         "avoid_penalty": avoid_penalty,
         "venue_bonus": venue_bonus,
         "title_topic_match": title_topic_match,
+        "semantic_match": semantic_match,
         "novelty_explanation": novelty_explanation,
         "rag_matches_count": len(rag_obj.matches) if rag_obj else 0,
         "rag_max_similarity": max((m.score for m in rag_obj.matches), default=0.0) if rag_obj and rag_obj.matches else None,

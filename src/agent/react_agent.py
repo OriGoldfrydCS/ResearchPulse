@@ -1108,7 +1108,8 @@ class ResearchReActAgent:
             # ==================================================================
             VERY_LOW_RELEVANCE_THRESHOLD = 0.20
             final_relevance = score_result.get("relevance_score", 0)
-            if final_relevance < VERY_LOW_RELEVANCE_THRESHOLD or paper.get("_llm_irrelevant"):
+            semantic_match = score_result.get("scoring_factors", {}).get("semantic_match", False)
+            if (final_relevance < VERY_LOW_RELEVANCE_THRESHOLD and not semantic_match) or paper.get("_llm_irrelevant"):
                 score_result["importance"] = "very_low"
                 if paper.get("_llm_irrelevant"):
                     score_result["explanation"] = paper.get("_llm_irrelevant_reason", "Not related to your research interests")
