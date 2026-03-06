@@ -4500,7 +4500,7 @@
     ]
   },
   {
-    "prompt": "Provide recent research papers published within the last 6 months.",
+    "prompt": "Provide recent research papers published within the last -1 months.",
     "full_response": "ResearchPulse Agent Run Complete\n========================================\nRun ID: 2f0c7532-eb31-498e-a90a-e02546ef3529\nStop Reason: topic_outside_arxiv_scope\nPapers Processed: 0\nDecisions Made: 0\nArtifacts Generated: 0\n\n\nYou asked to search for research papers about 'Provide recent re'.\n\narXiv primarily provides papers in fields such as computer science, mathematics, physics, statistics, quantitative biology, quantitative finance, and related technical domains.\n\nThere are currently no relevant arXiv papers for the requested topic, and RESEARCHPULSE cannot assist with this topic in its current version.\n\nThis may be supported in the future — stay tuned 🙂\n\nSummary:\n{'summary': \"You asked to search for research papers about 'Provide recent re'.\\n\\narXiv primarily provides papers in fields such as computer science, mathematics, physics, statistics, quantitative biology, quantitative finance, and related technical domains.\\n\\nThere are currently no relevant arXiv papers for the requested topic, and RESEARCHPULSE cannot assist with this topic in its current version.\\n\\nThis may be supported in the future — stay tuned 🙂\", 'stats': {'total_fetched_count': 0, 'unseen_papers_count': 0, 'seen_papers_count': 0, 'papers_filtered_count': 0, 'total_papers_retrieved': 0, 'papers_delivered': 0, 'rag_query_count': 0, 'papers_scored': 0, 'decisions_made': 0, 'actions_taken': 0, 'artifacts_generated': 0, 'highest_importance_found': None}}",
     "steps": [
       {

@@ -618,6 +618,21 @@ def classify_user_request(
         )
 
     # ------------------------------------------------------------------
+    # 5.5 Template 3 (time-only): strict pattern is always in-scope
+    # ------------------------------------------------------------------
+    _t3_pat = re.search(
+        r"^provide\s+recent\s+(?:research\s+)?papers?\s+published\s+"
+        r"within\s+the\s+last\s+[1-9][0-9]*\s+(?:days?|months?)\s*\.?\s*$",
+        text_lower,
+    )
+    if _t3_pat:
+        logger.info("[SCOPE_GATE] scope=IN_SCOPE, reason=template3_time_only")
+        return ScopeResult(
+            scope=ScopeClass.IN_SCOPE,
+            reason="template3_time_only",
+        )
+
+    # ------------------------------------------------------------------
     # 6. Positive match: arXiv / paper-related keywords
     #    If a *strong* pattern matched (arXiv IDs, category codes, specific
     #    technical terms), accept immediately.  If only a *weak* pattern

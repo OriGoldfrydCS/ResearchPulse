@@ -827,6 +827,11 @@ class ResearchReActAgent:
         if not topic_query and research_topics:
             topic_query = " OR ".join(research_topics)
             self._log("INFO", f"Using profile topics for arXiv query: {topic_query}")
+
+        # Template 3 (TIME_ONLY): no keyword query — rely on categories + time filter only
+        if self._parsed_prompt and self._parsed_prompt.template == PromptTemplate.TIME_ONLY:
+            topic_query = None
+            self._log("INFO", "TIME_ONLY template: skipping keyword query, using categories + time filter")
         
         # Determine how many papers to request from the arXiv API.
         # Use the dashboard "Papers per Run" setting as the baseline.

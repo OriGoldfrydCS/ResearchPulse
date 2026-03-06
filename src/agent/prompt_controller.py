@@ -339,6 +339,42 @@ class PromptParser:
         self._number_patterns = [re.compile(p, re.IGNORECASE) for p in NUMBER_PATTERNS]
         self._time_patterns = [(re.compile(p, re.IGNORECASE), fn) for p, fn in TIME_PATTERNS]
     
+    # Template 3 strict pattern: "Provide recent research papers published
+    # within the last <N> <days|months>" where <N> is a positive integer.
+    _TEMPLATE3_RE = re.compile(
+        r'^Provide\s+recent\s+(?:research\s+)?papers?\s+published\s+'
+        r'within\s+the\s+last\s+([1-9][0-9]*)\s+(days?|months?)\s*\.?\s*$',
+        re.IGNORECASE,
+    )
+
+    def _try_parse_template3(self, prompt: str) -> Optional[ParsedPrompt]:
+        """Attempt to parse as Template 3 (TIME_ONLY).
+
+        Matches ONLY the strict format:
+            "Provide recent research papers published within the last <N> <days|months>"
+        where <N> is a strictly positive integer ([1-9][0-9]*).
+
+        Returns a fully populated ParsedPrompt if matched, None otherwise.
+        """
+        m = self._TEMPLATE3_RE.match(prompt)
+        if not m:
+            return None
+
+        number = int(m.group(1))
+        unit_raw = m.group(2).lower()
+        unit = unit_raw.rstrip('s')  # normalise to "day" or "month"
+
+        time_days = number if unit == "day" else number * 30
+
+        return ParsedPrompt(
+            raw_prompt=prompt,
+            template=PromptTemplate.TIME_ONLY,
+            topic="",
+            interests_only="",
+            time_period=f"last {number} {unit_raw}",
+            time_days=time_days,
+        )
+
     def parse(self, prompt: str) -> ParsedPrompt:
         """
         Parse a user prompt and extract all relevant parameters.
@@ -349,6 +385,11 @@ class PromptParser:
         Returns:
             ParsedPrompt with all extracted parameters
         """
+        # Template 3 early detection: strict "within the last <N> <days|months>"
+        t3 = self._try_parse_template3(prompt)
+        if t3 is not None:
+            return t3
+
         result = ParsedPrompt(raw_prompt=prompt)
         
         # Extract exclude topics from prompt text
