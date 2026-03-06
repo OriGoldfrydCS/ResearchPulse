@@ -514,6 +514,13 @@ class PromptParser:
         This is the AUTHORITATIVE source for category mapping and
         arXiv query construction.
         """
+        # Template 5 (Emerging Trends) – dedicated extraction rule.
+        # Captures everything after "papers on" until end-of-sentence.
+        if parsed.is_trends_request:
+            m = re.search(r'papers?\s+on\s+(.+?)\.?\s*$', prompt, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+
         # Strategy 1: Look for explicit "research interests:" pattern
         interest_patterns = [
             r'(?:research\s+)?interests?\s*:\s*(.+?)(?:\.\s*[Ee]xclude|\.\s*[Ff]ocus|\.\s*[Ff]ind|\.\s*[Pp]ublished|\.\s*$|$)',
