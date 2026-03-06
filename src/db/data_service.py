@@ -2262,6 +2262,9 @@ def seed_builtin_prompt_templates() -> int:
                     db.add(template)
                     seeded += 1
                     logger.debug(f"Seeded builtin template: {template_data['name']}")
+                elif existing.is_builtin and existing.text != template_data["text"]:
+                    existing.text = template_data["text"]
+                    logger.info(f"Updated builtin template text: {template_data['name']}")
             db.commit()
         
         if seeded > 0:
